@@ -1,0 +1,89 @@
+# CamillaDSP config — Libratone Beat (#1 and #2 until #2 gets measured).
+# REW-tuned on Beat #1, 2025-04 with UMIK-1 at 50 cm, 0° calibration.
+#
+# Pipeline: 2-ch loopback capture → EQ/loudness filter chain → 2-ch playback
+# to hw:LouderRaspberry,0. The sub channel on Plus 2X is handled entirely by
+# the TAS5825M's internal DSP crossover (150 Hz, set by louder-hat-init).
+#
+# Living values are mirrored in the loudness section so the bridge can patch
+# the filter gains at runtime via CamillaDSP's PatchConfig websocket API.
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  # ─── Tonality / loudness filters (bridge patches these at runtime) ─────────
+  bass_shelf:
+    type: Biquad
+    parameters:
+      type: Lowshelf
+      freq: 120
+      gain: 10
+      q: 0.6
+  sub_punch:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 45
+      gain: 5
+      q: 0.7
+  timpani_body:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 70
+      gain: 3
+      q: 1.0
+  fullness:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 200
+      gain: 3
+      q: 1.0
+
+  # ─── REW-derived room/driver correction ────────────────────────────────────
+  rew_600:
+    type: Biquad
+    parameters: {type: Peaking, freq: 600,   gain: -5.7, q: 2.431}
+  rew_2269:
+    type: Biquad
+    parameters: {type: Peaking, freq: 2269,  gain: -4.0, q: 5.0}
+  rew_9886:
+    type: Biquad
+    parameters: {type: Peaking, freq: 9886,  gain: -4.9, q: 4.093}
+  rew_14025:
+    type: Biquad
+    parameters: {type: Peaking, freq: 14025, gain: -10.6, q: 4.125}
+
+  # ─── Subsonic protection ───────────────────────────────────────────────────
+  sub_protect:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      freq: 35
+      order: 6
+
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [bass_shelf, sub_punch, timpani_body, fullness,
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+  - type: Filter
+    channels: [1]
+    names: [bass_shelf, sub_punch, timpani_body, fullness,
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]

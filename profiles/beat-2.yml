@@ -1,0 +1,61 @@
+# Libratone Beat #2
+# Pi Zero 2W · Louder Hat Plus 1X (single TAS5825M, stereo) · Waveshare AMOLED 1.43
+# 2.0-way (no sub on the Plus 1X variant)
+
+identity:
+  hostname: beat2
+  friendly_name: "Beat #2"
+  speaker_id: beat2
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: louder-hat-plus-1x
+  primary_i2c: 0x4c
+  sub_enabled: false
+  analog_gain_db: -3
+
+audio:
+  camilladsp_config: beat          # same REW-tuned config as Beat #1 until re-measured
+  sample_rate: 48000
+  format: S32LE
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  type: amoled
+  variant: waveshare-1.43
+  serial_device: auto
+  spectrum_bands: 16
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: true
+  disable_onboard_radio: true
+  disable_bluetooth: true
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/beat2
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "Beat #2"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: false, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080

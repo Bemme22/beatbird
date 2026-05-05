@@ -1,0 +1,80 @@
+# Libratone Lounge — TV soundbar, true stereo
+# Pi 4 (4 GB) · 2× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus = 5 amp channels
+# · existing LED + button interface
+#
+# Drivers per side: 1× 8" woofer (3.2Ω), 2× 4" mids (2.7Ω), 2× ribbon tweeters
+# (4.1Ω). No passive crossover — sealed enclosure, full active DSP.
+#
+# IMPORTANT: Sonocotta's current stock driver only supports 2 DACs at once.
+# Running 3 DACs requires a custom device-tree overlay. The soundcard installer
+# for this profile is marked as TODO (see install/10-soundcard/louder-hat-triple.sh)
+
+identity:
+  hostname: lounge
+  friendly_name: "Lounge"
+  speaker_id: lounge
+
+platform: pi-4                     # requires Pi 4 for I²S bandwidth + 24 V/5 A PSU
+
+soundcard:
+  driver: louder-hat-triple
+  # Three TAS5825M chips. Plus boards have fixed addresses and cannot stack
+  # with each other; non-Plus has separate address range.
+  primary_i2c:   0x4c              # left channel  (Plus 2X → 2-ch)
+  secondary_i2c: 0x4d              # right channel (Plus 2X → 2-ch)  → TBD
+  tertiary_i2c:  0x4e              # center/sub    (non-Plus 1X)     → TBD
+  # These addresses are placeholders — confirm with Sonocotta (Andrey) when
+  # hardware arrives and the custom DT overlay is finalised.
+  sub_enabled: true
+  sub_crossover_hz: 120
+  sub_digital_volume: 110
+  analog_gain_db: -3
+
+audio:
+  camilladsp_config: _stub         # to be built from driver T/S + in-situ measurements
+  sample_rate: 48000
+  format: S32LE
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: sub_punch,    max_boost_db: 2.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  type: led-button
+  variant: libratone-lounge
+  led_pin: 18
+  led_count: 24                    # verify on teardown
+  button_pin: 17
+  led_brightness: 128
+  spectrum_bands: 24
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: false            # Pi 4 radio is not Faraday-caged like Zero 2W
+  disable_onboard_radio: false
+  disable_bluetooth: false         # Pi 4 has headroom; BT can coexist with WiFi
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/lounge
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "Lounge"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: true, a2dp: true}
+  toslink:   {enabled: true, device: "hw:1,0"}  # TV audio via USB SPDIF
+  snapcast:  {enabled: true, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080

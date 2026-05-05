@@ -1,0 +1,76 @@
+# Libratone Beat #1 — "BeatsPi"
+# Pi Zero 2W · Sonocotta Louder Hat Plus 2X (dual TAS5825M) · Waveshare AMOLED 1.43
+# 2.1-way: 2× mid-woofer (stereo) + 5" SB Acoustics SB13PFC25-04-LBR in 4.5L BR
+
+identity:
+  hostname: beatpi
+  friendly_name: "Beat #1"
+  speaker_id: beatpi_speaker
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: louder-hat-plus-2x
+  primary_i2c: 0x4c                # stereo amp
+  secondary_i2c: 0x4d              # sub amp (PBTL)
+  sub_enabled: true
+  sub_crossover_hz: 150            # TAS5825M internal DSP (sub amp)
+  sub_digital_volume: 110          # never exceed ~110 @ 24V PVDD
+  analog_gain_db: -3               # safety margin at boot
+  # Stereo digital vol / analog gain live in 10-soundcard/louder-hat-plus-2x.sh
+  # defaults (stereo_digital_vol: 103, analog_gain: 25/31).
+
+audio:
+  camilladsp_config: beat          # config/camilladsp/beat.yml
+  sample_rate: 48000
+  format: S32LE
+  volume:
+    min_db: -60
+    max_db: -10
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: sub_punch,    max_boost_db: 2.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  type: amoled
+  variant: waveshare-1.43
+  serial_device: auto              # VID 303A vendor match
+  spectrum_bands: 16
+
+wifi:
+  ssid: "your-ssid"                # override before install
+  country: DE
+  use_usb_dongle: true             # onboard = Faraday-caged by aluminium body
+  disable_onboard_radio: true
+  disable_bluetooth: true
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10             # adjust
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatpi               # keeps existing HA entity names
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "BeatPi"
+    bitrate: 320
+    normalisation: true
+  bluetooth:
+    enabled: false                 # dtoverlay=disable-bt in use
+    a2dp: true
+  toslink:
+    enabled: false
+  snapcast:
+    enabled: false                 # enable later once multi-room is set up
+    server: 192.168.1.10
+    latency_ms: 30
+
+web:
+  enabled: true
+  port: 8080

@@ -1,0 +1,66 @@
+# Zipp (LT300) — first-generation
+# Pi Zero 2W · Louder Hat Plus 1X · existing Libratone LED ring + single button
+# 2.0-way: 4" LBR-D002-04 mid (3Ω DCR) + 2× OEM ribbon tweeters (with built-in trafos)
+# Note: original mid has a dented dust cap (acoustically irrelevant).
+
+identity:
+  hostname: zipp
+  friendly_name: "Zipp"
+  speaker_id: zipp
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: louder-hat-plus-1x
+  primary_i2c: 0x4c
+  sub_enabled: false
+  analog_gain_db: -3
+
+audio:
+  camilladsp_config: _stub         # placeholder — measure & create zipp.yml later
+  sample_rate: 48000
+  format: S32LE
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+# LED ring + single action button (the original Libratone interface)
+display:
+  type: led-button
+  variant: libratone-lt300
+  led_pin: 18                      # GPIO18 PWM (BCM)
+  led_count: 12                    # original ring count — verify on teardown
+  button_pin: 17
+  led_brightness: 128
+  spectrum_bands: 12               # use 12 bands to map onto the LED ring
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: true
+  disable_onboard_radio: true
+  disable_bluetooth: true
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/zipp
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "Zipp"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: false, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080

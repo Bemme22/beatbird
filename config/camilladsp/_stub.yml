@@ -1,0 +1,39 @@
+# CamillaDSP config — _stub.yml
+# Minimal pass-through used when a speaker profile does not yet have a
+# dedicated config. Replace once the speaker is measured in its enclosure.
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 0, q: 0.7}
+  sub_punch:
+    type: Biquad
+    parameters: {type: Peaking,  freq: 45,  gain: 0, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking,  freq: 70,  gain: 0, q: 1.0}
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 40, order: 4}
+
+pipeline:
+  - type: Filter
+    channels: [0, 1]
+    names: [bass_shelf, sub_punch, timpani_body, sub_protect]

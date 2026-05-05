@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beatbird"
+version = "2.1.0"
+description = "BeatBird — active DSP speaker bridge (Pi ↔ display ↔ Home Assistant)"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "pyserial>=3.5",
+    "paho-mqtt>=2.0",
+    "websocket-client>=1.6",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+fft = ["numpy>=1.26", "sounddevice>=0.4"]
+led = ["rpi_ws281x>=5.0"]
+dev = ["ruff", "pytest"]
+
+[project.scripts]
+beatbird-bridge = "beatbird.bridge:main"
+beatbird-web = "beatbird.webserver:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

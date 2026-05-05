@@ -1,0 +1,64 @@
+# Zipp Mini 2 (LTH200)
+# Pi Zero 2W · Innomaker AMP Pro Mini Hat (MA12070P) · Waveshare AMOLED 1.43
+# 2.0-way: 3" Orchid broadband + 1" Daisy tweeter, 3.5 kHz L-R crossover in DSP
+
+identity:
+  hostname: zippmini2
+  friendly_name: "Zipp Mini 2"
+  speaker_id: zipp_mini_2
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: innomaker-amp-pro
+  # MA12070P specifics (fill in after first measurement):
+  # i2c_address: 0x20
+  # analog_gain: auto
+
+audio:
+  camilladsp_config: zipp-mini-2   # config/camilladsp/zipp-mini-2.yml
+  sample_rate: 48000
+  format: S32LE
+  volume:
+    min_db: -60
+    max_db: -10
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  type: amoled
+  variant: waveshare-1.43
+  serial_device: auto
+  spectrum_bands: 16
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: true
+  disable_onboard_radio: true
+  disable_bluetooth: true
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/zipp-mini-2
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "Zipp Mini 2"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: false, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080

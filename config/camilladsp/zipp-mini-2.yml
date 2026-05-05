@@ -1,0 +1,113 @@
+# CamillaDSP config — Zipp Mini 2 (LTH200)
+# 2-way active: 3" Orchid broadband (L) + 1" Daisy tweeter (R)
+# Crossover at 3.5 kHz, Linkwitz-Riley 4th order (24 dB/oct).
+#
+# Channel assignment:
+#   L (playback ch 0) → Orchid 3" broadband (4Ω, 20W)
+#   R (playback ch 1) → Daisy 1" tweeter (4Ω, 12W)
+#
+# The Innomaker AMP Pro Mini is a single-stereo board — each channel
+# drives one driver independently. CamillaDSP splits the mono input
+# into LP (broadband) and HP (tweeter) paths.
+#
+# Not yet REW-measured in enclosure — these are starting-point values.
+# After measurement, add notch filters and adjust tweeter trim.
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "plughw:sndrpihifiberry,0"
+    format: S16_LE
+
+# Mix stereo input down to mono (sum L+R), then split into 2-way
+mixers:
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - channel: 0
+            gain: -6
+          - channel: 1
+            gain: -6
+      - dest: 1
+        sources:
+          - channel: 0
+            gain: -6
+          - channel: 1
+            gain: -6
+
+filters:
+  # ─── Crossover (Linkwitz-Riley 4th order @ 3.5 kHz) ────────────────────
+  xover_lp:
+    type: BiquadCombo
+    parameters:
+      type: LinkwitzRileyLowpass
+      freq: 3500
+      order: 4
+
+  xover_hp:
+    type: BiquadCombo
+    parameters:
+      type: LinkwitzRileyHighpass
+      freq: 3500
+      order: 4
+
+  # ─── Tweeter trim (start at -4 dB, adjust after measurement) ───────────
+  tweeter_trim:
+    type: Gain
+    parameters:
+      gain: -4.0
+
+  # ─── Loudness / tonality filters (bridge patches these at runtime) ─────
+  bass_shelf:
+    type: Biquad
+    parameters:
+      type: Lowshelf
+      freq: 120
+      gain: 4
+      q: 0.7
+
+  timpani_body:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 80
+      gain: 2
+      q: 1.0
+
+  # ─── Subsonic protection (3" driver can't do sub-bass) ─────────────────
+  sub_protect:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      freq: 70
+      order: 4
+
+pipeline:
+  # Step 1: Sum stereo to mono (both channels get identical signal)
+  - type: Mixer
+    name: mono_sum
+
+  # Step 2: Broadband path (channel 0 = Orchid 3")
+  - type: Filter
+    channels: [0]
+    names: [bass_shelf, timpani_body, sub_protect, xover_lp]
+
+  # Step 3: Tweeter path (channel 1 = Daisy 1")
+  - type: Filter
+    channels: [1]
+    names: [xover_hp, tweeter_trim]
