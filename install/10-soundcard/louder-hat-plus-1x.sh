@@ -12,7 +12,7 @@ log_step "config.txt overlay"
 ensure_line_in_config_txt "dtparam=i2c_arm=on"
 ensure_line_in_config_txt "dtparam=i2s=on"
 ensure_line_in_config_txt "dtoverlay=tas58xx,i2creg=$PRIMARY"
-ensure_line_in_config_txt "dtoverlay=snd-aloop"
+ensure_module_loaded snd-aloop
 
 if ! modinfo snd-soc-tas5825m >/dev/null 2>&1; then
   log_warn "snd-soc-tas5825m kernel module not found — install per Sonocotta docs."

@@ -25,7 +25,9 @@ ensure_line_in_config_txt "dtoverlay=tas58xx-dual,i2creg_primary=$PRIMARY,i2creg
 
 # ALSA Loopback — used as the single virtual capture device that CamillaDSP
 # and go-librespot/BlueALSA/etc all share.
-ensure_line_in_config_txt "dtoverlay=snd-aloop"
+# Uses ensure_module_loaded for Trixie compatibility (dtoverlay alone
+# doesn't reliably load snd-aloop on Debian 13+).
+ensure_module_loaded snd-aloop
 
 # ─── Driver package ──────────────────────────────────────────────────────────
 # The upstream Sonocotta driver ships as an apt package on their repo; if

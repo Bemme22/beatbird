@@ -20,8 +20,10 @@ ensure_line_in_config_txt "dtparam=i2s=on"
 # switch to it here.
 ensure_line_in_config_txt "dtoverlay=hifiberry-dac"
 
-# ALSA Loopback for source multiplexing (same as all other profiles)
-ensure_line_in_config_txt "dtoverlay=snd-aloop"
+# ALSA Loopback for source multiplexing (same as all other profiles).
+# Uses ensure_module_loaded for Trixie compatibility (dtoverlay alone
+# doesn't reliably load snd-aloop on Debian 13+).
+ensure_module_loaded snd-aloop
 
 # USB autosuspend disabled — critical on Pi Zero 2W with USB WiFi dongle.
 # Without this, the WiFi adapter drops off after ~2s idle.

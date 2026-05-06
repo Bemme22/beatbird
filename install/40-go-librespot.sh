@@ -29,7 +29,8 @@ fi
 ensure_pkg libogg-dev libvorbis-dev libasound2-dev avahi-daemon
 
 # ─── Binary ──────────────────────────────────────────────────────────────────
-if [[ ! -x "$GLSP_BIN" ]] || ! "$GLSP_BIN" --version 2>/dev/null | grep -q "$GLSP_VERSION"; then
+# go-librespot does not support --version — just check if the binary exists.
+if [[ ! -x "$GLSP_BIN" ]]; then
   log_step "Installing go-librespot $GLSP_VERSION"
   ARCH=$(dpkg --print-architecture)
   case "$ARCH" in
@@ -44,6 +45,7 @@ if [[ ! -x "$GLSP_BIN" ]] || ! "$GLSP_BIN" --version 2>/dev/null | grep -q "$GLS
   tar xzf "$TMPDIR/glsp.tar.gz" -C "$TMPDIR"
   install -m 755 "$TMPDIR/go-librespot" "$GLSP_BIN"
   rm -rf "$TMPDIR"
+  log_ok "go-librespot installed"
 fi
 
 # ─── Config ──────────────────────────────────────────────────────────────────

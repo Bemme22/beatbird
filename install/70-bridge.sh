@@ -32,6 +32,11 @@ ensure_pkg python3-numpy python3-sounddevice || true
 log_step "Installing BeatBird package (editable)"
 "$VENV/bin/pip" install --quiet -e "$REPO_DIR"
 
+# ─── Runtime state directory ─────────────────────────────────────────────────
+# The bridge service has ReadWritePaths=/var/lib/beatbird — must exist.
+log_step "Creating /var/lib/beatbird"
+install -d -m 755 -o "$BEATBIRD_USER" -g "$BEATBIRD_GROUP" /var/lib/beatbird
+
 # ─── Bridge service ──────────────────────────────────────────────────────────
 render_template \
   "$REPO_DIR/config/systemd/beatbird-bridge.service.tpl" \

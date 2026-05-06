@@ -8,7 +8,7 @@
 
 source "$(dirname "$0")/_lib.sh"
 
-CDSP_VERSION="${CAMILLADSP_VERSION:-4.0.0}"
+CDSP_VERSION="${CAMILLADSP_VERSION:-4.1.2}"
 CDSP_BIN=/usr/local/bin/camilladsp
 CDSP_CONF_NAME="$(pq audio.camilladsp_config)"
 CDSP_CONF_SRC="$REPO_DIR/config/camilladsp/${CDSP_CONF_NAME}.yml"
@@ -19,7 +19,7 @@ if [[ ! -x "$CDSP_BIN" ]] || ! "$CDSP_BIN" --version 2>/dev/null | grep -q "$CDS
   log_step "Installing CamillaDSP $CDSP_VERSION"
   ARCH=$(dpkg --print-architecture)
   case "$ARCH" in
-    arm64) CDSP_ARCH=aarch64-linux-gnu ;;
+    arm64) CDSP_ARCH=aarch64 ;;
     armhf) CDSP_ARCH=armv7-unknown-linux-gnueabihf ;;
     amd64) CDSP_ARCH=x86_64-unknown-linux-gnu ;;
     *)     log_err "Unsupported architecture: $ARCH"; exit 1 ;;

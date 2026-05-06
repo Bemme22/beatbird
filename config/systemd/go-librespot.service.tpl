@@ -6,7 +6,9 @@ Wants=network-online.target avahi-daemon.service
 [Service]
 Type=simple
 User={{ BEATBIRD_USER }}
-ExecStart={{ GLSP_BIN }} --config_path {{ GLSP_CONF }}
+# go-librespot reads config from ~/.config/go-librespot/config.yml automatically.
+# No CLI flags needed — the config path is resolved from the service user's $HOME.
+ExecStart={{ GLSP_BIN }}
 Restart=always
 RestartSec=5
 

@@ -12,6 +12,7 @@
 #   render_template SRC DST [KEY=VAL ...]
 #   ensure_pkg PKG...  → apt-install only if missing
 #   ensure_line FILE LINE
+#   ensure_module_loaded MODULE  → load via /etc/modules (Trixie compat)
 #   enable_service NAME
 #   log_step "what we're doing"
 
@@ -118,6 +119,20 @@ ensure_line_in_config_txt() {
   local target=/boot/firmware/config.txt
   [[ -f "$target" ]] || target=/boot/config.txt
   ensure_line "$target" "$line"
+}
+
+# ─── Module loading (Trixie compatibility) ───────────────────────────────────
+# On Trixie (Debian 13), dtoverlay=snd-aloop doesn't reliably load the module.
+# Ensure the module is listed in /etc/modules as a robust fallback that works
+# on both Bookworm and Trixie.
+
+ensure_module_loaded() {
+  local module="$1"
+  # Belt: dtoverlay in config.txt (works on Bookworm)
+  ensure_line_in_config_txt "dtoverlay=${module}"
+  # Suspenders: /etc/modules (works on Trixie where dtoverlay doesn't)
+  ensure_line /etc/modules "$module"
+  log_ok "module $module: dtoverlay + /etc/modules"
 }
 
 # ─── systemd helpers ─────────────────────────────────────────────────────────

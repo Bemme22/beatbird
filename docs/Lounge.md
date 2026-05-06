@@ -1,15 +1,35 @@
-# Lounge.md — Update: Hardware-Stack & UI-Anbindung
+# Libratone Lounge — DIY Active DSP Soundbar
 
-> Neue/geänderte Sektionen zum Einpflegen in `Lounge.md`.
-> Markiert mit `[NEU]` oder `[GEÄNDERT]`.
+## Projektübersicht
 
----
+Umbau eines gebrauchten Libratone Lounge zu einer aktiven 5-Kanal DSP-Soundbar für TV-Betrieb. Sealed Enclosure, kein passives Crossover — alle 5 Kanäle unabhängig über CamillaDSP gesteuert. True Stereo über gegenüberliegende Treiberpaare.
 
-## [NEU] Hardware-Stack — Aufbaureihenfolge
+## Treiber
 
-Einfügen unter **Hardware-Plattform → Verstärker**, nach dem Abschnitt über die Stacking-Regel.
+| Weg | Treiber | Größe | Anzahl | DCR | Nennimpedanz (geschätzt) | Position |
+|-----|---------|-------|--------|-----|--------------------------|----------|
+| Bass | OEM Woofer | 8" | 1× | 3,2Ω | ~4Ω | Mitte |
+| Mittelton | OEM Mid | 4" | 2× | 2,7Ω | ~4Ω | L/R symmetrisch |
+| Hochton | OEM Ribbon-Tweeter | — | 2× | 4,1Ω | ~6Ω | L/R symmetrisch |
 
-```markdown
+- Sealed Enclosure — kein Bassreflex, kein passives Crossover
+- True Stereo: jeweils 1× Mid + 1× Ribbon pro Seite
+- 5 unabhängige Amp-Kanäle für volle DSP-Kontrolle
+
+## Hardware-Plattform
+
+### Computer
+- **Raspberry Pi 4 (4 GB)** — bereits vorhanden
+- OS: Raspberry Pi OS Lite (64-bit), SD mit Overlay Filesystem
+
+### Verstärker (Sonocotta, Tindie)
+
+- **1× Louder Hat Plus 2X** (2× TAS5825M, 4 Kanäle)
+- **1× Louder Hat 1X non-Plus** (1× TAS5825M, 2 Kanäle → 1 Kanal genutzt)
+- Gesamt: 5 unabhängige Amp-Kanäle
+
+**Stacking-Regel:** Zwei Plus-Boards lassen sich **nicht** stacken — identische I²C-Adressen (0x4C/0x4D). Plus + non-Plus funktioniert, weil der non-Plus im Adressbereich 0x2D/0x2E liegt (Andriy/Discord bestätigt).
+
 ### Hardware-Stack — Aufbaureihenfolge (von unten nach oben)
 
 | Ebene | Board | Begründung |
@@ -19,16 +39,6 @@ Einfügen unter **Hardware-Plattform → Verstärker**, nach dem Abschnitt über
 | 3 | Louder Hat 1X (non-Plus) | Zieht 5 V + 24 V über durchgeschleiften Header vom Plus-Board darunter. |
 | 4 (oben) | Lochrasterplatine | Verdrahtung UI-Board (Taste + LEDs) auf GPIO-Header-Pins. Keine aktiven Bauteile nötig — reine Kabelbrücke. |
 
-**Wichtig:** Zwei Plus-Boards lassen sich **nicht** stacken — identische I²C-Adressen (0x4C/0x4D). Plus + non-Plus funktioniert, weil der non-Plus im Adressbereich 0x2D/0x2E liegt (Andriy/Discord bestätigt).
-```
-
----
-
-## [NEU] UI — Taste + LED-Ring
-
-Einfügen **anstelle** des Display-Abschnitts (Waveshare ESP32) oder als eigener Abschnitt darunter. Das ESP32-Display kommt beim Lounge nicht zum Einsatz.
-
-```markdown
 ### UI — Taste + LED-Ring (Original Libratone)
 
 Originalbestückung des Libratone Lounge: eine Taste und ein LED-Ring mit drei Farben (je 3× SMD-LEDs). Transistoren (Q101–Q103) und Vorwiderstände sitzen bereits auf dem Original-UI-Board — keine zusätzlichen Bauteile auf der Lochrasterplatine nötig.
@@ -62,15 +72,7 @@ Die physischen Header-Pins 4, 11, 14–18 liegen nah beieinander → kurze Lötb
 #### PWM-Dimming
 
 Hardware-PWM (GPIO 12/13) kollidiert auf dem Pi 4 mit dem I²S-Clock-Generator — **nicht verwenden**. Stattdessen Software-PWM über `pigpio` (DMA-basiert, CPU-schonend). Für LED-Dimming reichen 200–500 Hz — `pigpio` liefert das problemlos auf jedem GPIO.
-```
 
----
-
-## [NEU] GPIO-Gesamtbelegung
-
-Einfügen als neue Sektion unter **Hardware-Plattform**, z. B. nach dem Stack-Abschnitt.
-
-```markdown
 ### GPIO-Gesamtbelegung — Raspberry Pi 4
 
 | GPIO | Phys. Pin | Funktion | Belegt durch |
@@ -90,15 +92,53 @@ Einfügen als neue Sektion unter **Hardware-Plattform**, z. B. nach dem Stack-Ab
 | 24 | 18 | LED Weiß (Output, PWM) | UI-Board Pin 4 |
 
 **Frei verfügbar:** GPIO 7–13, 14–16, 25–27 — Reserve für spätere Erweiterungen (z. B. IR-Empfänger auf GPIO 17 wäre Andreys Default, hier aber für Taster belegt → ggf. GPIO 25 für IR).
+
+### Netzteil
+- **24 V / 5 A (~120 W)** — MeanWell oder vergleichbar
+- Barrel Jack 5,5 × 2,1mm
+- Soft-Start (MOSFET IRLZ44N + RC ~100 ms) geplant wegen Einschaltstrom großer Kapazitäten
+
+### Kanalzuordnung (vorläufig)
+
+| Amp-Board | TAS Adresse | Kanal | Treiber |
+|-----------|-------------|-------|---------|
+| Plus 2X Primary | 0x4C | L | Mid L (4") |
+| Plus 2X Primary | 0x4C | R | Mid R (4") |
+| Plus 2X Secondary | 0x4D | L | Ribbon L |
+| Plus 2X Secondary | 0x4D | R | Ribbon R |
+| 1X non-Plus | 0x2D | L (PBTL) | Woofer 8" |
+
+**Hinweis:** Kanalzuordnung TBD — hängt vom Custom Device Tree Overlay ab.
+
+## Software-Stack
+
+| Komponente | Software |
+|------------|----------|
+| Audio DSP | CamillaDSP 4.x (5-Wege aktiv Crossover, PatchConfig) |
+| Spotify Connect | go-librespot (HTTP API, localhost:3678) |
+| TV Audio | TOSLINK via USB S/PDIF Adapter |
+| Smart Home | MQTT → Home Assistant (Auto-Discovery) |
+| Multi-Room | Snapcast |
+| UI-Steuerung | Python GPIO (`pigpio` für PWM + Taster) |
+
+## Signalkette
+
+```
+Quellen (Spotify / TOSLINK / Snapcast / BT)
+    → ALSA Loopback hw:Loopback,0
+    → CamillaDSP (5-Wege Crossover + EQ + Volume)
+        → hw:LouderRaspberry,0 (6-ch, S32_LE/48kHz)
+        → Kanal 0 → Mid L
+        → Kanal 1 → Mid R
+        → Kanal 2 → Ribbon L
+        → Kanal 3 → Ribbon R
+        → Kanal 4 → Woofer (PBTL)
 ```
 
----
+**Hinweis:** ALSA-Device und Kanalzahl hängen vom Custom DT Overlay ab. Das aktuelle Sonocotta-Treiberpaket unterstützt nur 2 DACs. 3 DACs erfordern ein Custom Overlay.
 
-## [GEÄNDERT] Offene Punkte — Hardware
+## Offene Punkte
 
-Aktualisierte Einträge für die Hardware-Checkliste:
-
-```markdown
 ### Hardware
 - [x] Bestellung bei Tindie zusammenstellen (1× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus)
 - [x] 24 V / 5 A Netzteil + DC-Buchse
@@ -108,16 +148,21 @@ Aktualisierte Einträge für die Hardware-Checkliste:
 - [x] Original-UI reverse-engineered: 7-Pin-Stecker, Transistoren Q101–Q103 on-board, Pinbelegung dokumentiert
 - [x] Lochrasterplatine bestücken: 7 Lötbrücken UI-Board → Pi-Header (keine aktiven Bauteile)
 - [ ] UI-Board Funktion testen (LEDs + Taster) vor Einbau ins Gehäuse
-```
 
----
-
-## [GEÄNDERT] Offene Punkte — Software / Konfiguration
-
-Neue Einträge am Ende der Software-Checkliste ergänzen:
-
-```markdown
+### Software / Konfiguration
+- [ ] Custom DT Overlay für 3-DAC-Stack (Sonocotta/Andrey)
+- [ ] CamillaDSP 5-Wege-Konfiguration erstellen
+- [ ] REW-Messung pro Treiber (Nahfeld + Fernfeld)
+- [ ] Crossover-Frequenzen bestimmen (Mid→Ribbon, Woofer→Mid)
+- [ ] TOSLINK-Quelle über USB S/PDIF integrieren
 - [ ] `pigpio`-Service für LED-Steuerung + Taster-Handler einrichten
 - [ ] PWM-Dimming für Gelb + Weiß (z. B. Standby = Gelb gedimmt, Active = Weiß voll)
 - [ ] Taster-Logik definieren (Kurzdrück = Play/Pause, Langdrück = Standby/Wakeup o. ä.)
-```
+- [ ] Snapcast aktivieren + testen
+
+## Anmerkungen
+
+- Custom DT Overlay ist der kritische Blocker — ohne das geht die 5-Kanal-Konfiguration nicht
+- Das Original-UI-Board ist elegant: Transistoren + Vorwiderstände on-board, Pi muss nur GPIOs schalten
+- Hardware-PWM (GPIO 12/13) ist auf dem Pi 4 nicht nutzbar (I²S-Konflikt) → `pigpio` Software-PWM
+- Einschaltstrom der MeanWell + HAT-Kapazitäten erfordert MOSFET Soft-Start (Lesson learned von Beat #1)
