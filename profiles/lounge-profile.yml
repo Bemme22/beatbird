@@ -1,0 +1,81 @@
+# Libratone Lounge — TV soundbar, true stereo
+# Pi 4 (4 GB) · 1× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus = 5 amp channels
+# · existing LED + button interface
+#
+# Kanal-Mapping (verifiziert 09.05.2026):
+#   0x4C (TAS5825M, Stereo)  → Mid L / Mid R
+#   0x4D (TAS5825M, PBTL)    → Woofer 8"
+#   0x2E (TAS5805M, Stereo)  → Ribbon L / Ribbon R
+#
+# Crossover läuft intern auf den TAS-Chips (15-Band-EQ + interner LP).
+# CamillaDSP = Volume + globale EQ-Korrekturen (Passthrough für Crossover).
+# Pi 4 BCM2835 I2S = 2 Kanäle Hardware-Limit (kein TDM möglich).
+
+identity:
+  hostname: lounge
+  friendly_name: "Lounge"
+  speaker_id: lounge
+
+platform: pi-4
+
+soundcard:
+  driver: louder-hat-triple
+  primary_i2c:   0x4c              # Mid L/R (TAS5825M, Stereo)
+  secondary_i2c: 0x4d              # Woofer (TAS5825M, PBTL)
+  tertiary_i2c:  0x2e              # Ribbon L/R (TAS5805M, Stereo)
+  sub_enabled: true
+  sub_crossover_hz: 150            # interner TAS-LP (Maximum)
+  sub_digital_volume: 70
+  analog_gain_db: -3
+
+audio:
+  camilladsp_config: lounge        # config/camilladsp/lounge.yml
+  sample_rate: 48000
+  format: S32LE
+  volume:
+    min_db: -60
+    max_db: -10
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: sub_punch,    max_boost_db: 2.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  type: led-button
+  variant: libratone-lounge
+  led_pin: 22                      # GPIO 22 = Rot, 23 = Gelb, 24 = Weiß
+  led_count: 3                     # 3 Farben, je 3 SMD-LEDs
+  button_pin: 17
+  led_brightness: 128
+  spectrum_bands: 0                # kein Spectrum auf LED-Ring
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: false
+  disable_onboard_radio: false
+  disable_bluetooth: false
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/lounge
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "Lounge"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: true, a2dp: true}
+  toslink:   {enabled: true, device: "hw:1,0"}
+  snapcast:  {enabled: true, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080

@@ -1,0 +1,78 @@
+# CamillaDSP config — Libratone Lounge (TV Soundbar)
+#
+# 3-Wege aktiv: Crossover läuft intern auf den TAS-Chips (15-Band-EQ).
+# CamillaDSP übernimmt: Volume, Source-Switching, globale EQ-Korrekturen.
+#
+# Crossover-Setup (via amixer, nicht hier):
+#   Woofer (0x4D): interner TAS-LP @ 150 Hz
+#   Mid    (0x4C): 15-Band-EQ Bandpass ~200 Hz – 3150 Hz
+#   Ribbon (0x2E): 15-Band-EQ Highpass ~3150 Hz
+#
+# Alle drei DACs empfangen dasselbe 2-Kanal-Stereo-Signal von CamillaDSP.
+# Pi 4 BCM2835 I2S = hardwareseitig 2 Kanäle (kein TDM möglich).
+#
+# Nach REW-Messung: Korrekturen als Peaking-Filter unten eintragen.
+# Korrekturen im Passband eines Wegs wirken nur auf diesen Weg,
+# weil die internen Crossover der anderen Wege das Signal dort filtern.
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  # ─── Loudness / Tonalität (Bridge patcht diese zur Laufzeit) ───────────
+  bass_shelf:
+    type: Biquad
+    parameters:
+      type: Lowshelf
+      freq: 120
+      gain: 0
+      q: 0.7
+
+  sub_punch:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 50
+      gain: 0
+      q: 0.7
+
+  timpani_body:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 80
+      gain: 0
+      q: 1.0
+
+  # ─── Subsonic-Schutz (8" Woofer in Sealed Box) ─────────────────────────
+  sub_protect:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      freq: 30
+      order: 6
+
+  # ─── REW-Korrekturen (nach Messung eintragen) ──────────────────────────
+  # Beispiel:
+  # rew_correction_1:
+  #   type: Biquad
+  #   parameters: {type: Peaking, freq: 800, gain: -3.0, q: 2.5}
+
+pipeline:
+  - type: Filter
+    channels: [0, 1]
+    names: [bass_shelf, sub_punch, timpani_body, sub_protect]
