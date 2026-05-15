@@ -43,6 +43,21 @@ SYS:cp=47.3|hstereo=ok|hsub=ok|ds=1|sv=1|wi=-58
 | sv   | go-librespot active (`0`/`1`)                |
 | wi   | WiFi RSSI (dBm, negative)                    |
 
+### `PAL` — accent colour (once per connect)
+
+```
+PAL:F0CB7B
+```
+
+Pushed by the bridge immediately after the serial connection is established,
+and re-sent on every reconnect (the ESP32 may have rebooted). The colour is
+defined in the speaker profile under `display.accent_color` and represents
+the per-speaker visual identity. The ESP32 stores it as its primary tint —
+volume ring, progress arc, energy dots, text, and play/pause icon all
+inherit from it. Source markers remain coloured per source.
+
+Format: 6-char hexadecimal RGB, with or without leading `#`. Case-insensitive.
+
 ### Single-shot messages
 
 These are legacy from v1 and may still be emitted occasionally for UX
@@ -54,6 +69,7 @@ STATE:PLAY|PAUSE|STOP|STANDBY
 SOURCE:spotify|bluetooth|toslink|snapcast|none
 BOOT:stage|progress
 ERROR:service|message
+TIME:HH:MM          clock-only update
 ```
 
 ## ESP32 → Pi
@@ -66,8 +82,9 @@ CMD:PAUSE
 CMD:NEXT
 CMD:PREV
 CMD:STOP
+CMD:SOURCE:bluetooth    source picker selected (Phase 2)
 CMD:BT_PAIR         long press on single-button builds
-TEMP:22.5           QMI8658 head temperature (currently logged, unused)
+TEMP:22.5           QMI8658 head temperature (logged, unused)
 [hb] t=12345 ...    heartbeat line, ignored by bridge
 ```
 

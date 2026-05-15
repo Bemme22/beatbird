@@ -70,6 +70,7 @@ def _build_display(profile: Profile) -> DisplayInterface | None:
         return AmoledDisplay(
             serial_device=d.serial_device,
             spectrum_bands=d.spectrum_bands,
+            accent_color=d.accent_color,
         )
     if d.type == "led-button":
         from beatbird.display.led_button import LedButtonDisplay
