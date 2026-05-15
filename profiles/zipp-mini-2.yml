@@ -16,7 +16,7 @@ soundcard:
 audio:
   camilladsp_config: zipp-mini-2   # config/camilladsp/zipp-mini-2.yml
   sample_rate: 48000
-  format: S32LE
+  format: S32_LE
   volume:
     min_db: -60
     max_db: -10

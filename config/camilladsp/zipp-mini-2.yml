@@ -28,7 +28,7 @@ devices:
     type: Alsa
     channels: 2
     device: "hw:LouderRaspberry,0" # war: plughw:sndrpihifiberry,0
-    format: S32LE # war: S16_LE
+    format: S32_LE # war: S16_LE
 
 # Mix stereo input down to mono (sum L+R), then split into 2-way
 mixers:
