@@ -10,10 +10,8 @@ identity:
 platform: pi-zero-2w
 
 soundcard:
-  driver: innomaker-amp-pro
-  # MA12070P specifics (fill in after first measurement):
-  # i2c_address: 0x20
-  # analog_gain: auto
+  driver: louder-hat-plus-1x
+
 
 audio:
   camilladsp_config: zipp-mini-2   # config/camilladsp/zipp-mini-2.yml
