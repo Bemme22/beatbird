@@ -1,5 +1,8 @@
 ---
-# EXPERIMENTAL: bass push to find PR limits — Zipp Mini 2
+# PRODUCTION CONFIG — Zipp Mini 2 (LTH200)
+# Drivers: Orchid 3" broadband (Ch0) + Daisy 1" tweeter (Ch1)
+# Crossover: LR4 @ 4 kHz, tweeter_trim -5 dB INVERTED, +bass push for PRs
+# REW-tuned 2026-05-16
 devices:
   samplerate: 48000
   chunksize: 1024
