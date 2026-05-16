@@ -23,6 +23,9 @@
 #include <Wire.h>
 #include "pins.h"
 #include "esp_log.h"
+#include "state.h"
+#include "theme.h"
+#include "screens/screen_boot.h"
 
 struct _lv_hit_test_info_t {
     const lv_point_t * point;
@@ -52,11 +55,11 @@ static bool                      touch_dev        = false;
 // =============================================================================
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 80},
+    {0x36, (uint8_t[]){0xA0}, 1,  0},   // ← NEU: MADCTL = MV+MX = +90° CW
     {0xC4, (uint8_t[]){0x80}, 1,  0},
     {0x53, (uint8_t[]){0x20}, 1,  1},
     {0x63, (uint8_t[]){0xFF}, 1,  1},
     {0x51, (uint8_t[]){0xFF}, 1,  1},
-    // 0x29 (Display On) sent after first LVGL frame to avoid green flash on boot
 };
 
 // =============================================================================
@@ -206,8 +209,10 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
         if (abs((int)tx - (int)lx) > 1 || abs((int)ty - (int)ly) > 1) {
             lx = tx; ly = ty;
         }
-        data->point.x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
-        data->point.y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
+        uint16_t raw_x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
+        uint16_t raw_y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
+        data->point.x = raw_y;
+        data->point.y = (LCD_WIDTH - 1) - raw_x;
         data->state   = LV_INDEV_STATE_PRESSED;
         app.lastTouch = millis();
     } else {
@@ -866,11 +871,29 @@ static void handle_serial(const String &line)
 {
     if (line.length() == 0) return;
 
+    // ── PAL: accent colour from Pi (Phase 1 wiring) ──────────────────────────
+    // Applies the per-speaker accent and flags the Pi as connected. Triggers
+    // boot screen → player screen transition via ScreenBoot::update().
+    if (line.startsWith("PAL:")) {
+        String hex = line.substring(4);
+        hex.trim();
+        if (hex.startsWith("#")) hex = hex.substring(1);
+        if (Theme::set_accent_hex(hex.c_str())) {
+            State::app.connected_to_pi = true;
+        }
+        return;
+    }
+
     // Whitelist — ignore everything else (I2C errors, boot messages, etc.)
     if (!line.startsWith("ST:") &&
         !line.startsWith("SYS:") &&
         !line.startsWith("TIME:") &&
         !line.startsWith("[")) return;
+
+    // Any recognised non-heartbeat line means the Pi is alive.
+    if (!line.startsWith("[")) {
+        State::app.connected_to_pi = true;
+    }
 
     // ── SYS: system status ────────────────────────────────────────────────────
     if (line.startsWith("SYS:")) {
@@ -1093,7 +1116,7 @@ void setup()
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x00, 0x06));   // war: (0x06, 0x00)
     Serial.println("Display: OK");
 
     // LVGL
@@ -1132,6 +1155,11 @@ void setup()
     ui_create_status_screen();
     update_bottom_label();
 
+    // Boot screen sits on top of main; it loads itself as the active screen
+    // and animates away once State::app.connected_to_pi flips (see loop()).
+    ScreenBoot::create();
+    ScreenBoot::show();
+
     Serial.println("Ready.");
 }
 
@@ -1148,7 +1176,17 @@ void loop()
     }
 
     // LVGL
+    // LVGL
     lv_timer_handler();
+
+    // Boot screen: handle accent updates + transition to main when the Pi
+    // connects. Cheap when boot is already done (early return).
+    if (ScreenBoot::is_active()) {
+        ScreenBoot::update();
+        if (State::app.connected_to_pi) {
+            ScreenBoot::transition_to(scr_main);
+        }
+    }
 
     // Energy animation (every loop iteration for smooth 60fps)
     update_energy();
