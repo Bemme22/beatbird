@@ -1,18 +1,5 @@
-# CamillaDSP config — Zipp Mini 2 (LTH200)
-# 2-way active: 3" Orchid broadband (L) + 1" Daisy tweeter (R)
-# Crossover at 3.5 kHz, Linkwitz-Riley 4th order (24 dB/oct).
-#
-# Channel assignment:
-#   L (playback ch 0) → Orchid 3" broadband (4Ω, 20W)
-#   R (playback ch 1) → Daisy 1" tweeter (4Ω, 12W)
-#
-# The Innomaker AMP Pro Mini is a single-stereo board — each channel
-# drives one driver independently. CamillaDSP splits the mono input
-# into LP (broadband) and HP (tweeter) paths.
-#
-# Not yet REW-measured in enclosure — these are starting-point values.
-# After measurement, add notch filters and adjust tweeter trim.
 ---
+# EXPERIMENTAL: bass push to find PR limits — Zipp Mini 2
 devices:
   samplerate: 48000
   chunksize: 1024
@@ -27,10 +14,8 @@ devices:
   playback:
     type: Alsa
     channels: 2
-    device: "hw:LouderRaspberry,0" # war: plughw:sndrpihifiberry,0
-    format: S32_LE # war: S16_LE
-
-# Mix stereo input down to mono (sum L+R), then split into 2-way
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
 mixers:
   mono_sum:
     channels:
@@ -39,75 +24,48 @@ mixers:
     mapping:
       - dest: 0
         sources:
-          - channel: 0
-            gain: -6
-          - channel: 1
-            gain: -6
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
       - dest: 1
         sources:
-          - channel: 0
-            gain: -6
-          - channel: 1
-            gain: -6
-
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
 filters:
-  # ─── Crossover (Linkwitz-Riley 4th order @ 3.5 kHz) ────────────────────
+  bass_static:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 100, gain: 6, q: 0.7}
+  pr_boost:
+    type: Biquad
+    parameters: {type: Peaking, freq: 60, gain: 3, q: 1.5}
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 4, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 80, gain: 2, q: 1.0}
+  rew_7k_notch:
+    type: Biquad
+    parameters: {type: Peaking, freq: 7000, gain: -4.0, q: 3.0}
   xover_lp:
     type: BiquadCombo
-    parameters:
-      type: LinkwitzRileyLowpass
-      freq: 3500
-      order: 4
-
+    parameters: {type: LinkwitzRileyLowpass, freq: 4000, order: 4}
   xover_hp:
     type: BiquadCombo
-    parameters:
-      type: LinkwitzRileyHighpass
-      freq: 3500
-      order: 4
-
-  # ─── Tweeter trim (start at -4 dB, adjust after measurement) ───────────
+    parameters: {type: LinkwitzRileyHighpass, freq: 4000, order: 4}
   tweeter_trim:
     type: Gain
     parameters:
-      gain: -4.0
-
-  # ─── Loudness / tonality filters (bridge patches these at runtime) ─────
-  bass_shelf:
-    type: Biquad
-    parameters:
-      type: Lowshelf
-      freq: 120
-      gain: 4
-      q: 0.7
-
-  timpani_body:
-    type: Biquad
-    parameters:
-      type: Peaking
-      freq: 80
-      gain: 2
-      q: 1.0
-
-  # ─── Subsonic protection (3" driver can't do sub-bass) ─────────────────
+      gain: -5.0
+      inverted: true
   sub_protect:
     type: BiquadCombo
-    parameters:
-      type: ButterworthHighpass
-      freq: 70
-      order: 4
-
+    parameters: {type: ButterworthHighpass, freq: 35, order: 4}
 pipeline:
-  # Step 1: Sum stereo to mono (both channels get identical signal)
   - type: Mixer
     name: mono_sum
-
-  # Step 2: Broadband path (channel 0 = Orchid 3")
   - type: Filter
     channels: [0]
-    names: [bass_shelf, timpani_body, sub_protect, xover_lp]
-
-  # Step 3: Tweeter path (channel 1 = Daisy 1")
+    names: [bass_static, pr_boost, bass_shelf, timpani_body, sub_protect, xover_lp]
   - type: Filter
     channels: [1]
-    names: [xover_hp, tweeter_trim]
+    names: [xover_hp, tweeter_trim, rew_7k_notch]
