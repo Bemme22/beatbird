@@ -26,6 +26,7 @@
 #include "state.h"
 #include "theme.h"
 #include "screens/screen_boot.h"
+#include "screens/screen_player.h"
 
 struct _lv_hit_test_info_t {
     const lv_point_t * point;
@@ -1160,6 +1161,9 @@ void setup()
     ScreenBoot::create();
     ScreenBoot::show();
 
+    // Player screen ready, idle behind the boot screen until PAL: arrives.
+    ScreenPlayer::create();          // ← NEU
+
     Serial.println("Ready.");
 }
 
@@ -1182,11 +1186,26 @@ void loop()
     // Boot screen: handle accent updates + transition to main when the Pi
     // connects. Cheap when boot is already done (early return).
     if (ScreenBoot::is_active()) {
-        ScreenBoot::update();
-        if (State::app.connected_to_pi) {
-            ScreenBoot::transition_to(scr_main);
-        }
+            ScreenBoot::update();
+            if (State::app.connected_to_pi) {
+                ScreenBoot::transition_to(ScreenPlayer::root());   // ← war: scr_main
+            }
     }
+
+    // ── Mirror legacy AppState → State::app so ScreenPlayer sees fresh data.
+    //    Setters are idempotent: no dirty flag set when value is unchanged.
+    //    Temporary bridge until handle_serial() is replaced by Proto::poll().
+    State::set_play_state ((State::PlayState)app.state);
+    State::set_source     (State::source_from_string(app.source.c_str()));
+    State::set_title      (app.title);
+    State::set_artist     (app.artist);
+    State::set_volume     (app.volume);
+    State::set_position   (app.pos_ms, app.dur_ms);
+    State::set_energy     (app.energy);
+    State::set_clock      (app.timeStr);
+
+    // ── Player screen draws from State::app
+    ScreenPlayer::update();
 
     // Energy animation (every loop iteration for smooth 60fps)
     update_energy();

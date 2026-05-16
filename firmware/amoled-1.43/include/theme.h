@@ -55,7 +55,7 @@ constexpr int ENERGY_RING_R = 142;
 constexpr int ENERGY_DOT_R  = 3;
 constexpr int ENERGY_DOT_R_PEAK = 5;
 constexpr int ENERGY_DOT_COUNT = 12;
-constexpr int ENERGY_ARC_START_DEG = 200;  // bottom only — like a smile
+constexpr int ENERGY_ARC_START_DEG = 20;  // bottom only — like a smile
 constexpr int ENERGY_ARC_SWEEP_DEG = 140;
 constexpr int ENERGY_DEFLECTION_PX = 16;   // max outward push of a peak dot
 
@@ -68,7 +68,7 @@ constexpr int TITLE_Y_OFFSET     = -22;
 constexpr int ARTIST_Y_OFFSET    =  18;
 constexpr int STATE_ICON_Y       =  66;
 constexpr int VOLUME_PCT_Y       =  124;
-constexpr int SOURCE_LABEL_Y     = -192;
+constexpr int SOURCE_LABEL_Y     = -170;
 
 // ─── Animations & timing ────────────────────────────────────────────────────
 
