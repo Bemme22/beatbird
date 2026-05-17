@@ -17,24 +17,20 @@ soundcard:
   analog_gain_db: -3
 
 audio:
-  camilladsp_config: _stub         # placeholder — measure & create zipp.yml later
+  camilladsp_config: lt300         # neue Datei, gleich
   sample_rate: 48000
-  format: S32LE
+  format: S32_LE                   # WICHTIG: Unterstrich, nicht S32LE
+  volume:
+    min_db: -60
+    max_db: -10
   loudness:
     enabled: true
     filters:
       - {name: bass_shelf,   max_boost_db: 3.0}
       - {name: timpani_body, max_boost_db: 1.5}
 
-# LED ring + single action button (the original Libratone interface)
 display:
-  type: led-button
-  variant: libratone-lt300
-  led_pin: 18                      # GPIO18 PWM (BCM)
-  led_count: 12                    # original ring count — verify on teardown
-  button_pin: 17
-  led_brightness: 128
-  spectrum_bands: 12               # use 12 bands to map onto the LED ring
+  type: none                       # bis UI verdrahtet ist
 
 wifi:
   ssid: "your-ssid"
