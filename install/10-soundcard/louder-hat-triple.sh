@@ -28,8 +28,8 @@ ensure_line_in_config_txt "dtoverlay=tas58xx-triple,i2creg_primary=0x2e"
 
 ensure_module_loaded snd-aloop
 
-if ! modinfo snd-soc-tas5825m >/dev/null 2>&1; then
-  log_warn "snd-soc-tas5825m kernel module not found — install per Sonocotta docs."
+if ! modinfo snd-soc-tas58xx >/dev/null 2>&1; then
+  log_warn "snd-soc-tas58xx kernel module not found — install per Sonocotta docs."
 fi
 
 # ─── amixer-init: Gain-Staging + Crossover ───────────────────────────────────
@@ -139,4 +139,4 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-enable_service louder-hat-init.service
+enable_service_at_boot louder-hat-init.service

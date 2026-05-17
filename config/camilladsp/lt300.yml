@@ -1,8 +1,8 @@
 # CamillaDSP — LT300 (Zipp Gen 1)
-# Ch0 = Libratone LBR-D002-04 4" (~4Ω)
-# Ch1 = 2× Ribbon parallel (~3Ω) — Transformatoren im Tweeter
-# Startwerte vor REW. Nach Messung: Polarität der Ribbons A/B testen
-# (360° opponente Tweeter — Listening-Optimum ≠ Mess-Optimum).
+# WICHTIG: Channel-Mapping ist anders als beim Beat/Zipp Mini 2!
+#   Ch0 = 2× Ribbon parallel (~3Ω) — L  (gleiche Ribbons wie Lounge)
+#   Ch1 = Libratone LBR-D002-04 4" Tieftöner (~4Ω) — R
+# 360° opponente Ribbons — nach REW-Tuning Polarität A/B testen.
 ---
 devices:
   samplerate: 48000
@@ -35,40 +35,31 @@ mixers:
           - {channel: 1, gain: -6}
 
 filters:
-  # Loudness / Tonalität (Bridge patcht zur Laufzeit)
   bass_shelf:
     type: Biquad
     parameters: {type: Lowshelf, freq: 120, gain: 4, q: 0.7}
   timpani_body:
     type: Biquad
     parameters: {type: Peaking, freq: 80, gain: 2, q: 1.0}
-
-  # Crossover
   xover_lp:
     type: BiquadCombo
     parameters: {type: LinkwitzRileyLowpass, freq: 3000, order: 4}
   xover_hp:
     type: BiquadCombo
     parameters: {type: LinkwitzRileyHighpass, freq: 3000, order: 4}
-
-  # Ribbon-Trim — konservativ, weil 2× parallel mit Trafo unklar wirkt
   tweeter_trim:
     type: Gain
-    parameters:
-      gain: -6.0
-      inverted: false              # nach REW evtl. auf true (Polaritätstest)
-
-  # Subsonic — Zipp ist sealed/PR, 4" kann nicht tief. Konservativ.
+    parameters: {gain: -9.0, inverted: false}
   sub_protect:
     type: BiquadCombo
-    parameters: {type: ButterworthHighpass, freq: 50, order: 4}
+    parameters: {type: ButterworthHighpass, freq: 60, order: 4}
 
 pipeline:
   - type: Mixer
     name: mono_sum
   - type: Filter
     channels: [0]
-    names: [bass_shelf, timpani_body, sub_protect, xover_lp]
+    names: [xover_hp, tweeter_trim]
   - type: Filter
     channels: [1]
-    names: [xover_hp, tweeter_trim]
+    names: [bass_shelf, timpani_body, sub_protect, xover_lp]
