@@ -37,6 +37,11 @@
 #define LV_USE_ROLLER 1
 #define LV_USE_ANIMIMG 1
 
+// Label scroll speed (px/sec) for LV_LABEL_LONG_SCROLL / SCROLL_CIRCULAR.
+// LVGL default is 40 — for Departure-Mono titles at 33 px that's too quick
+// to read comfortably. 20 gives a leisurely, easy-to-follow pace.
+#define LV_LABEL_DEF_SCROLL_SPEED 20
+
 // === Image formats ===
 #define LV_USE_BMP 0
 #define LV_USE_PNG 1
