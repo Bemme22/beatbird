@@ -32,8 +32,8 @@ ensure_module_loaded snd-aloop
 # ─── Driver package ──────────────────────────────────────────────────────────
 # The upstream Sonocotta driver ships as an apt package on their repo; if
 # unavailable, the user has already flashed an image with it present.
-if ! modinfo snd-soc-tas5825m >/dev/null 2>&1; then
-  log_warn "snd-soc-tas5825m kernel module not found."
+if ! modinfo snd-soc-tas58xx >/dev/null 2>&1; then
+  log_warn "snd-soc-tas58xx kernel module not found."
   log_warn "Install per Sonocotta's instructions, then re-run this script."
 fi
 

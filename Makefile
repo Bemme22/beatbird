@@ -120,3 +120,27 @@ _banner:
 	@echo "  | _ \/ -_) _\` ||  _| _ \ | '_/ _\` |"
 	@echo "  |___/\___\__,_| \__|___/_|_| \__,_|"
 	@echo
+
+# ─── Test/Prod-Mode (Drop-Ins für Restart=no) ────────────────────────────────
+
+.PHONY: test-mode prod-mode
+
+test-mode: ## Services mit Restart=no für Hardware-Diagnose (speaker-test etc.)
+	@for svc in camilladsp beatbird-bridge go-librespot; do \
+	  sudo mkdir -p /etc/systemd/system/$$svc.service.d; \
+	  printf '[Service]\nRestart=no\n' | sudo tee /etc/systemd/system/$$svc.service.d/no-restart.conf >/dev/null; \
+	done
+	sudo systemctl daemon-reload
+	sudo systemctl stop go-librespot beatbird-bridge camilladsp
+	@echo "==> test-mode aktiv. Services bleiben gestoppt bis 'make prod-mode'."
+
+prod-mode: ## Drop-ins entfernen und Services normal starten
+	sudo rm -f /etc/systemd/system/camilladsp.service.d/no-restart.conf
+	sudo rm -f /etc/systemd/system/beatbird-bridge.service.d/no-restart.conf
+	sudo rm -f /etc/systemd/system/go-librespot.service.d/no-restart.conf
+	-sudo rmdir /etc/systemd/system/camilladsp.service.d 2>/dev/null
+	-sudo rmdir /etc/systemd/system/beatbird-bridge.service.d 2>/dev/null
+	-sudo rmdir /etc/systemd/system/go-librespot.service.d 2>/dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl start camilladsp beatbird-bridge
+	@echo "==> prod-mode aktiv. Bridge zieht go-librespot mit."

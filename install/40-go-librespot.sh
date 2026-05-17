@@ -12,7 +12,7 @@ if [[ "$SP_ENABLED" != "true" ]]; then
   exit 0
 fi
 
-GLSP_VERSION="${GOLIBRESPOT_VERSION:-0.8.0}"
+GLSP_VERSION="${GOLIBRESPOT_VERSION:-0.7.1}"
 GLSP_BIN=/usr/local/bin/go-librespot
 GLSP_USER_HOME=$(getent passwd "$BEATBIRD_USER" | cut -d: -f6)
 GLSP_CONF_DIR="$GLSP_USER_HOME/.config/go-librespot"
