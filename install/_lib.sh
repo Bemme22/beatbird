@@ -152,3 +152,11 @@ ensure_etc_beatbird() {
   install -d -m 755 "$ETC_DIR"
   install -d -m 750 -o "$BEATBIRD_USER" -g "$BEATBIRD_GROUP" "$ETC_DIR/ssl" 2>/dev/null || true
 }
+
+# Like enable_service but does NOT start immediately. Use for services that
+# depend on hardware created by a dtoverlay (only loaded at boot) — they
+# can't succeed on the first install run, but will work after reboot.
+enable_service_at_boot() {
+  systemctl daemon-reload
+  systemctl enable "$1"
+}

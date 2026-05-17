@@ -37,4 +37,4 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-enable_service louder-hat-init.service
+enable_service_at_boot louder-hat-init.service
