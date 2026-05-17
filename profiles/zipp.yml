@@ -35,8 +35,8 @@ display:
 wifi:
   ssid: "your-ssid"
   country: DE
-  use_usb_dongle: true
-  disable_onboard_radio: true
+  use_usb_dongle: false
+  disable_onboard_radio: false
   disable_bluetooth: true
 
 mqtt:
