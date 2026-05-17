@@ -1,0 +1,77 @@
+# CamillaDSP — LT300 measurement config (REW sweeps)
+# State after 2026-05-17 REW session: polarity-flipped tweeter + iter1 PEQs.
+#
+# Differs from production lt300.yml:
+#   - No capture_samplerate / resampler (REW runs 48 kHz natively)
+#   - bass_shelf gain bleibt drin als statischer Wert (nicht Profile-dynamic)
+#   - timpani_body bei 0 (Reserve fürs Loudness-Profil später)
+#
+# Use:
+#   sudo systemctl stop beatbird-bridge go-librespot
+#   sudo cp config/camilladsp/lt300-meas.yml /etc/camilladsp/config.yml
+#   sudo systemctl restart camilladsp
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+mixers:
+  mono_sum:
+    channels: {in: 2, out: 2}
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+
+filters:
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 100, gain: 5.0, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 80, gain: 0, q: 1.0}
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass, freq: 3000, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 3000, order: 4}
+  tweeter_trim:
+    type: Gain
+    parameters: {gain: -9.0, inverted: true}
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 60, order: 4}
+
+  # ─── REW iter1 — measured 2026-05-17 ──────────────────────────────────
+  rew_500_hump:
+    type: Biquad
+    parameters: {type: Peaking, freq: 500, gain: -5.0, q: 1.4}
+  rew_3k_fill:
+    type: Biquad
+    parameters: {type: Peaking, freq: 2900, gain: 3.0, q: 1.5}
+
+pipeline:
+  - type: Mixer
+    name: mono_sum
+  - type: Filter
+    channels: [0]
+    names: [xover_hp, rew_3k_fill, tweeter_trim]
+  - type: Filter
+    channels: [1]
+    names: [bass_shelf, timpani_body, rew_500_hump, sub_protect, xover_lp]
