@@ -77,8 +77,10 @@ class AmoledDisplay(DisplayInterface):
         # Heartbeat watchdog: ESP32 sends `[hb]` every 10s. If we stop seeing
         # them while the serial port is still "open", it's a CDC zombie —
         # write() returns OK but bytes never reach the device. Force reopen.
+        # 60s = miss 6 in a row before reacting; tighter values triggered
+        # false-positive reconnects under bursty bridge→ESP traffic.
         self._last_hb_received = 0.0
-        self._hb_timeout = 25.0
+        self._hb_timeout = 60.0
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 

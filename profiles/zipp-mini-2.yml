@@ -34,9 +34,9 @@ display:
 
 hardware:
   power_button:
-    enabled: true
-    gpio: 3              # GPIO3 = Pin 5. BCM hardware wakes the Pi from halt when pulled low — same button shuts down AND turns on.
-    long_press_s: 2.0    # hold this long to actually power off (short press is a no-op)
+    enabled: false       # parked: GPIO3 conflicts with the Louder Hat's I²C SCL — needs rewiring to a free pin (GPIO17/27/22) before re-enabling
+    gpio: 3
+    long_press_s: 2.0
 
 wifi:
   ssid: "your-ssid"

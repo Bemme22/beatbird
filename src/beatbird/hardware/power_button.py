@@ -49,15 +49,16 @@ class PowerButton:
 
     def start(self) -> None:
         # lgpio (which RPi.GPIO wraps on Trixie+) creates its ".lgd-nfy*"
-        # notification pipe in the process's CWD at import time and ignores
-        # the LG_WD env var on some versions. Our systemd unit has
-        # ProtectHome=read-only, so importing while CWD is the repo home
-        # crashes with FileNotFoundError. Hard fix: chdir to a writable path
-        # around the import, then restore CWD.
+        # notification pipe in the process's CWD at import time. The bridge's
+        # systemd unit has ProtectSystem=strict + ProtectHome=read-only,
+        # which makes the whole filesystem read-only EXCEPT what's listed in
+        # ReadWritePaths (/var/lib/beatbird and /etc/beatbird). /tmp is NOT
+        # writable from this service. Chdir to /var/lib/beatbird before the
+        # import, then restore.
         import os
         _cwd_save = os.getcwd()
         try:
-            os.chdir("/tmp")
+            os.chdir("/var/lib/beatbird")
             import RPi.GPIO as GPIO
         except Exception as e:
             # Never let a power-button issue take down the bridge.
