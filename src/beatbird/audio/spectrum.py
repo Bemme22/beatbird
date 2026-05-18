@@ -56,10 +56,13 @@ class SpectrumAnalyzer:
             import sounddevice as sd  # noqa: F401
             self._np = np
             self._available = True
-        except ImportError:
+        except (ImportError, OSError) as e:
+            # OSError covers e.g. "PortAudio library not found" when
+            # libportaudio2 isn't installed system-side — sounddevice raises
+            # this from its module-init, not ImportError.
             self._np = None
             self._available = False
-            log.warning("numpy/sounddevice not installed — spectrum disabled")
+            log.warning("spectrum disabled (%s)", e)
             return
 
         self._edges = np.logspace(

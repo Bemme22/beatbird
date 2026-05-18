@@ -216,6 +216,19 @@ class BeatBirdBridge:
         # the process is alive but its HTTP API is wedged.
         self._spotify_fail_count: int = 0
 
+        # ── Power button ──
+        self.power_button = None
+        if profile.hardware.power_button.enabled:
+            from beatbird.hardware.power_button import PowerButton
+            self.power_button = PowerButton(
+                gpio=profile.hardware.power_button.gpio,
+                long_press_s=profile.hardware.power_button.long_press_s,
+                on_warn=self._on_power_warn,
+                on_cancel=self._on_power_cancel,
+                on_confirm=self._on_power_confirm,
+            )
+        self._shutdown_warn_active = False
+
         # ── System stats ──
         self.sys_amp: dict[str, str] = {}
         self.sys_cpu = 0.0
@@ -274,6 +287,8 @@ class BeatBirdBridge:
             )
         if self.spectrum:
             self.spectrum.start()
+        if self.power_button:
+            self.power_button.start()
         self.mqtt.start()
 
         # Initial sync: CamillaDSP's saved volume wins.
@@ -286,6 +301,8 @@ class BeatBirdBridge:
         log.info("shutting down")
         if self.spectrum:
             self.spectrum.stop()
+        if self.power_button:
+            self.power_button.stop()
         self.mqtt.stop()
         self.dsp.close()
         if self.display:
@@ -313,6 +330,8 @@ class BeatBirdBridge:
 
     def _handle_display_command(self, cmd: str) -> None:
         log.info("display → CMD:%s", cmd)
+        if self._shutdown_warn_active:
+            return  # user holding power button — don't accept display input
         if self.in_standby:
             self._exit_standby("user command")
 
@@ -493,6 +512,9 @@ class BeatBirdBridge:
     # ─── Pushing ────────────────────────────────────────────────────────────
 
     def _push_state_now(self) -> None:
+        # Don't clobber the shutdown-warn screen while user is holding the button.
+        if self._shutdown_warn_active:
+            return
         if self.in_standby:
             playback_str = "standby"
             spectrum = None
@@ -532,6 +554,48 @@ class BeatBirdBridge:
         log.info("exit standby (%s)", reason)
         self.in_standby = False
         self.last_playback_time = time.monotonic()
+
+    # ─── Power button callbacks ─────────────────────────────────────────────
+
+    def _on_power_warn(self) -> None:
+        # Fires while the user is holding the button. Push a "shutdown_warn"
+        # state so a firmware that supports it can render a halt-confirm
+        # screen; older firmware ignores the unknown ST value but the TI: line
+        # is still displayed, so the user gets at least textual feedback.
+        self._shutdown_warn_active = True
+        self._push_shutdown_state("shutdown_warn", "Halten zum Ausschalten")
+
+    def _on_power_cancel(self) -> None:
+        self._shutdown_warn_active = False
+        self._push_state_now()  # back to normal rendering
+
+    def _on_power_confirm(self) -> None:
+        self._push_shutdown_state("shutdown", "Ausschalten…")
+        try:
+            subprocess.Popen(
+                ["sudo", "-n", "/sbin/poweroff"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            log.error("poweroff failed: %s", e)
+
+    def _push_shutdown_state(self, playback: str, title: str) -> None:
+        if not self.display:
+            return
+        state = DisplayState(
+            playback=playback,
+            source=self.source.value,
+            title=title,
+            artist="",
+            volume=self.current_volume,
+            position_ms=0,
+            duration_ms=1,
+            signal_level=0,
+            time_hhmm=time.strftime("%H:%M"),
+            spectrum=None,
+        )
+        self.display.push_state(state)
 
     def _push_system_now(self) -> None:
         if self.display:

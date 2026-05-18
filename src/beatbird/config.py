@@ -107,6 +107,16 @@ class Display(BaseModel):
         return s
 
 
+class PowerButton(BaseModel):
+    enabled: bool = False
+    gpio: int = 3              # GPIO3 = canonical Pi power button (Wake-on-low works from halt state)
+    long_press_s: float = 2.0  # hold this long to actually shut down
+
+
+class Hardware(BaseModel):
+    power_button: PowerButton = Field(default_factory=PowerButton)
+
+
 class WiFi(BaseModel):
     ssid: str = ""
     country: str = "DE"
@@ -167,6 +177,7 @@ class Profile(BaseModel):
     soundcard: Soundcard
     audio: Audio = Field(default_factory=Audio)
     display: Display = Field(default_factory=Display)
+    hardware: Hardware = Field(default_factory=Hardware)
     wifi: WiFi = Field(default_factory=WiFi)
     mqtt: MQTT = Field(default_factory=MQTT)
     sources: Sources = Field(default_factory=Sources)

@@ -38,6 +38,11 @@ if ! modinfo snd-soc-tas58xx >/dev/null 2>&1; then
 fi
 
 # ─── amixer-init script (boot-time retry loop) ───────────────────────────────
+# Uses Control-NAMEN, not numids — numids drift between Sonocotta driver
+# versions and produced silent "Operation not permitted" failures.
+# Verified names on Beat #1 (2026-05-18 dump):
+#   primary 0x4C → prefix '2.0' (stereo)
+#   secondary 0x4D → prefix '0.1' (PBTL mono sub, NOT '2.1' as one would guess)
 AMIXER_PATH=/usr/local/sbin/beatbird-louder-hat-init
 cat > "$AMIXER_PATH" <<'AMIXER_EOF'
 #!/bin/bash
@@ -57,42 +62,41 @@ if ! amixer -c "$CARD" scontents >/dev/null 2>&1; then
   exit 1
 fi
 
-# Stereo amp
-amixer -c "$CARD" cset numid=1 103   # Digital volume ~-6 dB
-amixer -c "$CARD" cset numid=2 25    # Analog gain (~-3 dB from max, safe at 24V PVDD)
-amixer -c "$CARD" cset numid=4 0     # L channel 0 dB
-amixer -c "$CARD" cset numid=5 0     # R channel 0 dB
-amixer -c "$CARD" cset numid=3 1     # Built-in EQ OFF (CamillaDSP handles it)
+set_q() { amixer -c "$CARD" -q sset "$1" "$2" 2>/dev/null || true; }
 
-# Sub amp  (values injected at install time below)
-amixer -c "$CARD" cset numid=21 __SUB_DVOL__
-amixer -c "$CARD" cset numid=22 25
-amixer -c "$CARD" cset numid=25 __SUB_XO_ITEM__
-amixer -c "$CARD" cset numid=24 0
-amixer -c "$CARD" cset numid=23 1    # Built-in EQ OFF
+# Stereo amp — primary 0x4C, prefix '2.0'
+set_q '2.0 Digital'             103     # ~-6 dB
+set_q '2.0 Analog Gain'          25     # ~-3 dB from max (safe @ 24V PVDD)
+set_q '2.0 Channel Left Gain'     0     # 0 dB
+set_q '2.0 Channel Right Gain'    0     # 0 dB
+set_q '2.0 Equalizer'           Off     # CamillaDSP handles EQ
 
-echo "louder-hat-init: $CARD configured (sub DV=__SUB_DVOL__, XO item=__SUB_XO_ITEM__)"
+# Sub amp — secondary 0x4D, PBTL mono, prefix '0.1'
+set_q '0.1 Digital'             __SUB_DVOL__
+set_q '0.1 Analog Gain'          25
+set_q '0.1 Mono Channel Gain'     0
+set_q '0.1 Crossover Frequency' '__SUB_XO_VAL__'
+set_q '0.1 Equalizer'           Off
+
+echo "louder-hat-init: $CARD configured (sub DV=__SUB_DVOL__, XO=__SUB_XO_VAL__)"
 AMIXER_EOF
 
-# Crossover frequency → ALSA enum item:
-#   item 0 = off, 1..N = frequencies. '9' = 140 Hz on the current driver.
-# Map a few well-known values; fall back to 9 (140 Hz) if unknown.
+# Crossover enum on the driver accepts string values directly: 'OFF', '60 Hz'
+# through '150 Hz' in 10 Hz steps. Avoid numeric item indices — they shifted
+# between driver versions (was the original bug with numid=25).
 case "$SUB_XO" in
-  off|OFF|0) SUB_XO_ITEM=0 ;;
-  60)  SUB_XO_ITEM=1 ;;
-  80)  SUB_XO_ITEM=3 ;;
-  100) SUB_XO_ITEM=5 ;;
-  120) SUB_XO_ITEM=7 ;;
-  140) SUB_XO_ITEM=9 ;;
-  150) SUB_XO_ITEM=9 ;;  # closest available
-  160) SUB_XO_ITEM=10 ;;
-  180) SUB_XO_ITEM=12 ;;
-  *)   SUB_XO_ITEM=9 ;;
+  off|OFF|0) SUB_XO_VAL="OFF" ;;
+  60|70|80|90|100|110|120|130|140|150) SUB_XO_VAL="$SUB_XO Hz" ;;
+  *)
+    log_warn "sub_crossover_hz=$SUB_XO not in driver enum (60–150 Hz, 10 Hz steps); defaulting to 150 Hz"
+    SUB_XO_VAL="150 Hz"
+    ;;
 esac
 
-sed -i "s/__SUB_DVOL__/$SUB_DVOL/g; s/__SUB_XO_ITEM__/$SUB_XO_ITEM/g" "$AMIXER_PATH"
+# Use | as sed separator since SUB_XO_VAL contains a space
+sed -i "s/__SUB_DVOL__/$SUB_DVOL/g; s|__SUB_XO_VAL__|$SUB_XO_VAL|g" "$AMIXER_PATH"
 chmod 755 "$AMIXER_PATH"
-log_ok "wrote $AMIXER_PATH (sub XO=${SUB_XO} Hz → item $SUB_XO_ITEM)"
+log_ok "wrote $AMIXER_PATH (sub XO=$SUB_XO_VAL, DV=$SUB_DVOL)"
 
 # ─── systemd service ─────────────────────────────────────────────────────────
 cat > /etc/systemd/system/louder-hat-init.service <<EOF

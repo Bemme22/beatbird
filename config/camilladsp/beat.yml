@@ -1,5 +1,6 @@
 # CamillaDSP config — Libratone Beat (#1 and #2 until #2 gets measured).
 # REW-tuned on Beat #1, 2025-04 with UMIK-1 at 50 cm, 0° calibration.
+# rew_2269 re-tuned 2026-05-18 (live -6.1 dB, was -4.0 dB).
 #
 # Pipeline: 2-ch loopback capture → EQ/loudness filter chain → 2-ch playback
 # to hw:LouderRaspberry,0. The sub channel on Plus 2X is handled entirely by
@@ -62,7 +63,7 @@ filters:
     parameters: {type: Peaking, freq: 600,   gain: -5.7, q: 2.431}
   rew_2269:
     type: Biquad
-    parameters: {type: Peaking, freq: 2269,  gain: -4.0, q: 5.0}
+    parameters: {type: Peaking, freq: 2269,  gain: -6.1, q: 5.0}
   rew_9886:
     type: Biquad
     parameters: {type: Peaking, freq: 9886,  gain: -4.9, q: 4.093}

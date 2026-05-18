@@ -25,9 +25,11 @@ log_step "Installing Python dependencies"
   fastapi \
   'uvicorn[standard]'
 
-# numpy/sounddevice: install via apt (easier on ARM) then pip-install into venv
-# pointing at the system package (hence --system-site-packages above).
-ensure_pkg python3-numpy python3-sounddevice || true
+# Spectrum FFT capture is currently disabled by default (spectrum_bands=0 in
+# profiles) because PortAudio can't share the ALSA Loopback sub with CamillaDSP.
+# To re-enable: set spectrum_bands>0 in the profile AND uncomment the deps below
+# AND add a dsnoop alias in /etc/asound.conf (TODO documented in _template.yml).
+# ensure_pkg python3-numpy python3-sounddevice libportaudio2 || true
 
 log_step "Installing BeatBird package (editable)"
 "$VENV/bin/pip" install --quiet -e "$REPO_DIR"

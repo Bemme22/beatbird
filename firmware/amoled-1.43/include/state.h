@@ -14,10 +14,12 @@
 namespace State {
 
 enum PlayState : uint8_t {
-    PLAY_STOPPED = 0,
-    PLAY_PLAYING = 1,
-    PLAY_PAUSED  = 2,
-    PLAY_STANDBY = 3,
+    PLAY_STOPPED       = 0,
+    PLAY_PLAYING       = 1,
+    PLAY_PAUSED        = 2,
+    PLAY_STANDBY       = 3,
+    PLAY_SHUTDOWN_WARN = 4,   // user is holding the power button — show "halten zum ausschalten"
+    PLAY_SHUTDOWN      = 5,   // long-press confirmed — pi is about to poweroff
 };
 
 enum Source : uint8_t {

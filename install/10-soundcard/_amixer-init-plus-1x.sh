@@ -17,10 +17,10 @@ amixer -c "$CARD" scontents >/dev/null 2>&1 || {
 # Sichere Defaults — silent fail wenn Control bei der Treiberversion fehlt
 set_q() { amixer -c "$CARD" -q sset "$1" "$2" 2>/dev/null || true; }
 
-set_q '2.0 Digital Volume'  103     # ~-6 dB
-set_q '2.0 Analog Gain'      25     # ~-3 dB von max
-set_q '2.0 Equalizer'         0     # interne EQ aus (CamillaDSP macht das)
-set_q '2.0 Channel L Gain'    0     # 0 dB
-set_q '2.0 Channel R Gain'    0     # 0 dB
+set_q '2.0 Digital'             103     # ~-6 dB
+set_q '2.0 Analog Gain'          25     # ~-3 dB von max
+set_q '2.0 Equalizer'           Off     # interne EQ aus (CamillaDSP macht das)
+set_q '2.0 Channel Left Gain'     0     # 0 dB
+set_q '2.0 Channel Right Gain'    0     # 0 dB
 
 echo "louder-hat-init: $CARD konfiguriert (Plus 1X)"

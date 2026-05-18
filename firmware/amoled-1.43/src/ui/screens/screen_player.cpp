@@ -72,6 +72,7 @@ static lv_anim_t anim_standby;
 
 static bool     created            = false;
 static bool     in_standby         = false;
+static bool     in_shutdown        = false;
 static bool     standby_anim_alive = false;
 static uint32_t last_energy_render = 0;
 
@@ -436,7 +437,7 @@ static void on_pressed(lv_event_t *e) {
     rotary_consumed        = false;
     rotary_accumulated_deg = 0.0f;
 
-    if (in_standby) return;
+    if (in_standby || in_shutdown) return;
 
     lv_indev_t *indev = lv_indev_get_act();
     if (!indev) return;
@@ -456,7 +457,7 @@ static void on_pressed(lv_event_t *e) {
 }
 
 static void on_pressing(lv_event_t *e) {
-    if (in_standby) return;
+    if (in_standby || in_shutdown) return;
 
     lv_indev_t *indev = lv_indev_get_act();
     if (!indev) return;
@@ -502,7 +503,7 @@ static void on_pressing(lv_event_t *e) {
 
 static void on_released(lv_event_t *e) {
     rotary_active = false;
-    if (in_standby) return;
+    if (in_standby || in_shutdown) return;
 
     if (rotary_consumed) return;
 
@@ -530,9 +531,11 @@ static void on_released(lv_event_t *e) {
 // ─── Mode switching ─────────────────────────────────────────────────────────
 
 static void show_player_mode() {
-    if (!in_standby && lbl_title && !lv_obj_has_flag(lbl_title, LV_OBJ_FLAG_HIDDEN))
+    if (!in_standby && !in_shutdown && lbl_title && !lv_obj_has_flag(lbl_title, LV_OBJ_FLAG_HIDDEN))
         return;
-    in_standby = false;
+    bool was_shutdown = in_shutdown;
+    in_standby  = false;
+    in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     S(vol_layer); S(prog_layer); S(energy_layer);
@@ -540,10 +543,14 @@ static void show_player_mode() {
     S(lbl_title); S(lbl_artist); S(state_icon); S(lbl_volume);
     H(lbl_clock); H(standby_dot);
     stop_standby_pulse();
+    // Restore the title's normal player offset (shutdown mode centered it).
+    if (was_shutdown && lbl_title) {
+        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
+    }
 }
 
 static void show_standby_mode() {
-    if (in_standby) return;
+    if (in_standby || in_shutdown) return;
     in_standby = true;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
@@ -557,6 +564,34 @@ static void show_standby_mode() {
     }
     S(lbl_clock); S(standby_dot);
     start_standby_pulse();
+}
+
+// Shutdown screen: shown both during the long-press warn ("Halten zum
+// Ausschalten") and the confirmed shutdown ("Ausschalten..."). The actual
+// text comes from the TI: field — the Pi sends a different string for each
+// phase. We just hide all player chrome and show lbl_title centered on its
+// own. Touch is also suppressed (see in_shutdown guards in on_pressed etc.).
+static void show_shutdown_mode() {
+    if (in_shutdown) return;
+    in_shutdown = true;
+    in_standby  = false;
+    stop_standby_pulse();
+    auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    H(vol_layer); H(prog_layer); H(energy_layer);
+    H(source_marker); H(lbl_source);
+    H(lbl_artist); H(state_icon); H(lbl_volume);
+    H(lbl_clock); H(standby_dot);
+    if (action_icon) {
+        lv_anim_del(action_icon, anim_action_opa_cb);
+        lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
+        current_action = ACT_NONE;
+    }
+    // Re-center the title for the shutdown message (player layout offsets it).
+    if (lbl_title) {
+        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
+        S(lbl_title);
+    }
 }
 
 // ─── Construction ───────────────────────────────────────────────────────────
@@ -725,8 +760,10 @@ bool is_visible() {
 void update() {
     if (!created || !is_visible()) return;
 
-    if (State::app.state == State::PLAY_STANDBY) show_standby_mode();
-    else                                          show_player_mode();
+    if (State::app.state == State::PLAY_SHUTDOWN_WARN ||
+        State::app.state == State::PLAY_SHUTDOWN)         show_shutdown_mode();
+    else if (State::app.state == State::PLAY_STANDBY)     show_standby_mode();
+    else                                                   show_player_mode();
 
     if (State::is_dirty(State::Dirty::ACCENT)) {
         lv_obj_set_style_text_color(lbl_title,   Theme::accent,     0);

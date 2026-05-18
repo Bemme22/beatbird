@@ -29,7 +29,7 @@ display:
   type: amoled
   variant: waveshare-1.43
   serial_device: auto
-  spectrum_bands: 16
+  spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback subs; firmware uses LV:-driven energy ring instead
 
 wifi:
   ssid: "your-ssid"

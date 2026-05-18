@@ -115,10 +115,12 @@ void handle_state_line(const char *line)
     char buf[256];
 
     if (parse_field(line, "ST", buf, sizeof(buf))) {
-        if      (!strcmp(buf, "play"))    State::set_play_state(State::PLAY_PLAYING);
-        else if (!strcmp(buf, "pause"))   State::set_play_state(State::PLAY_PAUSED);
-        else if (!strcmp(buf, "stop"))    State::set_play_state(State::PLAY_STOPPED);
-        else if (!strcmp(buf, "standby")) State::set_play_state(State::PLAY_STANDBY);
+        if      (!strcmp(buf, "play"))          State::set_play_state(State::PLAY_PLAYING);
+        else if (!strcmp(buf, "pause"))         State::set_play_state(State::PLAY_PAUSED);
+        else if (!strcmp(buf, "stop"))          State::set_play_state(State::PLAY_STOPPED);
+        else if (!strcmp(buf, "standby"))       State::set_play_state(State::PLAY_STANDBY);
+        else if (!strcmp(buf, "shutdown_warn")) State::set_play_state(State::PLAY_SHUTDOWN_WARN);
+        else if (!strcmp(buf, "shutdown"))      State::set_play_state(State::PLAY_SHUTDOWN);
     }
 
     if (parse_field(line, "TI", buf, sizeof(buf))) State::set_title(String(buf));
@@ -214,10 +216,12 @@ void handle_legacy_line(const char *line)
     }
     if (!strncmp(line, "STATE:", 6)) {
         const char *s = line + 6;
-        if      (!strcasecmp(s, "PLAY"))    State::set_play_state(State::PLAY_PLAYING);
-        else if (!strcasecmp(s, "PAUSE"))   State::set_play_state(State::PLAY_PAUSED);
-        else if (!strcasecmp(s, "STOP"))    State::set_play_state(State::PLAY_STOPPED);
-        else if (!strcasecmp(s, "STANDBY")) State::set_play_state(State::PLAY_STANDBY);
+        if      (!strcasecmp(s, "PLAY"))           State::set_play_state(State::PLAY_PLAYING);
+        else if (!strcasecmp(s, "PAUSE"))          State::set_play_state(State::PLAY_PAUSED);
+        else if (!strcasecmp(s, "STOP"))           State::set_play_state(State::PLAY_STOPPED);
+        else if (!strcasecmp(s, "STANDBY"))        State::set_play_state(State::PLAY_STANDBY);
+        else if (!strcasecmp(s, "SHUTDOWN_WARN"))  State::set_play_state(State::PLAY_SHUTDOWN_WARN);
+        else if (!strcasecmp(s, "SHUTDOWN"))       State::set_play_state(State::PLAY_SHUTDOWN);
         return;
     }
     if (!strncmp(line, "SOURCE:", 7)) {

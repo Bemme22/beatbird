@@ -53,12 +53,22 @@ display:
   variant: waveshare-1.43                # amoled: waveshare-1.43
   # For AMOLED (serial-attached ESP32):
   serial_device: auto                    # auto | /dev/ttyACM0 | vid:pid 303A:*
-  spectrum_bands: 16                     # must match firmware build
+  spectrum_bands: 0                      # 0 = use LV: energy ring (default). FFT spectrum is currently blocked by ALSA Loopback sub contention with CamillaDSP — re-enable only after asound.conf dsnoop setup.
   # For led-button (to be implemented):
   # led_pin: 18                          # GPIO pin (BCM numbering)
   # led_count: 12
   # button_pin: 17
   # led_brightness: 128                  # 0..255
+
+# ─── Hardware (optional) ──────────────────────────────────────────────────────
+# Power button: long-press triggers `sudo poweroff`. GPIO3 is the canonical
+# wake-from-halt pin on BCM283x — same button shuts the Pi down AND turns it
+# back on, no boot overlay needed. Short presses are intentionally no-ops.
+hardware:
+  power_button:
+    enabled: false                       # set true if a button is wired
+    gpio: 3                              # Pin 5 on the 40-pin header
+    long_press_s: 2.0                    # how long to hold for shutdown
 
 # ─── WiFi ─────────────────────────────────────────────────────────────────────
 wifi:
