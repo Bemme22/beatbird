@@ -48,20 +48,26 @@ class PowerButton:
         self._gpio = None
 
     def start(self) -> None:
-        # lgpio (which RPi.GPIO wraps on Trixie+) writes notification pipes to
-        # CWD by default. Our systemd unit has ProtectHome=read-only, so we
-        # redirect to a writable path before any RPi.GPIO/lgpio import runs.
-        # /tmp is fine — these files are ephemeral.
+        # lgpio (which RPi.GPIO wraps on Trixie+) creates its ".lgd-nfy*"
+        # notification pipe in the process's CWD at import time and ignores
+        # the LG_WD env var on some versions. Our systemd unit has
+        # ProtectHome=read-only, so importing while CWD is the repo home
+        # crashes with FileNotFoundError. Hard fix: chdir to a writable path
+        # around the import, then restore CWD.
         import os
-        os.environ.setdefault("LG_WD", "/tmp")
+        _cwd_save = os.getcwd()
         try:
+            os.chdir("/tmp")
             import RPi.GPIO as GPIO
         except Exception as e:
-            # Catch broadly — RPi.GPIO on Trixie raises FileNotFoundError from
-            # lgpio when it can't write its notification pipe. We never want
-            # a power-button issue to take the whole bridge down.
+            # Never let a power-button issue take down the bridge.
             log.warning("power button disabled: %s (%s)", type(e).__name__, e)
             return
+        finally:
+            try:
+                os.chdir(_cwd_save)
+            except Exception:
+                pass
 
         try:
             GPIO.setmode(GPIO.BCM)
