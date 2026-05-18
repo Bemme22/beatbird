@@ -15,6 +15,9 @@ User={{ BEATBIRD_USER }}
 # Profile + secrets come from here
 EnvironmentFile=/etc/beatbird/env
 Environment=PYTHONUNBUFFERED=1
+# RPi.GPIO on Trixie wraps lgpio, which writes notification pipes to CWD by
+# default. ProtectHome=read-only would block that; redirect to /tmp.
+Environment=LG_WD=/tmp
 
 # Serial (dialout), I²C (i2c), GPIO (gpio), audio (audio)
 SupplementaryGroups=dialout i2c gpio audio

@@ -48,16 +48,29 @@ class PowerButton:
         self._gpio = None
 
     def start(self) -> None:
+        # lgpio (which RPi.GPIO wraps on Trixie+) writes notification pipes to
+        # CWD by default. Our systemd unit has ProtectHome=read-only, so we
+        # redirect to a writable path before any RPi.GPIO/lgpio import runs.
+        # /tmp is fine — these files are ephemeral.
+        import os
+        os.environ.setdefault("LG_WD", "/tmp")
         try:
             import RPi.GPIO as GPIO
-        except ImportError:
-            log.warning("RPi.GPIO not available — power button disabled")
+        except Exception as e:
+            # Catch broadly — RPi.GPIO on Trixie raises FileNotFoundError from
+            # lgpio when it can't write its notification pipe. We never want
+            # a power-button issue to take the whole bridge down.
+            log.warning("power button disabled: %s (%s)", type(e).__name__, e)
             return
 
+        try:
+            GPIO.setmode(GPIO.BCM)
+            # Button pulls GPIO to GND on press; internal pull-up keeps it HIGH idle.
+            GPIO.setup(self.gpio, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        except Exception as e:
+            log.warning("power button GPIO setup failed: %s (%s)", type(e).__name__, e)
+            return
         self._gpio = GPIO
-        GPIO.setmode(GPIO.BCM)
-        # Button pulls GPIO to GND on press; internal pull-up keeps it HIGH idle.
-        GPIO.setup(self.gpio, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
         self._running = True
         self._thread = threading.Thread(
