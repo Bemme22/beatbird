@@ -74,6 +74,11 @@ class AmoledDisplay(DisplayInterface):
         self._reconnect_delay = 5.0
         # Re-send palette on every reconnect — the ESP32 may have rebooted
         self._palette_sent = False
+        # Heartbeat watchdog: ESP32 sends `[hb]` every 10s. If we stop seeing
+        # them while the serial port is still "open", it's a CDC zombie —
+        # write() returns OK but bytes never reach the device. Force reopen.
+        self._last_hb_received = 0.0
+        self._hb_timeout = 25.0
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -94,6 +99,7 @@ class AmoledDisplay(DisplayInterface):
                 pass
         self.ser = None
         self._palette_sent = False
+        self._last_hb_received = 0.0
 
     def _try_connect(self) -> bool:
         now = time.monotonic()
@@ -111,6 +117,7 @@ class AmoledDisplay(DisplayInterface):
             time.sleep(2)  # let ESP32 finish USB CDC init
             log.info("connected to %s", port)
             self._palette_sent = False
+            self._last_hb_received = time.monotonic()
             self._send_palette()
             return True
         except serial.SerialException as e:
@@ -188,16 +195,36 @@ class AmoledDisplay(DisplayInterface):
         if not self.ser or not self.ser.is_open:
             return
         try:
-            if not self.ser.in_waiting:
-                return
-            raw = self.ser.readline().decode("utf-8", errors="replace").strip()
+            while self.ser.in_waiting:
+                raw = self.ser.readline().decode("utf-8", errors="replace").strip()
+                if raw:
+                    self._handle_rx(raw)
         except serial.SerialException:
             self.ser = None
             self._palette_sent = False
-            return
-        if not raw:
+            self._last_hb_received = 0.0
             return
 
+        # Heartbeat watchdog — bytes haven't arrived for too long despite the
+        # port reporting open. Reopen on next _send() / poll() cycle.
+        if (
+            self.ser and self.ser.is_open
+            and self._last_hb_received > 0.0
+            and time.monotonic() - self._last_hb_received > self._hb_timeout
+        ):
+            log.warning(
+                "no heartbeat for >%.0fs, reopening serial",
+                self._hb_timeout,
+            )
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+            self._palette_sent = False
+            self._last_hb_received = 0.0
+
+    def _handle_rx(self, raw: str) -> None:
         if raw.startswith("VOL:"):
             try:
                 vol = int(raw[4:])
@@ -212,6 +239,7 @@ class AmoledDisplay(DisplayInterface):
         elif raw.startswith("TEMP:"):
             pass  # IMU head temp — not used in bridge logic yet
         elif raw.startswith("[hb]"):
+            self._last_hb_received = time.monotonic()
             log.debug("hb: %s", raw)
         else:
             log.debug("unknown RX: %s", raw)

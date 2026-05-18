@@ -121,7 +121,10 @@ class CamillaDSP:
 
     def get_signal_level(self) -> int:
         """Return playback signal RMS as 0-100."""
-        resp = self._cmd({"GetSignalLevels": None}, timeout=0.5)
+        # CamillaDSP 4.x: no-arg commands are sent as bare strings, NOT as
+        # {"GetSignalLevels": null} — the dict form was rejected silently and
+        # this returned 0 (energy ring froze).
+        resp = self._cmd("GetSignalLevels", timeout=0.5)
         if not resp:
             return 0
         try:

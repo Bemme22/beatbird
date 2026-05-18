@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from enum import Enum
@@ -41,6 +42,10 @@ SPOTIFY_POLL_INTERVAL = 2.0
 LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
+STANDBY_TIMEOUT_S = 300.0
+# Restart go-librespot if /status hangs for this many consecutive polls.
+# At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
+SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
 
 
 # ─── Source enum ─────────────────────────────────────────────────────────────
@@ -197,6 +202,20 @@ class BeatBirdBridge:
         self._prev_track_uri = ""
         self._stopped_since: float | None = None
 
+        # ── Standby ──
+        # last_playback_time = monotonic timestamp of last PLAYING observation.
+        # After STANDBY_TIMEOUT_S of non-PLAYING, enter standby: display → clock,
+        # /player/close frees the Spotify Connect slot so no other device can
+        # silently take over the speaker at night.
+        self.last_playback_time: float = time.monotonic()
+        self.in_standby: bool = False
+
+        # ── librespot health watchdog ──
+        # Counts consecutive get_state() failures (HTTP timeouts or refused).
+        # systemd already auto-restarts on crash; this catches the case where
+        # the process is alive but its HTTP API is wedged.
+        self._spotify_fail_count: int = 0
+
         # ── System stats ──
         self.sys_amp: dict[str, str] = {}
         self.sys_cpu = 0.0
@@ -294,6 +313,9 @@ class BeatBirdBridge:
 
     def _handle_display_command(self, cmd: str) -> None:
         log.info("display → CMD:%s", cmd)
+        if self.in_standby:
+            self._exit_standby("user command")
+
         if self.source == Source.BLUETOOTH and self.bt:
             from beatbird.sources.bluetooth import send_avrcp
             active = self.bt.active_device()
@@ -301,22 +323,46 @@ class BeatBirdBridge:
                 pass
             else:
                 log.debug("AVRCP failed for %s", cmd)
-        elif self.spotify:
-            if cmd in ("PLAY", "PLAYPAUSE"):
-                self.spotify.playpause()
-            elif cmd == "PAUSE":
+            self._push_state_now()
+            return
+
+        if not self.spotify:
+            return
+
+        # Explicit pause/resume — never a server-side toggle. go-librespot's
+        # internal state can lag the bridge's view, so PLAYPAUSE could resolve
+        # the wrong direction and either no-op or pause-then-resume.
+        if cmd == "PLAYPAUSE":
+            # self.playback is up to SPOTIFY_POLL_INTERVAL stale — fetch a
+            # synchronous fresh view to avoid resolving the wrong direction
+            # (e.g. another device toggled state since our last poll).
+            fresh = self.spotify.get_state()
+            if fresh is not None and not fresh.stopped:
+                is_playing = not fresh.paused
+            else:
+                is_playing = (self.playback == Playback.PLAYING)
+            if is_playing:
                 self.spotify.pause()
-            elif cmd == "NEXT":
-                self.spotify.next()
-            elif cmd == "PREV":
-                self.spotify.prev()
-            elif cmd == "STOP":
-                self.spotify.close_session()
-        # Immediate refresh
-        time.sleep(0.3)
-        self._poll_spotify()
-        if self.bt:
-            self._poll_bluetooth()
+                self.playback = Playback.PAUSED
+            else:
+                self.spotify.play()
+                self.playback = Playback.PLAYING
+                self.last_playback_time = time.monotonic()
+        elif cmd == "PLAY":
+            self.spotify.play()
+            self.playback = Playback.PLAYING
+            self.last_playback_time = time.monotonic()
+        elif cmd == "PAUSE":
+            self.spotify.pause()
+            self.playback = Playback.PAUSED
+        elif cmd == "NEXT":
+            self.spotify.next()
+        elif cmd == "PREV":
+            self.spotify.prev()
+        elif cmd == "STOP":
+            self.spotify.close_session()
+
+        # Optimistic push — next regular poll (≤2s) confirms or corrects.
         self._push_state_now()
 
     def _handle_mqtt_playback(self, value: str) -> None:
@@ -339,10 +385,27 @@ class BeatBirdBridge:
             return
         state = self.spotify.get_state()
         if state is None:
+            self._spotify_fail_count += 1
+            # Threshold reached exactly once → kick the service. Counter
+            # resets only after a successful poll so we don't restart in a
+            # tight loop if the restart itself doesn't recover.
+            if self._spotify_fail_count == SPOTIFY_HEALTH_RESTART_THRESHOLD:
+                log.warning(
+                    "librespot unresponsive for ~%ds, restarting service",
+                    int(self._spotify_fail_count * SPOTIFY_POLL_INTERVAL),
+                )
+                try:
+                    subprocess.run(
+                        ["systemctl", "restart", "go-librespot"],
+                        capture_output=True, timeout=10,
+                    )
+                except Exception as e:
+                    log.error("librespot restart failed: %s", e)
             if self.source == Source.SPOTIFY:
                 self.playback = Playback.STOPPED
                 self.source = Source.NONE
             return
+        self._spotify_fail_count = 0
 
         if state.volume_steps > 0:
             self._sp_volume_steps = state.volume_steps
@@ -430,25 +493,45 @@ class BeatBirdBridge:
     # ─── Pushing ────────────────────────────────────────────────────────────
 
     def _push_state_now(self) -> None:
-        state_map = {
-            Playback.PLAYING: "play", Playback.PAUSED: "pause",
-            Playback.STOPPED: "stop",
-        }
-        spectrum = self.spectrum.get_bands() if self.spectrum else None
+        if self.in_standby:
+            playback_str = "standby"
+            spectrum = None
+        else:
+            state_map = {
+                Playback.PLAYING: "play", Playback.PAUSED: "pause",
+                Playback.STOPPED: "stop",
+            }
+            playback_str = state_map.get(self.playback, "stop")
+            spectrum = self.spectrum.get_bands() if self.spectrum else None
         state = DisplayState(
-            playback=state_map.get(self.playback, "stop"),
+            playback=playback_str,
             source=self.source.value,
-            title=self.song_title,
-            artist=self.song_artist,
+            title="" if self.in_standby else self.song_title,
+            artist="" if self.in_standby else self.song_artist,
             volume=self.current_volume,
-            position_ms=self.song_pos_ms,
-            duration_ms=self.song_dur_ms,
+            position_ms=0 if self.in_standby else self.song_pos_ms,
+            duration_ms=1 if self.in_standby else self.song_dur_ms,
             signal_level=self.signal_level,
             time_hhmm=time.strftime("%H:%M"),
             spectrum=spectrum,
         )
         if self.display:
             self.display.push_state(state)
+
+    def _enter_standby(self) -> None:
+        log.info("entering standby after %.0fs idle", STANDBY_TIMEOUT_S)
+        self.in_standby = True
+        if self.spotify:
+            try:
+                self.spotify.close_session()
+            except Exception as e:
+                log.warning("close_session on standby failed: %s", e)
+        self._push_state_now()
+
+    def _exit_standby(self, reason: str) -> None:
+        log.info("exit standby (%s)", reason)
+        self.in_standby = False
+        self.last_playback_time = time.monotonic()
 
     def _push_system_now(self) -> None:
         if self.display:
@@ -506,6 +589,21 @@ class BeatBirdBridge:
                         self._poll_bluetooth()
                     except Exception as e:
                         log.error("bt poll: %s", e)
+
+                    # Standby transitions: track last PLAYING observation, enter
+                    # standby after idle timeout, exit on any new playback.
+                    if self.playback == Playback.PLAYING:
+                        self.last_playback_time = now
+                        if self.in_standby:
+                            self._exit_standby("playback resumed")
+                    elif (
+                        not self.in_standby
+                        and now - self.last_playback_time >= STANDBY_TIMEOUT_S
+                    ):
+                        try:
+                            self._enter_standby()
+                        except Exception as e:
+                            log.error("standby enter: %s", e)
 
                 # Signal level
                 level_interval = (
