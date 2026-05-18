@@ -169,7 +169,11 @@ class AmoledDisplay(DisplayInterface):
             f"LV:{state.signal_level}",
             f"TM:{state.time_hhmm}",
         ]
-        if state.spectrum is not None:
+        # Only emit FX: when the analyzer has produced non-zero data. If it's
+        # silently failing (e.g. ALSA Loopback already opened by CamillaDSP,
+        # numpy missing), suppress the field so the firmware falls back to
+        # its LV:-driven energy ring instead of rendering 12 dead dots.
+        if state.spectrum is not None and any(b > 0 for b in state.spectrum):
             bands = list(state.spectrum[: self.spectrum_bands])
             while len(bands) < self.spectrum_bands:
                 bands.append(0)
