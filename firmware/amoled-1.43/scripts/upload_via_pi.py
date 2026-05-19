@@ -16,7 +16,7 @@ from pathlib import Path
 
 Import("env")  # noqa: F821  (PlatformIO SCons global)
 
-PI_HOST    = "zipp2minipi"
+PI_HOST    = "BeatPiSpeaker"
 PI_PORT    = "/dev/ttyACM0"
 FLASH_ADDR = "0x10000"
 BAUD       = "921600"

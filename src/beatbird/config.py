@@ -95,11 +95,25 @@ class Display(BaseModel):
     variant: Optional[str] = None
     serial_device: str = "auto"
     spectrum_bands: int = 16
-    # ── NEW: AMOLED accent colour pushed to ESP32 via PAL: command ──
-    # Default: champagne gold — sits well on the Zipp Mini 2's turquoise/cream
-    # enclosure. Each profile overrides for its own speaker.
+
+    # ── Single accent colour (current PAL: protocol) ──
+    # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; firmware derives
+    # accent_dim from it. Default: champagne gold — sits well on the Zipp
+    # Mini 2 turquoise/cream enclosure.
     # Format: 6-char hex string, with or without leading "#".
     accent_color: str = "F0CB7B"
+
+    # ── Extended palette (stored, not yet transmitted) ──
+    # Multi-colour theme for future protocol/firmware support — currently
+    # only `accent_color` is sent. When the palette feature ships, these
+    # five drive secondary highlights, body/label text, and alert states.
+    # All optional, hex format (with or without "#").
+    accent_glow:    Optional[str] = None   # bright variant for emphasis
+    accent_dim:     Optional[str] = None   # explicit dim shade (else derived)
+    text_primary:   Optional[str] = None   # body text (else firmware default)
+    text_secondary: Optional[str] = None   # labels, source line
+    accent_alert:   Optional[str] = None   # error/warning highlights
+
     # LED+button display (Lounge / LT300)
     led_pin: Optional[int] = None
     led_count: Optional[int] = None
@@ -108,16 +122,30 @@ class Display(BaseModel):
 
     @field_validator("accent_color", mode="before")
     @classmethod
-    def _normalise_hex(cls, v):
-        if v is None:
+    def _normalise_accent_color(cls, v):
+        if v is None or v == "":
             return "F0CB7B"
         if not isinstance(v, str):
             raise TypeError("accent_color must be a hex string")
         s = v.strip().lstrip("#").upper()
         if not re.fullmatch(r"[0-9A-F]{6}", s):
-            raise ValueError(
-                f"accent_color must be 6 hex chars (got {v!r})"
-            )
+            raise ValueError(f"accent_color must be 6 hex chars (got {v!r})")
+        return s
+
+    @field_validator(
+        "accent_glow", "accent_dim",
+        "text_primary", "text_secondary", "accent_alert",
+        mode="before",
+    )
+    @classmethod
+    def _normalise_optional_palette(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        if not isinstance(v, str):
+            raise TypeError("palette colour must be a hex string")
+        s = v.strip().lstrip("#").upper()
+        if not re.fullmatch(r"[0-9A-F]{6}", s):
+            raise ValueError(f"palette colour must be 6 hex chars (got {v!r})")
         return s
 
 

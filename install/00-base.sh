@@ -70,8 +70,12 @@ log_ok "/etc/beatbird/env written"
 
 log_step "Enable I2C + SPI + UART"
 # Raspberry Pi specific — these are no-ops on other hardware.
+# do_serial 0 is buggy: triggers interactive whiptail in some raspi-config
+# versions even with nonint. Use the granular do_serial_hw / do_serial_cons
+# variants which are properly non-interactive.
 if command -v raspi-config >/dev/null 2>&1; then
   raspi-config nonint do_i2c 0 || true
   raspi-config nonint do_spi 0 || true
-  raspi-config nonint do_serial 0 || true  # enable UART, disable login shell
+  raspi-config nonint do_serial_hw 0 2>/dev/null || true   # enable serial hardware
+  raspi-config nonint do_serial_cons 1 2>/dev/null || true # disable serial login shell
 fi

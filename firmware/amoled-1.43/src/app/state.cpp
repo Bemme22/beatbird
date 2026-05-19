@@ -12,12 +12,18 @@ System sys;
 
 // ─── Setters ────────────────────────────────────────────────────────────────
 
+void wake_screen()
+{
+    app.last_touch_ms = millis();
+}
+
 void set_play_state(PlayState s)
 {
     if (app.state == s) return;
     app.state = s;
     if (s == PLAY_PLAYING) app.last_audio_ms = millis();
     mark_dirty(Dirty::STATE);
+    wake_screen();
 }
 
 void set_source(Source src)
@@ -25,6 +31,7 @@ void set_source(Source src)
     if (app.source == src) return;
     app.source = src;
     mark_dirty(Dirty::SOURCE);
+    wake_screen();
 }
 
 void set_title(const String &t)
@@ -32,6 +39,7 @@ void set_title(const String &t)
     if (app.title == t) return;
     app.title = t;
     mark_dirty(Dirty::TITLE);
+    wake_screen();
 }
 
 void set_artist(const String &a)
@@ -39,6 +47,8 @@ void set_artist(const String &a)
     if (app.artist == a) return;
     app.artist = a;
     mark_dirty(Dirty::ARTIST);
+    // Note: no wake_screen() here — artist change typically follows a title
+    // change in the same state push and wake_screen() already fired.
 }
 
 void set_volume(int v)
@@ -48,6 +58,7 @@ void set_volume(int v)
     if (app.volume == v) return;
     app.volume = v;
     mark_dirty(Dirty::VOLUME);
+    wake_screen();
 }
 
 void set_position(uint32_t pos_ms, uint32_t dur_ms)

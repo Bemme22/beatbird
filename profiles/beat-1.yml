@@ -40,6 +40,17 @@ display:
   serial_device: auto              # VID 303A vendor match
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback subs; firmware uses LV:-driven energy ring instead
 
+  # ── Active accent (current PAL: protocol) ──
+  accent_color: "2D6A4F"            # forest mid — primary highlight
+
+  # ── Reserved palette — schema-validated, awaiting protocol/firmware extension ──
+  # Design intent (forest / vintage-cap moodboard):
+  accent_glow:    "52B788"          # sage glow — bright variant, "now playing" emphasis
+  accent_dim:     "1B4332"          # forest deep — unfilled tracks, dim ring segments
+  text_primary:   "F4EFE0"          # cream — body text, track title
+  text_secondary: "A89E89"          # linen — labels, source line
+  accent_alert:   "C73E2C"          # rust stitching — warnings, errors
+
 wifi:
   ssid: "your-ssid"                # override before install
   country: DE

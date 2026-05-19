@@ -54,9 +54,22 @@ static bool                      touch_dev        = false;
 static uint8_t                   disp_brightness  = 255;
 
 // ─── SH8601 init sequence (from Waveshare reference) ────────────────────────
+// MADCTL byte (0x36): controls orientation. Per-speaker via build flag.
+//   DISPLAY_ROTATE_90 = 1  →  0xA0 (MV+MX, +90° CW) — for Zipp Mini 2 mounting
+//   DISPLAY_ROTATE_90 = 0  →  0x00 (no rotation)     — for Beat #1 mounting
+// Default is rotated (matches the original Zipp build).
+#ifndef DISPLAY_ROTATE_90
+#define DISPLAY_ROTATE_90 1
+#endif
+#if DISPLAY_ROTATE_90
+#define BB_MADCTL 0xA0
+#else
+#define BB_MADCTL 0x00
+#endif
+
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 80},
-    {0x36, (uint8_t[]){0xA0}, 1,  0},   // MADCTL = MV+MX → +90° CW
+    {0x36, (uint8_t[]){BB_MADCTL}, 1,  0},
     {0xC4, (uint8_t[]){0x80}, 1,  0},
     {0x53, (uint8_t[]){0x20}, 1,  1},
     {0x63, (uint8_t[]){0xFF}, 1,  1},
@@ -169,10 +182,16 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
     if (was_pressed) {
         uint16_t raw_x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
         uint16_t raw_y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
+#if DISPLAY_ROTATE_90
+        // Match the +90° CW MADCTL above so touch maps to rendered pixels
         data->point.x = raw_y;
         data->point.y = (LCD_WIDTH - 1) - raw_x;
+#else
+        data->point.x = raw_x;
+        data->point.y = raw_y;
+#endif
         data->state   = LV_INDEV_STATE_PRESSED;
-        State::app.last_touch_ms = millis();
+        State::wake_screen();
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }

@@ -117,6 +117,12 @@ void set_energy(float e);
 void set_spectrum(const uint8_t *bands, uint8_t count);
 void set_clock(const String &hhmm);
 
+// Reset the dim-timer (last_touch_ms). Called on user touch AND on
+// "significant" bridge events (new track, volume, play-state, source) so the
+// display brightens up when something interesting happens — not only on
+// physical interaction.
+void wake_screen();
+
 Source source_from_string(const char *s);
 const char *source_to_string(Source s);
 
