@@ -54,17 +54,39 @@ static bool                      touch_dev        = false;
 static uint8_t                   disp_brightness  = 255;
 
 // ─── SH8601 init sequence (from Waveshare reference) ────────────────────────
-// MADCTL byte (0x36): controls orientation. Per-speaker via build flag.
-//   DISPLAY_ROTATE_90 = 1  →  0xA0 (MV+MX, +90° CW) — for Zipp Mini 2 mounting
-//   DISPLAY_ROTATE_90 = 0  →  0x00 (no rotation)     — for Beat #1 mounting
-// Default is rotated (matches the original Zipp build).
-#ifndef DISPLAY_ROTATE_90
-#define DISPLAY_ROTATE_90 1
+// MADCTL byte (0x36): controls panel scan orientation. Per-speaker via build
+// flag DISPLAY_ROTATE_DEG = 0 | 90 | 180 | 270 (defaults to 90 = original
+// Zipp Mini 2 mounting). MADCTL semantics on SH8601:
+//   MY=0x80  MX=0x40  MV=0x20
+//   0°  : 0x00
+//   90° : 0xA0 (MV+MX)
+//   180°: 0xC0 (MX+MY)
+//   270°: 0x60 (MV+MY)
+// Touch coords are transformed in the LVGL touch read callback (see below)
+// to match — both MUST stay in sync or taps land in the wrong place.
+//
+// Legacy DISPLAY_ROTATE_90 is honored for backward compat: 0 → DEG=0, else 90.
+#ifdef DISPLAY_ROTATE_90
+  #if DISPLAY_ROTATE_90
+    #define DISPLAY_ROTATE_DEG 90
+  #else
+    #define DISPLAY_ROTATE_DEG 0
+  #endif
 #endif
-#if DISPLAY_ROTATE_90
-#define BB_MADCTL 0xA0
-#else
+#ifndef DISPLAY_ROTATE_DEG
+#define DISPLAY_ROTATE_DEG 90
+#endif
+
+#if   DISPLAY_ROTATE_DEG ==   0
 #define BB_MADCTL 0x00
+#elif DISPLAY_ROTATE_DEG ==  90
+#define BB_MADCTL 0xA0
+#elif DISPLAY_ROTATE_DEG == 180
+#define BB_MADCTL 0xC0
+#elif DISPLAY_ROTATE_DEG == 270
+#define BB_MADCTL 0x60
+#else
+#error "DISPLAY_ROTATE_DEG must be one of 0, 90, 180, 270"
 #endif
 
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
@@ -182,13 +204,19 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
     if (was_pressed) {
         uint16_t raw_x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
         uint16_t raw_y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
-#if DISPLAY_ROTATE_90
-        // Match the +90° CW MADCTL above so touch maps to rendered pixels
-        data->point.x = raw_y;
-        data->point.y = (LCD_WIDTH - 1) - raw_x;
-#else
+        // Match DISPLAY_ROTATE_DEG above so taps map to rendered pixels
+#if   DISPLAY_ROTATE_DEG ==   0
         data->point.x = raw_x;
         data->point.y = raw_y;
+#elif DISPLAY_ROTATE_DEG ==  90
+        data->point.x = raw_y;
+        data->point.y = (LCD_WIDTH - 1) - raw_x;
+#elif DISPLAY_ROTATE_DEG == 180
+        data->point.x = (LCD_WIDTH  - 1) - raw_x;
+        data->point.y = (LCD_HEIGHT - 1) - raw_y;
+#elif DISPLAY_ROTATE_DEG == 270
+        data->point.x = (LCD_HEIGHT - 1) - raw_y;
+        data->point.y = raw_x;
 #endif
         data->state   = LV_INDEV_STATE_PRESSED;
         State::wake_screen();
