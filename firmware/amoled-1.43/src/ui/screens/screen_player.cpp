@@ -240,21 +240,32 @@ static const char *source_label_text(State::Source s) {
     }
 }
 
+// Per-speaker rotation offset for the three rings (vol/prog/energy).
+// Default 0 → matches Zipp Mini 2 with MADCTL=0xA0 panel rotation.
+// On speakers without MADCTL rotation (e.g. Beat #1 with DISPLAY_ROTATE_NATIVE),
+// set this to 90 so the ring gap lands on the user's right (matches Zipp's
+// visual). Text labels are NOT shifted by this — only the polar widgets.
+#ifndef UI_RING_OFFSET_DEG
+#define UI_RING_OFFSET_DEG 0
+#endif
+
 static void precompute_geometry() {
+    constexpr float offset = (float)UI_RING_OFFSET_DEG * (float)M_PI / 180.0f;
     for (int i = 0; i < 24; i++) {
-        float a = -(float)M_PI / 2.0f + (i / 24.0f) * 2.0f * (float)M_PI;
+        float a = -(float)M_PI / 2.0f + (i / 24.0f) * 2.0f * (float)M_PI + offset;
         vol_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::VOL_RING_R);
         vol_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::VOL_RING_R);
     }
     for (int i = 0; i < 60; i++) {
         float a_deg = (float)Theme::PROG_ARC_START_DEG +
-                      (i / 59.0f) * (float)Theme::PROG_ARC_SWEEP_DEG;
+                      (i / 59.0f) * (float)Theme::PROG_ARC_SWEEP_DEG +
+                      (float)UI_RING_OFFSET_DEG;
         float a = a_deg * (float)M_PI / 180.0f;
         prog_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::PROG_RING_R);
         prog_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::PROG_RING_R);
     }
     for (int i = 0; i < 12; i++) {
-        float a_deg = 160.0f - (i / 11.0f) * 140.0f;
+        float a_deg = 160.0f - (i / 11.0f) * 140.0f + (float)UI_RING_OFFSET_DEG;
         float a = a_deg * (float)M_PI / 180.0f;
         energy_cos[i] = cosf(a);
         energy_sin[i] = sinf(a);
