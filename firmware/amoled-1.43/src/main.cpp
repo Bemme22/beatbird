@@ -54,44 +54,49 @@ static bool                      touch_dev        = false;
 static uint8_t                   disp_brightness  = 255;
 
 // ─── SH8601 init sequence (from Waveshare reference) ────────────────────────
-// MADCTL byte (0x36): controls panel scan orientation. Per-speaker via build
-// flag DISPLAY_ROTATE_DEG = 0 | 90 | 180 | 270 (defaults to 90 = original
-// Zipp Mini 2 mounting). MADCTL semantics on SH8601:
-//   MY=0x80  MX=0x40  MV=0x20
-//   0°  : 0x00
-//   90° : 0xA0 (MV+MX)
-//   180°: 0xC0 (MX+MY)
-//   270°: 0x60 (MV+MY)
-// Touch coords are transformed in the LVGL touch read callback (see below)
-// to match — both MUST stay in sync or taps land in the wrong place.
+// Panel orientation: via build flag DISPLAY_ROTATE_DEG.
+//   "native" | "default" → no MADCTL command sent, use the panel's hardware
+//                          default (this is what Beat #1 wants — also the
+//                          original init-commit state of this firmware)
+//   90  → 0xA0 (MV+MX)   — Zipp Mini 2 mounting (current default for that env)
+//   180 → 0xC0 (MX+MY)
+//   270 → 0x60 (MV+MY)
+//   0   → 0x00 explicitly (rarely useful; native is preferred for no-rotation
+//          speakers since it leaves the panel's column/row gap untouched)
+// Touch coords are transformed in the LVGL touch read callback below — keep
+// in sync with whatever rotation is used here.
 //
-// Legacy DISPLAY_ROTATE_90 is honored for backward compat: 0 → DEG=0, else 90.
+// Define DISPLAY_ROTATE_NATIVE to skip the MADCTL command entirely (Beat path).
+// Legacy DISPLAY_ROTATE_90 is honored for backward compat.
 #ifdef DISPLAY_ROTATE_90
   #if DISPLAY_ROTATE_90
     #define DISPLAY_ROTATE_DEG 90
   #else
-    #define DISPLAY_ROTATE_DEG 0
+    #define DISPLAY_ROTATE_NATIVE 1
   #endif
 #endif
-#ifndef DISPLAY_ROTATE_DEG
-#define DISPLAY_ROTATE_DEG 90
-#endif
-
-#if   DISPLAY_ROTATE_DEG ==   0
-#define BB_MADCTL 0x00
-#elif DISPLAY_ROTATE_DEG ==  90
-#define BB_MADCTL 0xA0
-#elif DISPLAY_ROTATE_DEG == 180
-#define BB_MADCTL 0xC0
-#elif DISPLAY_ROTATE_DEG == 270
-#define BB_MADCTL 0x60
-#else
-#error "DISPLAY_ROTATE_DEG must be one of 0, 90, 180, 270"
+#ifndef DISPLAY_ROTATE_NATIVE
+  #ifndef DISPLAY_ROTATE_DEG
+  #define DISPLAY_ROTATE_DEG 90
+  #endif
+  #if   DISPLAY_ROTATE_DEG ==   0
+  #define BB_MADCTL 0x00
+  #elif DISPLAY_ROTATE_DEG ==  90
+  #define BB_MADCTL 0xA0
+  #elif DISPLAY_ROTATE_DEG == 180
+  #define BB_MADCTL 0xC0
+  #elif DISPLAY_ROTATE_DEG == 270
+  #define BB_MADCTL 0x60
+  #else
+  #error "DISPLAY_ROTATE_DEG must be 0, 90, 180 or 270 (or define DISPLAY_ROTATE_NATIVE)"
+  #endif
 #endif
 
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 80},
+#ifndef DISPLAY_ROTATE_NATIVE
     {0x36, (uint8_t[]){BB_MADCTL}, 1,  0},
+#endif
     {0xC4, (uint8_t[]){0x80}, 1,  0},
     {0x53, (uint8_t[]){0x20}, 1,  1},
     {0x63, (uint8_t[]){0xFF}, 1,  1},
@@ -204,8 +209,13 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
     if (was_pressed) {
         uint16_t raw_x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
         uint16_t raw_y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
-        // Match DISPLAY_ROTATE_DEG above so taps map to rendered pixels
-#if   DISPLAY_ROTATE_DEG ==   0
+        // Match panel orientation above so taps map to rendered pixels
+#ifdef DISPLAY_ROTATE_NATIVE
+        // Panel default — same identity that the original (init-commit)
+        // firmware shipped with; verified working on Beat #1.
+        data->point.x = raw_x;
+        data->point.y = raw_y;
+#elif DISPLAY_ROTATE_DEG ==   0
         data->point.x = raw_x;
         data->point.y = raw_y;
 #elif DISPLAY_ROTATE_DEG ==  90
