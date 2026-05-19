@@ -333,7 +333,20 @@ void setup()
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+    // SH8601 has a 6-pixel column offset between its raw addressing and the
+    // visible 466×466 active area. Without compensating, the last 6 columns
+    // wrap to the opposite edge of the display as visible "stripes".
+    //   - NATIVE (no MADCTL): set x_gap=6, y_gap=0 (as in the init commit)
+    //   - 90° (MADCTL=0xA0 = MV+MX): MX reverses column order, so the gap
+    //     swaps into the y direction; we need y_gap=6, x_gap=0.
+    // Other rotations follow the same logic.
+#if defined(DISPLAY_ROTATE_NATIVE) || (defined(DISPLAY_ROTATE_DEG) && DISPLAY_ROTATE_DEG == 0)
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));
+#elif defined(DISPLAY_ROTATE_DEG) && DISPLAY_ROTATE_DEG == 180
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));
+#else  // 90° (Zipp default) or 270°
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x00, 0x06));
+#endif
     Serial.println("Display: OK");
 
     // LVGL
