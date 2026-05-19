@@ -21,22 +21,42 @@ CDSP_VOL_MAX_DB = 0.0
 
 
 def pct_to_db(pct: int, min_db: float = CDSP_VOL_MIN_DB,
-              max_db: float = CDSP_VOL_MAX_DB) -> float:
-    """Map 0..100 to dB, linearly over MIN..MAX range."""
+              max_db: float = CDSP_VOL_MAX_DB, gamma: float = 1.0) -> float:
+    """Map 0..100 to dB with an optional audio-taper curve.
+
+    A linear UI percentage mapped linearly to dB feels deeply broken: dB is
+    already logarithmic, so a "flat" 0..100% slider crams 30 dB of useful
+    range into the top 30% of the slider and leaves the bottom 30% mostly
+    inaudible. ``gamma`` reshapes the curve to match how loudness is
+    perceived (Stevens' Power Law, exponent ~0.5–0.6):
+
+      * gamma=1.0  → linear (legacy behaviour)
+      * gamma=2.0  → Sonos-style taper: lower half of the slider gets the
+                    finer resolution, upper half compresses toward max.
+                    At 50% UI the perceived loudness is ~50%, not ~6%.
+
+    The formula is ``scaled = (pct/100) ** (1/gamma)``. Same convention as
+    image gamma — higher gamma stretches the lower range.
+    """
     pct = max(0, min(100, pct))
-    db_range = max_db - min_db
-    db = min_db + db_range * (pct / 100.0)
+    p = pct / 100.0
+    if gamma != 1.0:
+        p = p ** (1.0 / gamma)
+    db = min_db + (max_db - min_db) * p
     return round(db, 1)
 
 
 def db_to_pct(db: float, min_db: float = CDSP_VOL_MIN_DB,
-              max_db: float = CDSP_VOL_MAX_DB) -> int:
+              max_db: float = CDSP_VOL_MAX_DB, gamma: float = 1.0) -> int:
+    """Inverse of pct_to_db. Used to convert a DSP-reported dB back to UI %."""
     if db <= min_db:
         return 0
     if db >= max_db:
         return 100
-    db_range = max_db - min_db
-    return int(round(100.0 * (db - min_db) / db_range))
+    scaled = (db - min_db) / (max_db - min_db)
+    if gamma != 1.0:
+        scaled = scaled ** gamma
+    return int(round(100.0 * scaled))
 
 
 class CamillaDSP:

@@ -31,11 +31,26 @@ class LoudnessFilter:
     max_boost: float    # max additional boost at volume=0
 
 
-def offset_curve(volume_pct: int) -> float:
-    """Return 0.0..1.0 compensation factor for a given volume.
+def offset_curve(volume_pct: int, curve: str = "legacy") -> float:
+    """Return 0.0..1.0 bass-boost compensation factor for a given volume.
 
-    0 at volume >= 80, 1.0 at volume <= 5, smooth curve in between.
+    ``curve`` selects the response shape:
+      * "legacy"     — original ``((80-vol)/75)^1.5``, fades 1.0 → 0.0 over
+                        vol=5..80. Conservative; modest mid-range boost.
+      * "smoothstep" — plateau at full boost up to vol=10, cubic-smoothstep
+                        decay through vol=75. Matches the "bass max at low
+                        vol, mids/highs grow alone at high vol" intent.
     """
+    if curve == "smoothstep":
+        if volume_pct <= 10:
+            return 1.0
+        if volume_pct >= 75:
+            return 0.0
+        t = (volume_pct - 10) / 65.0          # 0 at vol=10, 1 at vol=75
+        smoothstep = 3.0 * t * t - 2.0 * t * t * t
+        return 1.0 - smoothstep
+
+    # Default: legacy curve
     if volume_pct >= 80:
         return 0.0
     if volume_pct <= 5:
@@ -46,9 +61,11 @@ def offset_curve(volume_pct: int) -> float:
 class LoudnessController:
     """Patches CamillaDSP filter gains based on current volume."""
 
-    def __init__(self, dsp: CamillaDSP, filters: list[LoudnessFilter]):
+    def __init__(self, dsp: CamillaDSP, filters: list[LoudnessFilter],
+                 curve: str = "legacy"):
         self.dsp = dsp
         self.filters = filters
+        self.curve = curve
         self._last_offset: float | None = None
 
     def apply(self, volume_pct: int) -> None:
@@ -56,7 +73,7 @@ class LoudnessController:
         if not self.filters:
             return
 
-        offset = offset_curve(volume_pct)
+        offset = offset_curve(volume_pct, self.curve)
         # Only patch if offset actually changed meaningfully
         if self._last_offset is not None and abs(offset - self._last_offset) < 0.02:
             return

@@ -309,6 +309,7 @@ void setup()
     ScreenPlayer::create();
 
     Serial.println("Ready.");
+    Proto::send_boot_marker();
 }
 
 // =============================================================================

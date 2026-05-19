@@ -134,7 +134,9 @@ def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | N
             log.warning("loudness: unknown filter %r, skipping", f.name)
             continue
         filters.append(LoudnessFilter(name=f.name, max_boost=f.max_boost_db, **base))
-    return LoudnessController(dsp, filters) if filters else None
+    if not filters:
+        return None
+    return LoudnessController(dsp, filters, curve=profile.audio.loudness.curve)
 
 
 def _build_bluetooth(profile: Profile, on_active, on_volume):
@@ -159,6 +161,7 @@ class BeatBirdBridge:
         self.profile = profile
         self.vol_min_db = profile.audio.volume.min_db
         self.vol_max_db = profile.audio.volume.max_db
+        self.vol_gamma  = profile.audio.volume.curve_gamma
 
         self.dsp = CamillaDSP()
         self.spotify = SpotifyClient() if profile.sources.spotify.enabled else None
@@ -215,6 +218,16 @@ class BeatBirdBridge:
         # systemd already auto-restarts on crash; this catches the case where
         # the process is alive but its HTTP API is wedged.
         self._spotify_fail_count: int = 0
+
+        # ── First-volume-sync direction guard ──
+        # go-librespot starts with volume=65535 (max) per its config — that's
+        # so its internal scaling preserves full dynamic range, with the real
+        # gain handled by CamillaDSP. But the first time we see a valid
+        # Spotify volume after bridge start, the naive bidirectional sync
+        # would propagate sp_pct=100 to CamillaDSP and overwrite the
+        # persistent DSP volume → audible MAX volume for the user. Instead,
+        # on the first observation, push the DSP value to Spotify.
+        self._spotify_initial_sync_done: bool = False
 
         # ── Power button ──
         self.power_button = None
@@ -291,11 +304,53 @@ class BeatBirdBridge:
             self.power_button.start()
         self.mqtt.start()
 
-        # Initial sync: CamillaDSP's saved volume wins.
+        # Initial sync: CamillaDSP's persistent volume wins, with two safeguards.
+        # 1) If the DSP is unreachable at start (rare race vs. systemd order),
+        #    fall back to a quiet-but-audible default — better than silent
+        #    (current_volume=0 from __init__ would persist) or current_volume
+        #    leaking a stale value into the first Spotify sync push.
+        # 2) If the DSP volume is above the profile's safe ceiling (max_db,
+        #    typically -10 dB), the persistent state file is almost certainly
+        #    fresh/wiped — CamillaDSP defaults to 0 dB in that case. Snap to a
+        #    conservative "first boot" volume instead of letting the speaker
+        #    blast at full output. The user can immediately turn it up if
+        #    they want; that's recoverable. A first-boot blast is not.
+        SAFE_FIRST_BOOT_PCT = 25
         db = self.dsp.get_volume_db()
-        if db is not None:
+        if db is None:
+            log.warning(
+                "DSP volume unreadable at start, defaulting to %d%%",
+                SAFE_FIRST_BOOT_PCT,
+            )
+            self.current_volume = SAFE_FIRST_BOOT_PCT
+            self.current_volume_db = pct_to_db(
+                SAFE_FIRST_BOOT_PCT, self.vol_min_db, self.vol_max_db, self.vol_gamma,
+            )
+            self.dsp.set_volume_db(self.current_volume_db)
+        elif db > self.vol_max_db + 0.5:
+            log.warning(
+                "DSP volume %.1f dB exceeds profile max %.1f dB (stale state?), "
+                "snapping to %d%%",
+                db, self.vol_max_db, SAFE_FIRST_BOOT_PCT,
+            )
+            self.current_volume = SAFE_FIRST_BOOT_PCT
+            self.current_volume_db = pct_to_db(
+                SAFE_FIRST_BOOT_PCT, self.vol_min_db, self.vol_max_db, self.vol_gamma,
+            )
+            self.dsp.set_volume_db(self.current_volume_db)
+        else:
             self.current_volume_db = db
-            self.current_volume = db_to_pct(db, self.vol_min_db, self.vol_max_db)
+            self.current_volume = db_to_pct(
+                db, self.vol_min_db, self.vol_max_db, self.vol_gamma,
+            )
+
+        # Apply loudness compensation once so the DSP filter gains reflect the
+        # current volume from the moment audio starts flowing. Without this,
+        # the filters stay at their YAML base_gain until the first volume
+        # change, which means quiet listening sounds thin until the user
+        # nudges the volume.
+        if self.loudness:
+            self.loudness.apply(self.current_volume)
 
     def stop(self) -> None:
         log.info("shutting down")
@@ -312,7 +367,7 @@ class BeatBirdBridge:
 
     def set_volume(self, pct: int) -> None:
         pct = max(0, min(100, pct))
-        db = pct_to_db(pct, self.vol_min_db, self.vol_max_db)
+        db = pct_to_db(pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
         self.dsp.set_volume_db(db)
         self.current_volume = pct
         self.current_volume_db = db
@@ -432,9 +487,20 @@ class BeatBirdBridge:
         # Bidirectional volume sync (Spotify app slider → CamillaDSP)
         if not state.stopped and state.volume is not None:
             sp_pct = round(state.volume * 100 / self._sp_volume_steps)
-            if abs(sp_pct - self.current_volume) > 3:
+            if not self._spotify_initial_sync_done:
+                # First observation after bridge start: CamillaDSP's persistent
+                # volume wins. Push it to Spotify instead of letting Spotify's
+                # initial=65535 (max) cascade into DSP and blast the speaker.
+                self._spotify_initial_sync_done = True
+                if abs(sp_pct - self.current_volume) > 3:
+                    log.info(
+                        "Initial Spotify sync: pushing CamillaDSP %d%% → Spotify (was %d%%)",
+                        self.current_volume, sp_pct,
+                    )
+                    self.spotify.set_volume(self.current_volume, self._sp_volume_steps)
+            elif abs(sp_pct - self.current_volume) > 3:
                 log.info("Spotify volume → %d%% (syncing to CamillaDSP)", sp_pct)
-                db = pct_to_db(sp_pct, self.vol_min_db, self.vol_max_db)
+                db = pct_to_db(sp_pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
                 self.dsp.set_volume_db(db)
                 self.current_volume = sp_pct
                 self.current_volume_db = db
@@ -505,7 +571,7 @@ class BeatBirdBridge:
         db = self.dsp.get_volume_db()
         if db is not None:
             self.current_volume_db = db
-            new_pct = db_to_pct(db, self.vol_min_db, self.vol_max_db)
+            new_pct = db_to_pct(db, self.vol_min_db, self.vol_max_db, self.vol_gamma)
             if new_pct != self.current_volume:
                 self.current_volume = new_pct
 

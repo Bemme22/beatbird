@@ -57,6 +57,12 @@ void handle_line(const char *line)
 {
     if (!line || !line[0])              return;
 
+    // Any inbound line from the Pi means the bridge is alive — clear the boot
+    // screen even if we never receive a PAL: (e.g. ESP32 power-cycled after
+    // the bridge already sent its one-shot palette on its own startup, so the
+    // _palette_sent idempotency flag suppresses a re-send).
+    State::app.connected_to_pi = true;
+
     // Cheap prefix-check, no String allocation
     if (!strncmp(line, "PAL:",  4))     { handle_palette_line(line + 4); return; }
     if (!strncmp(line, "SYS:",  4))     { handle_system_line(line);      return; }

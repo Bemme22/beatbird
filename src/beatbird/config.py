@@ -61,11 +61,25 @@ class LoudnessFilter(BaseModel):
 class Loudness(BaseModel):
     enabled: bool = True
     filters: list[LoudnessFilter] = Field(default_factory=list)
+    # Curve selecting how the per-filter boost decays as volume rises.
+    # "legacy" = ((80-vol)/75)^1.5, fades to 0 by vol=80, max at vol≤5.
+    # "smoothstep" = cubic plateau 0..10%, smooth fall to 0 at vol=75.
+    #   Closer to "bass reaches max quickly, then only mids/highs grow" UX.
+    # Profiles must opt in to "smoothstep" — keeps existing speaker tunings
+    # untouched until they're individually validated against the new curve.
+    curve: Literal["legacy", "smoothstep"] = "legacy"
 
 
 class VolumeConfig(BaseModel):
     min_db: float = -60.0
     max_db: float = -10.0
+    # Volume taper. 1.0 = linear dB mapping (legacy — feels broken because dB
+    # is already log: bottom 30% of slider is mostly inaudible). 2.0 = Sonos-
+    # style audio taper, lower half of slider is finely resolved.
+    # Profiles must opt in explicitly so adopting the new curve is a per-
+    # speaker decision, not a silent breaking change for existing setups.
+    # See beatbird.audio.camilladsp.pct_to_db for the formula.
+    curve_gamma: float = 1.0
 
 
 class Audio(BaseModel):

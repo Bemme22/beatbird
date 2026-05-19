@@ -41,6 +41,7 @@ void send_command(const char *cmd);              // "PLAYPAUSE", "NEXT", …
 void send_source_request(const char *src);       // "spotify", "bluetooth", …
 void send_temperature(float celsius);
 void send_heartbeat();                            // periodic, every 10 s
+void send_boot_marker();                          // once, at setup() end
 
 // ─── Inbound parsers (visible for unit-testing) ─────────────────────────────
 

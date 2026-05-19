@@ -42,4 +42,14 @@ void send_heartbeat()
     Serial.printf("[hb] t=%u heap=%u\n", (unsigned)now, (unsigned)ESP.getFreeHeap());
 }
 
+void send_boot_marker()
+{
+    // Emitted once at startup so the bridge can detect an ESP32 reboot
+    // mid-session and re-send its one-shot PAL: palette. Without this the
+    // bridge's `_palette_sent` idempotency flag would suppress the re-send
+    // and the firmware would render with Theme::Color::ACCENT_DEFAULT until
+    // the next bridge restart.
+    Serial.println("[boot]");
+}
+
 }  // namespace Proto

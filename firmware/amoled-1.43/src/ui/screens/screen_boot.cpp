@@ -91,15 +91,15 @@ void create()
     lv_obj_clear_flag(outer_arc, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(outer_arc, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Wordmark — small, top ───────────────────────────────────────────────
+    // ── Wordmark — top ──────────────────────────────────────────────────────
     lbl_wordmark = lv_label_create(scr);
     lv_label_set_text(lbl_wordmark, "BEATBIRD");
     lv_obj_set_style_text_color       (lbl_wordmark, Theme::accent_dim,             0);
-    lv_obj_set_style_text_font        (lbl_wordmark, Theme::font_display_md(),      0);
+    lv_obj_set_style_text_font        (lbl_wordmark, Theme::font_display_lg(),      0);
     lv_obj_set_style_text_letter_space(lbl_wordmark, Theme::LETTER_SPACE_DISPLAY,   0);
-    lv_obj_align(lbl_wordmark, LV_ALIGN_CENTER, 0, -110);
+    lv_obj_align(lbl_wordmark, LV_ALIGN_CENTER, 0, -125);
 
-    // ── Status — large, centre, breathing opacity ───────────────────────────
+    // ── Status — centre, breathing opacity ──────────────────────────────────
     lbl_status = lv_label_create(scr);
     lv_label_set_text(lbl_status, "CONNECTING");
     lv_obj_set_style_text_color       (lbl_status, Theme::accent,                 0);
@@ -111,9 +111,9 @@ void create()
     lbl_subline = lv_label_create(scr);
     lv_label_set_text(lbl_subline, "waiting for raspberry pi");
     lv_obj_set_style_text_color       (lbl_subline, Theme::Color::TEXT_DIM,        0);
-    lv_obj_set_style_text_font        (lbl_subline, Theme::font_body(),            0);
-    lv_obj_set_style_text_letter_space(lbl_subline, Theme::LETTER_SPACE_BODY,      0);
-    lv_obj_align(lbl_subline, LV_ALIGN_CENTER, 0, 38);
+    lv_obj_set_style_text_font        (lbl_subline, Theme::font_display_md(),      0);
+    lv_obj_set_style_text_letter_space(lbl_subline, Theme::LETTER_SPACE_DISPLAY,   0);
+    lv_obj_align(lbl_subline, LV_ALIGN_CENTER, 0, 50);
 
     // ── Animations ──────────────────────────────────────────────────────────
     // Using the v8-compatible API names (lv_anim_set_time / set_playback_time)
@@ -174,7 +174,7 @@ void update()
             snprintf(buf, sizeof(buf), "pi booting   %u%%", (unsigned)p);
             lv_label_set_text(lbl_subline, buf);
         }
-        lv_obj_align(lbl_subline, LV_ALIGN_CENTER, 0, 38);
+        lv_obj_align(lbl_subline, LV_ALIGN_CENTER, 0, 50);
     }
 }
 

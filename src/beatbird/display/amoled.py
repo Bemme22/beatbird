@@ -247,5 +247,13 @@ class AmoledDisplay(DisplayInterface):
         elif raw.startswith("[hb]"):
             self._last_hb_received = time.monotonic()
             log.debug("hb: %s", raw)
+        elif raw.startswith("[boot]"):
+            # ESP32 rebooted mid-session — its accent_color is back to the
+            # Theme::Color::ACCENT_DEFAULT and connected_to_pi is false. The
+            # _palette_sent idempotency flag was set by our own startup, so a
+            # plain _send_palette() would no-op. Reset it.
+            log.info("ESP32 boot marker received, re-sending palette")
+            self._palette_sent = False
+            self._send_palette()
         else:
             log.debug("unknown RX: %s", raw)

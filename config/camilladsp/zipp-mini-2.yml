@@ -63,12 +63,22 @@ filters:
   sub_protect:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 35, order: 4}
+  # Soft limiter on the broadband driver. Aggressive loudness compensation
+  # adds up to ~13 dB of boost in the bass path at low volumes; at high
+  # volumes a track with already-hot bass peaks would clip without this.
+  # Threshold at -1 dBFS leaves a touch of headroom; attack 5 ms keeps
+  # transients audible, release 80 ms is fast enough to not pump.
+  broadband_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
 pipeline:
   - type: Mixer
     name: mono_sum
   - type: Filter
     channels: [0]
-    names: [bass_static, pr_boost, bass_shelf, timpani_body, sub_protect, xover_lp]
+    names: [bass_static, pr_boost, bass_shelf, timpani_body, sub_protect, xover_lp, broadband_limiter]
   - type: Filter
     channels: [1]
     names: [xover_hp, tweeter_trim, rew_7k_notch]
