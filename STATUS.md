@@ -287,10 +287,13 @@ the same dot-glyph language as the volume/progress/energy/wifi rings.
       heartbeat animation (1500 ms breathing opacity) on the WiFi base
       dot when signal is at the lowest non-zero level. Communicates
       "Achtung, gleich weg" without text.
-- [ ] **Bridge-disconnect indicator**. When `last_status_rx` is older
-      than ~5 s, either strike through the whole WiFi antenna or render a
-      single dot in `Theme::Color::SRC_NONE`-like alert red next to it.
-      Currently the user only notices a stuck volume value.
+- [ ] **Bridge-disconnect / Pi-reboot indicator**. When `last_status_rx`
+      is older than ~5 s, replace the player chrome with a large centered
+      status (consistent with the new redesign center) e.g. `PI OFFLINE`
+      or `RECONNECTING…`. Currently the display happily keeps showing
+      the last frame while the Pi reboots — user has no idea anything is
+      wrong until they touch a control and nothing happens.
+      Could also fade or strike through the WiFi antenna as secondary cue.
 - [ ] **Source-change pulse**. On `Dirty::SOURCE`, scale the
       `source_marker` to 2× for ~300 ms then back via
       `lv_obj_set_style_transform_scale()`. Glyph-Phone style "click"
