@@ -52,6 +52,7 @@ static lv_obj_t *scr           = nullptr;
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
 static lv_obj_t *energy_layer  = nullptr;   // 12-dot smile
+static lv_obj_t *wifi_layer    = nullptr;   // 4-bar wifi indicator (top-right)
 
 // Player widgets
 static lv_obj_t *source_marker = nullptr;
@@ -366,6 +367,39 @@ static void energy_draw_cb(lv_event_t *e) {
     }
 }
 
+// 4-bar WiFi signal indicator at top-right. RSSI thresholds match the typical
+// "good/fair/weak" mobile-phone signal interpretation; 0 dBm = unknown
+// (bridge hasn't pushed a SYS line yet) and renders as all-unlit.
+static void wifi_draw_cb(lv_event_t *e) {
+    lv_layer_t *layer = lv_event_get_layer(e);
+
+    int rssi = State::sys.wifi_rssi;
+    int bars;
+    if (rssi == 0)        bars = 0;
+    else if (rssi >= -50) bars = 4;
+    else if (rssi >= -65) bars = 3;
+    else if (rssi >= -75) bars = 2;
+    else if (rssi >= -85) bars = 1;
+    else                  bars = 0;
+
+    lv_draw_rect_dsc_t dsc;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.bg_opa = LV_OPA_COVER;
+
+    for (int i = 0; i < Theme::WIFI_BAR_COUNT; i++) {
+        int h = (i + 1) * 2;                          // heights 2, 4, 6, 8
+        bool lit = (i < bars);
+        dsc.bg_color = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
+        dsc.bg_opa   = lit ? LV_OPA_COVER : (lv_opa_t)120;
+
+        int x1 = Theme::WIFI_X + i * (Theme::WIFI_BAR_W + Theme::WIFI_BAR_GAP);
+        int y2 = Theme::WIFI_Y + Theme::WIFI_BAR_MAX_H;
+        int y1 = y2 - h;
+        lv_area_t bar = { x1, y1, x1 + Theme::WIFI_BAR_W - 1, y2 - 1 };
+        lv_draw_rect(layer, &dsc, &bar);
+    }
+}
+
 static void state_icon_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     lv_obj_t  *obj    = (lv_obj_t *)lv_event_get_target(e);
@@ -549,7 +583,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer); S(energy_layer);
+    S(vol_layer); S(prog_layer); S(energy_layer); S(wifi_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist); S(state_icon); S(lbl_volume);
     H(lbl_clock); H(standby_dot);
@@ -573,7 +607,7 @@ static void show_standby_mode() {
         lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
         current_action = ACT_NONE;
     }
-    S(lbl_clock); S(standby_dot);
+    S(lbl_clock); S(standby_dot); S(wifi_layer);
     start_standby_pulse();
 }
 
@@ -589,7 +623,7 @@ static void show_shutdown_mode() {
     stop_standby_pulse();
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(energy_layer);
+    H(vol_layer); H(prog_layer); H(energy_layer); H(wifi_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon); H(lbl_volume);
     H(lbl_clock); H(standby_dot);
@@ -640,6 +674,7 @@ void create() {
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
     energy_layer = make_layer(energy_draw_cb);
+    wifi_layer   = make_layer(wifi_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
     source_marker = lv_obj_create(scr);
@@ -787,7 +822,14 @@ void update() {
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
         lv_obj_invalidate(energy_layer);
+        lv_obj_invalidate(wifi_layer);
         State::clear_dirty(State::Dirty::ACCENT);
+    }
+
+    // SYS line carries wifi_rssi — repaint the indicator on every refresh
+    if (State::is_dirty(State::Dirty::SYSTEM)) {
+        lv_obj_invalidate(wifi_layer);
+        State::clear_dirty(State::Dirty::SYSTEM);
     }
 
     if (in_standby) {

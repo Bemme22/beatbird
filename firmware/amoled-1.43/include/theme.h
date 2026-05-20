@@ -62,6 +62,15 @@ constexpr int ENERGY_DEFLECTION_PX = 16;   // max outward push of a peak dot
 constexpr int SOURCE_MARKER_SIZE = 10;     // square px
 constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 
+// WiFi signal strength indicator — top-right of player/standby screens.
+// 4 bars growing in height (2, 4, 6, 8 px). RSSI thresholds at -50/-65/-75/-85 dBm.
+constexpr int WIFI_X         = CENTER + 70;    // top-left of bbox
+constexpr int WIFI_Y         = 35;
+constexpr int WIFI_BAR_W     = 3;
+constexpr int WIFI_BAR_GAP   = 2;
+constexpr int WIFI_BAR_COUNT = 4;
+constexpr int WIFI_BAR_MAX_H = 8;
+
 // Text placement (relative to centre). Tightened by 4 px in places now that
 // Departure Mono is taller per glyph at matched body sizes.
 constexpr int TITLE_Y_OFFSET     = -22;
