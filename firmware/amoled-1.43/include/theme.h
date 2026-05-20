@@ -63,9 +63,8 @@ constexpr int SOURCE_MARKER_SIZE = 10;     // square px
 constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 
 // WiFi signal indicator — dot-matrix "antenna" centered under the source
-// marker. Three upward-curving rows of dots lighting up from inside out
-// with signal strength. Matches the dot-vocabulary used by the volume /
-// progress / energy rings (Nothing-Glyph aesthetic).
+// marker. Three upward-curving rows of dots that REVEAL with signal
+// strength (no dim placeholder dots — keeps the area clean).
 //
 //   Level 0 (no signal):  dim base dot only
 //   Level 1 (≥ -85 dBm):  bright base dot
@@ -74,14 +73,15 @@ constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 //   Level 4 (≥ -55 dBm):  + outer arc  (7 dots)
 //
 // Lives in the gap between the source marker (y ≤ 19) and the source
-// label (y ≈ 63). Total bbox ~32×18 px.
+// label (y ≈ 63). Dot radius scaled up from 2→3 px for arm's-length
+// visibility; arc radii bumped to keep proportions.
 constexpr int WIFI_CX           = CENTER;
-constexpr int WIFI_CY           = 44;    // y of the base dot
-constexpr int WIFI_DOT_R        = 2;
-constexpr int WIFI_ARC_DOT_R    = 2;
-constexpr int WIFI_ARC1_R       = 6;
-constexpr int WIFI_ARC2_R       = 11;
-constexpr int WIFI_ARC3_R       = 16;
+constexpr int WIFI_CY           = 42;    // y of the base dot
+constexpr int WIFI_DOT_R        = 3;
+constexpr int WIFI_ARC_DOT_R    = 3;
+constexpr int WIFI_ARC1_R       = 8;
+constexpr int WIFI_ARC2_R       = 14;
+constexpr int WIFI_ARC3_R       = 20;
 constexpr int WIFI_ARC1_DOTS    = 3;
 constexpr int WIFI_ARC2_DOTS    = 5;
 constexpr int WIFI_ARC3_DOTS    = 7;

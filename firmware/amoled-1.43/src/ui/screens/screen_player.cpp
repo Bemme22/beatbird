@@ -387,11 +387,11 @@ static void wifi_draw_cb(lv_event_t *e) {
     const int cy = Theme::WIFI_CY;
 
     // Distribute n dots along an upward-opening 90° arc (-135° … -45° in
-    // LVGL screen coords, where -90° points straight up). Endpoints
-    // included so the outermost dots define the visual width clearly.
+    // LVGL screen coords, where -90° points straight up). Only drawn when
+    // lit — empty arcs stay invisible to keep the area clean and let the
+    // user read signal strength at a glance.
     auto draw_arc_of_dots = [&](int radius, int n, bool lit) {
-        lv_color_t c = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = lit ? LV_OPA_COVER : (lv_opa_t)110;
+        if (!lit) return;
         const float span = (float)Theme::WIFI_ARC_SPAN_DEG;
         for (int i = 0; i < n; i++) {
             float frac  = (n > 1) ? (i / (float)(n - 1)) : 0.5f;
@@ -399,7 +399,7 @@ static void wifi_draw_cb(lv_event_t *e) {
             float a     = a_deg * (float)M_PI / 180.0f;
             int x = cx + (int)roundf(cosf(a) * radius);
             int y = cy + (int)roundf(sinf(a) * radius);
-            draw_dot(layer, x, y, Theme::WIFI_ARC_DOT_R, c, o);
+            draw_dot(layer, x, y, Theme::WIFI_ARC_DOT_R, Theme::accent, LV_OPA_COVER);
         }
     };
 
