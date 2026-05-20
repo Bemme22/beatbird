@@ -238,6 +238,14 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
 
 ### Display polish ideas (dot-vocabulary, Nothing-Glyph aesthetic)
 
+- [ ] **Merge energy ring into volume ring** — instead of the central
+      "energy smile" (12 dots) competing with the title text for visual
+      attention in the player screen center, modulate the 24 vol_layer
+      dots themselves with the audio energy (brightness/scale ripple
+      around the ring while playing). One ring instead of two; central
+      area stays clean for title/artist/state-icon. Removes the
+      energy_layer widget entirely. Idea from Steff 2026-05-19.
+
 All small, parked for whenever the mood for UI work strikes. Each fits
 the same dot-glyph language as the volume/progress/energy/wifi rings.
 
