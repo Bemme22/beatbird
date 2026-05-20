@@ -6,7 +6,7 @@
 
 | Speaker | Repo | Status | OS |
 |---|---|---|---|
-| Beat #1 | beatbird-display (old) | ✅ Production | Bookworm |
+| Beat #1 | beatbird (new, migrated 2026-05-19) | 🔧 Functional, overlay still disabled (polish pending) | Bookworm |
 | Zipp Mini 2 | beatbird (new, v2.1.0) | ✅ Production (sound, display, standby, play/pause stable) | Trixie |
 
 ## Install fixes committed (v2.1.1)
@@ -118,6 +118,51 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
   pipe; `power_button.start()` chdirs to `/var/lib/beatbird` (one of the
   `ReadWritePaths` in our hardened service unit) to work around it.
 
+## Session 2026-05-19 (evening) — Beat #1 migration + firmware polish
+
+- ✅ **Display wake on bridge events** (`firmware/.../state.cpp` + `main.cpp`) —
+  `wake_screen()` helper resets the dim timer not only on touch but also on
+  any "interesting" state change (`set_play_state`, `set_source`, `set_title`,
+  `set_volume`). New track / volume change brightens the display, then it
+  dims back to `DIM_BRIGHTNESS` after `DIM_AFTER_MS` of inactivity.
+- ✅ **6-color palette schema in `Display` profile model** —
+  `accent_glow`, `accent_dim`, `text_primary`, `text_secondary`,
+  `accent_alert` accepted alongside the existing `accent_color`. Beat #1
+  has its full forest palette (`#2D6A4F` / `#52B788` / `#1B4332` / `#F4EFE0` /
+  `#A89E89` / `#C73E2C`) recorded in `beat-1.yml`. **Only `accent_color`
+  is currently transmitted** via the single-color `PAL:` protocol; the
+  other five are stored, awaiting protocol/firmware extension (see roadmap).
+- ✅ **Beat #1 migration** off legacy `beatbird-display` → current
+  `beatbird` repo: overlayroot disabled via cmdline.txt edit on the FAT
+  partition (overlay covers home + /tmp; only `/boot/firmware` is on the
+  raw FAT partition), `make install` ran clean after a `raspi-config
+  do_serial → do_serial_hw + do_serial_cons` patch (the legacy `do_serial`
+  triggered an interactive whiptail even with `nonint`). CamillaDSP
+  bumped 4.0.0 → 4.1.2, go-librespot to 0.7.1, all systemd units
+  rendered from the new template. BlueALSA + snapclient services from
+  the legacy install left untouched. ⚠️ Overlay deliberately left
+  disabled — Beat needs another tuning pass tomorrow (loudness, WLAN
+  display, brand graphics) before re-enabling.
+- ✅ **Per-speaker firmware rotation: `DISPLAY_ROTATE_NATIVE`** —
+  Beat #1's panel is mounted such that no MADCTL command works: every
+  `0x36` value with non-zero bits produced wrong-orientation or wrap
+  artefacts. The init-commit firmware shipped without any `0x36` command
+  at all; that was the working state for Beat. New build flag skips the
+  MADCTL write entirely. Zipp Mini 2 still uses the old `DISPLAY_ROTATE_DEG=90`
+  path (MADCTL=0xA0). New PIO env `[env:beat]` builds with NATIVE; legacy
+  envs `beat-rot{0,180,270}` retained for debugging.
+- ✅ **`set_gap` rotation-dependency fix** — the call had been silently
+  swapped during an earlier refactor: init commit had `set_gap(0x06,
+  0x00)` (x_gap=6), current code had it as `set_gap(0x00, 0x06)`.
+  Worked on Zipp because MADCTL=0xA0 swaps x/y addressing internally,
+  cancelling the bug. On Beat (NATIVE, no MADCTL) the SH8601's built-in
+  6-pixel column offset showed up as wrap-around "stripes" at the
+  display edges. Now conditional on the rotation flag.
+- ✅ **`raspi-config do_serial` install bug fixed** —
+  `install/00-base.sh` was calling the legacy `do_serial 0` which is
+  interactive even with `nonint`. Replaced with the split commands
+  `do_serial_hw 0` + `do_serial_cons 1` (truly non-interactive).
+
 ## Code review findings (2026-05-19)
 
 ### High priority
@@ -187,10 +232,51 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
 
 - [x] ~~Soundcheck + display test on Zipp Mini 2~~ ✅ (98 % play/pause
       reliability, energy ring + display fully verified 2026-05-19)
-- [ ] **Beat #1 migration** off legacy `beatbird-display` → current
-      `beatbird` repo. CamillaDSP-config already synced; Plus 2X amixer
-      script ready. Open: bridge service deploy, go-librespot 0.7.1
-      with new buffer config, firmware flash check.
+- [x] ~~**Beat #1 migration** off legacy `beatbird-display` → current
+      `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
+      above. Overlay reactivation + polish items pending.
+
+### Sound design ideas (whenever the mood strikes — not blocking anything)
+
+- [ ] **Treble lift in loudness** (`air_lift` high-shelf @ ~8 kHz, +2-3 dB
+      max_boost). Completes the Fletcher-Munson U-curve we currently only
+      do on the bass side. ~30 min: add filter to `*.yml`, register in
+      profile loudness chain, no code changes needed.
+- [ ] **Tilt-EQ filter** with MQTT-switchable presets (warm / neutral /
+      bright). One filter, gentle slope ±X dB per octave, patched via
+      PatchConfig from a HA toggle. Lets you mood-shift without rebuilding
+      the filter chain.
+- [ ] **Adaptive compression at high volume** — soft compressor that
+      kicks in above ~70 % volume to protect drivers and even out
+      perceived loudness on dynamic tracks. CamillaDSP's `Compressor`
+      filter, threshold linked to current volume via PatchConfig.
+- [ ] **Subtle M/S stereo widening** on the treble band — adds perceived
+      stage width to small speakers without making the center diffuse.
+      Mid/side mixer + treble-only shelf on the sides.
+- [ ] **Per-source EQ bias** — BT-A2DP often loses air; add +2 dB
+      high-shelf only when `source=bluetooth`. Bridge would `PatchConfig`
+      a single filter on source-change events. Spotify lossless stays
+      flat.
+
+### Open items for Beat #1 polish (next session)
+
+- [ ] **Re-enable overlayroot on Beat #1** — currently `overlayroot=disabled`
+      in `/boot/firmware/cmdline.txt` (backup at `cmdline.txt.preMigration`).
+      Once polish is done, `sudo sed -i 's/overlayroot=disabled/overlayroot=tmpfs/'`
+      + reboot. Verify migration survives the overlay re-engage.
+- [ ] **Beat loudness review** — Steff reports bass boost is too aggressive.
+      Profile currently has `bass_shelf max_boost_db: 3.0`, `sub_punch: 2.0`,
+      `timpani_body: 1.5`. Walk through all three filters with him,
+      decide new values, possibly also revisit CamillaDSP base gains.
+- [ ] **WiFi status indicator on the display** — bridge already sends
+      `wifi_rssi` via the SYS: line and the firmware tracks it in
+      `sys.wifi_rssi`, but nothing renders it. Add a small signal-bars
+      widget (likely top of standby clock face, or status corner of
+      player screen).
+- [ ] **Bird brand graphic** — small "Vögelchen" silhouette as boot
+      screen / standby decoration, fitting the Departure-Mono /
+      Nothing-Glyph aesthetic. Source asset, convert via LVGL image
+      converter, integrate into screen_boot.cpp or screen_player.cpp.
 - [ ] **Power button rewire** when housing is next opened — move button
       from GPIO3 → GPIO17 (or another free pin). Then flip
       `hardware.power_button.enabled: true` in `zipp-mini-2.yml` and
