@@ -1,6 +1,9 @@
 # CamillaDSP config — Libratone Beat (#1 and #2 until #2 gets measured).
 # REW-tuned on Beat #1, 2025-04 with UMIK-1 at 50 cm, 0° calibration.
 # rew_2269 re-tuned 2026-05-18 (live -6.1 dB, was -4.0 dB).
+# Bass-stack moderated 2026-05-19: bass_shelf 10→6, sub_punch 5→3,
+# timpani_body 3→2. Previous values were boombox-tune; new values give a
+# warmer-but-not-deftig low end on the Plus 2X stack.
 #
 # Pipeline: 2-ch loopback capture → EQ/loudness filter chain → 2-ch playback
 # to hw:LouderRaspberry,0. The sub channel on Plus 2X is handled entirely by
@@ -33,21 +36,21 @@ filters:
     parameters:
       type: Lowshelf
       freq: 120
-      gain: 10
+      gain: 6
       q: 0.6
   sub_punch:
     type: Biquad
     parameters:
       type: Peaking
       freq: 45
-      gain: 5
+      gain: 3
       q: 0.7
   timpani_body:
     type: Biquad
     parameters:
       type: Peaking
       freq: 70
-      gain: 3
+      gain: 2
       q: 1.0
   fullness:
     type: Biquad
@@ -79,12 +82,24 @@ filters:
       freq: 35
       order: 6
 
+  # ─── Output limiter (safety net) ──────────────────────────────────────────
+  # With +6 dB bass_shelf and the +3 dB loudness boost on top, hot-mastered
+  # tracks can clip the stereo path at high volumes. Soft-clip at -1 dBFS
+  # tames peaks without audible pumping.
+  broadband_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+
 pipeline:
   - type: Filter
     channels: [0]
     names: [bass_shelf, sub_punch, timpani_body, fullness,
-            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+            rew_600, rew_2269, rew_9886, rew_14025,
+            sub_protect, broadband_limiter]
   - type: Filter
     channels: [1]
     names: [bass_shelf, sub_punch, timpani_body, fullness,
-            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+            rew_600, rew_2269, rew_9886, rew_14025,
+            sub_protect, broadband_limiter]
