@@ -236,15 +236,39 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
-### Display polish ideas (dot-vocabulary, Nothing-Glyph aesthetic)
+### Display redesign — next big firmware patch (Steff 2026-05-19)
 
-- [ ] **Merge energy ring into volume ring** — instead of the central
-      "energy smile" (12 dots) competing with the title text for visual
-      attention in the player screen center, modulate the 24 vol_layer
-      dots themselves with the audio energy (brightness/scale ripple
-      around the ring while playing). One ring instead of two; central
-      area stays clean for title/artist/state-icon. Removes the
-      energy_layer widget entirely. Idea from Steff 2026-05-19.
+A coherent UI overhaul that frees up the center of the screen for
+larger, more legible content. To be done in one cohesive pass, not
+piecemeal. Driving idea: the volume % and the small state icon are
+both consuming valuable center real estate that the title/artist could
+use better.
+
+- [ ] **Remove `lbl_volume` (`39%` text)** entirely. Volume is already
+      readable from the lit segments of the outer dot ring; the literal
+      number is redundant.
+- [ ] **Repurpose the center for large status announcements** instead
+      of the small `state_icon`. When something needs the user's
+      attention — paused, muted, skipping, connection lost, error —
+      render a large centered glyph or phrase (`PAUSE`, `MUTE`, `SKIP`,
+      `CONNECTION LOST`, `ERROR`…). Normal playback shows nothing in
+      the center, so title/artist breathe.
+- [ ] **Title + artist one font-step larger** since they don't compete
+      with the center icon and percent anymore. Display-md → display-lg
+      for the title, body → display-md for the artist (or similar).
+- [ ] **Energy visualization moves into volume OR progress ring** —
+      instead of the central 12-dot smile competing with title text,
+      modulate either the 24 vol_layer dots or the 60 prog_layer dots
+      with audio energy (brightness/scale ripple around the existing
+      ring while playing). One ring carries two pieces of info; central
+      area stays clean. Removes the `energy_layer` widget entirely.
+
+The Dot-vocabulary polish items below (mute glyph, pulse-on-weak-wifi,
+bridge-disconnect, source-pulse, boot antenna) ideally land in the same
+firmware patch — they all draw on the same visual language and share
+the new freed-up real estate.
+
+### Dot-vocabulary polish items (group with redesign above)
 
 All small, parked for whenever the mood for UI work strikes. Each fits
 the same dot-glyph language as the volume/progress/energy/wifi rings.
