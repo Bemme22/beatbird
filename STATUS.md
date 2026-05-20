@@ -236,6 +236,32 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+### Display polish ideas (dot-vocabulary, Nothing-Glyph aesthetic)
+
+All small, parked for whenever the mood for UI work strikes. Each fits
+the same dot-glyph language as the volume/progress/energy/wifi rings.
+
+- [ ] **Mute glyph** instead of `0%` text. When `volume == 0`, hide
+      `lbl_volume` and render a struck-through mini-dot in its place —
+      single dot with a horizontal line across it. More consistent than
+      the literal "0 %" number.
+- [ ] **Pulsing antenna at weak signal** (level 1). Reuse the standby
+      heartbeat animation (1500 ms breathing opacity) on the WiFi base
+      dot when signal is at the lowest non-zero level. Communicates
+      "Achtung, gleich weg" without text.
+- [ ] **Bridge-disconnect indicator**. When `last_status_rx` is older
+      than ~5 s, either strike through the whole WiFi antenna or render a
+      single dot in `Theme::Color::SRC_NONE`-like alert red next to it.
+      Currently the user only notices a stuck volume value.
+- [ ] **Source-change pulse**. On `Dirty::SOURCE`, scale the
+      `source_marker` to 2× for ~300 ms then back via
+      `lv_obj_set_style_transform_scale()`. Glyph-Phone style "click"
+      feedback for source switches.
+- [ ] **Boot antenna echo**. In `ScreenBoot` reuse the same WiFi-antenna
+      glyph while waiting for the Pi connection, lighting the three
+      arcs sequentially. Visually anchors the boot screen to the player
+      screen's WiFi indicator — same vocabulary, different context.
+
 ### Sound design ideas (whenever the mood strikes — not blocking anything)
 
 - [ ] **Treble lift in loudness** (`air_lift` high-shelf @ ~8 kHz, +2-3 dB

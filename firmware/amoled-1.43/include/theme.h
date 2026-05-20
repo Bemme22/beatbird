@@ -62,14 +62,30 @@ constexpr int ENERGY_DEFLECTION_PX = 16;   // max outward push of a peak dot
 constexpr int SOURCE_MARKER_SIZE = 10;     // square px
 constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 
-// WiFi signal strength indicator — top-right of player/standby screens.
-// 4 bars growing in height (2, 4, 6, 8 px). RSSI thresholds at -50/-65/-75/-85 dBm.
-constexpr int WIFI_X         = CENTER + 70;    // top-left of bbox
-constexpr int WIFI_Y         = 35;
-constexpr int WIFI_BAR_W     = 3;
-constexpr int WIFI_BAR_GAP   = 2;
-constexpr int WIFI_BAR_COUNT = 4;
-constexpr int WIFI_BAR_MAX_H = 8;
+// WiFi signal indicator — dot-matrix "antenna" centered under the source
+// marker. Three upward-curving rows of dots lighting up from inside out
+// with signal strength. Matches the dot-vocabulary used by the volume /
+// progress / energy rings (Nothing-Glyph aesthetic).
+//
+//   Level 0 (no signal):  dim base dot only
+//   Level 1 (≥ -85 dBm):  bright base dot
+//   Level 2 (≥ -75 dBm):  + inner arc  (3 dots)
+//   Level 3 (≥ -67 dBm):  + middle arc (5 dots)
+//   Level 4 (≥ -55 dBm):  + outer arc  (7 dots)
+//
+// Lives in the gap between the source marker (y ≤ 19) and the source
+// label (y ≈ 63). Total bbox ~32×18 px.
+constexpr int WIFI_CX           = CENTER;
+constexpr int WIFI_CY           = 44;    // y of the base dot
+constexpr int WIFI_DOT_R        = 2;
+constexpr int WIFI_ARC_DOT_R    = 2;
+constexpr int WIFI_ARC1_R       = 6;
+constexpr int WIFI_ARC2_R       = 11;
+constexpr int WIFI_ARC3_R       = 16;
+constexpr int WIFI_ARC1_DOTS    = 3;
+constexpr int WIFI_ARC2_DOTS    = 5;
+constexpr int WIFI_ARC3_DOTS    = 7;
+constexpr int WIFI_ARC_SPAN_DEG = 90;    // upward-opening 90° sweep
 
 // Text placement (relative to centre). Tightened by 4 px in places now that
 // Departure Mono is taller per glyph at matched body sizes.

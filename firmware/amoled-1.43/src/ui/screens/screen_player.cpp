@@ -367,37 +367,53 @@ static void energy_draw_cb(lv_event_t *e) {
     }
 }
 
-// 4-bar WiFi signal indicator at top-right. RSSI thresholds match the typical
-// "good/fair/weak" mobile-phone signal interpretation; 0 dBm = unknown
-// (bridge hasn't pushed a SYS line yet) and renders as all-unlit.
+// Dot-matrix "antenna" WiFi indicator — base dot + three upward arcs.
+// Matches the existing vol/prog/energy dot vocabulary instead of the
+// generic 4-bar phone glyph.
 static void wifi_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
 
+    // RSSI → 0..4 signal level
     int rssi = State::sys.wifi_rssi;
-    int bars;
-    if (rssi == 0)        bars = 0;
-    else if (rssi >= -50) bars = 4;
-    else if (rssi >= -65) bars = 3;
-    else if (rssi >= -75) bars = 2;
-    else if (rssi >= -85) bars = 1;
-    else                  bars = 0;
+    int level;
+    if (rssi == 0)        level = 0;
+    else if (rssi >= -55) level = 4;
+    else if (rssi >= -67) level = 3;
+    else if (rssi >= -75) level = 2;
+    else if (rssi >= -85) level = 1;
+    else                  level = 0;
 
-    lv_draw_rect_dsc_t dsc;
-    lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_opa = LV_OPA_COVER;
+    const int cx = Theme::WIFI_CX;
+    const int cy = Theme::WIFI_CY;
 
-    for (int i = 0; i < Theme::WIFI_BAR_COUNT; i++) {
-        int h = (i + 1) * 2;                          // heights 2, 4, 6, 8
-        bool lit = (i < bars);
-        dsc.bg_color = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        dsc.bg_opa   = lit ? LV_OPA_COVER : (lv_opa_t)120;
+    // Distribute n dots along an upward-opening 90° arc (-135° … -45° in
+    // LVGL screen coords, where -90° points straight up). Endpoints
+    // included so the outermost dots define the visual width clearly.
+    auto draw_arc_of_dots = [&](int radius, int n, bool lit) {
+        lv_color_t c = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
+        lv_opa_t   o = lit ? LV_OPA_COVER : (lv_opa_t)110;
+        const float span = (float)Theme::WIFI_ARC_SPAN_DEG;
+        for (int i = 0; i < n; i++) {
+            float frac  = (n > 1) ? (i / (float)(n - 1)) : 0.5f;
+            float a_deg = -135.0f + frac * span;
+            float a     = a_deg * (float)M_PI / 180.0f;
+            int x = cx + (int)roundf(cosf(a) * radius);
+            int y = cy + (int)roundf(sinf(a) * radius);
+            draw_dot(layer, x, y, Theme::WIFI_ARC_DOT_R, c, o);
+        }
+    };
 
-        int x1 = Theme::WIFI_X + i * (Theme::WIFI_BAR_W + Theme::WIFI_BAR_GAP);
-        int y2 = Theme::WIFI_Y + Theme::WIFI_BAR_MAX_H;
-        int y1 = y2 - h;
-        lv_area_t bar = { x1, y1, x1 + Theme::WIFI_BAR_W - 1, y2 - 1 };
-        lv_draw_rect(layer, &dsc, &bar);
+    // Base dot — always drawn (dim when no signal, bright when connected)
+    {
+        bool lit = (level >= 1);
+        lv_color_t c = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
+        lv_opa_t   o = lit ? LV_OPA_COVER : (lv_opa_t)110;
+        draw_dot(layer, cx, cy, Theme::WIFI_DOT_R, c, o);
     }
+
+    draw_arc_of_dots(Theme::WIFI_ARC1_R, Theme::WIFI_ARC1_DOTS, level >= 2);
+    draw_arc_of_dots(Theme::WIFI_ARC2_R, Theme::WIFI_ARC2_DOTS, level >= 3);
+    draw_arc_of_dots(Theme::WIFI_ARC3_R, Theme::WIFI_ARC3_DOTS, level >= 4);
 }
 
 static void state_icon_draw_cb(lv_event_t *e) {
