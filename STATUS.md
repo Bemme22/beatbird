@@ -262,6 +262,12 @@ use better.
       with audio energy (brightness/scale ripple around the existing
       ring while playing). One ring carries two pieces of info; central
       area stays clean. Removes the `energy_layer` widget entirely.
+- [ ] **Source management UI rework** — current source-picker (touch
+      gesture → list of sources → `CMD:SOURCE:bluetooth` etc.) is
+      functional but visually ad-hoc. Redesign with the same
+      dot-vocabulary: e.g. four corner dots colored by `Color::SRC_*`,
+      tap to select. Bridge already implements mutual-kill handoff, so
+      this is purely display+touch UX.
 
 The Dot-vocabulary polish items below (mute glyph, pulse-on-weak-wifi,
 bridge-disconnect, source-pulse, boot antenna) ideally land in the same
@@ -348,6 +354,12 @@ the same dot-glyph language as the volume/progress/energy/wifi rings.
       instead of compile-time `constexpr`, (c) bridge reads new fields and
       sends them. Beat #1 has its full forest palette already in `beat-1.yml`
       waiting for protocol support.
+- [ ] **Snapcast server on TrueNAS** — in progress (Steff working on it
+      2026-05-19). Once up, Beat #1's existing snapclient will auto-
+      discover via mDNS; nothing to do on the speaker side beyond
+      flipping `sources.snapcast.enabled: true` in `beat-1.yml` so the
+      bridge knows about it and the new source-management UI can list
+      it.
 - [ ] **Spectrum reanimation** (optional) — `/etc/asound.conf` `dsnoop`
       alias so PortAudio and CamillaDSP can share the loopback capture.
       Then re-install `[fft]` extra + `libportaudio2`, set
