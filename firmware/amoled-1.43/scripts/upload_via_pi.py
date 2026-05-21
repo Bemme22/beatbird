@@ -62,9 +62,12 @@ def upload_via_pi(source, target, env):
     print(f"    Env:      {env['PIOENV']}")
     print(f"    Firmware: {firmware.name}  ({firmware.stat().st_size // 1024} KB)\n")
 
-    # 1. Stop bridge to free the serial port
+    # 1. Stop bridge to free the serial port. Exit code is ignored: when the
+    # bridge is mid-restart (e.g. after `make update`), systemctl returns
+    # exit 1 with "Job canceled" — but the service IS stopped. If the port
+    # is actually still busy, esptool in step 3 will surface a clear error.
     print("[1/4] Stopping beatbird-bridge...")
-    _run(["ssh", pi_host, "sudo systemctl stop beatbird-bridge"])
+    _run(["ssh", pi_host, "sudo systemctl stop beatbird-bridge"], check=False)
 
     # 2. Transfer binary
     print("[2/4] Copying firmware to Pi...")
