@@ -259,9 +259,22 @@ class BeatBirdBridge:
 
     def _start_weather_poller(self) -> None:
         """Spawn the Open-Meteo background poller if configured. Pushes
-        WX: lines directly to the display via push_raw."""
+        WX: lines directly to the display via push_raw.
+
+        Coordinates are read from env vars (BEATBIRD_WEATHER_LAT/LON)
+        — they are personal data and never live in the committed profile
+        YAML. Install hook reads them from `secrets/location.coords`."""
         wcfg = self.profile.weather
         if not wcfg.enabled or not self.display:
+            return
+        try:
+            lat = float(os.environ.get("BEATBIRD_WEATHER_LAT", "").strip())
+            lon = float(os.environ.get("BEATBIRD_WEATHER_LON", "").strip())
+        except ValueError:
+            log.warning(
+                "weather enabled but BEATBIRD_WEATHER_LAT/LON unset or invalid — "
+                "create secrets/location.coords (one line: 'lat,lon') and re-run install"
+            )
             return
         try:
             from beatbird.weather import start_in_thread
@@ -270,13 +283,12 @@ class BeatBirdBridge:
             return
         try:
             start_in_thread(
-                lat=wcfg.latitude,
-                lon=wcfg.longitude,
+                lat=lat, lon=lon,
                 serial_writer=self.display.push_raw,
                 interval_s=wcfg.interval_minutes * 60,
             )
             log.info("weather poller started (%.4f, %.4f, every %d min)",
-                     wcfg.latitude, wcfg.longitude, wcfg.interval_minutes)
+                     lat, lon, wcfg.interval_minutes)
         except Exception as e:
             log.error("weather poller failed to start: %s", e)
 

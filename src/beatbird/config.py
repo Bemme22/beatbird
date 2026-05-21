@@ -160,9 +160,12 @@ class Hardware(BaseModel):
 
 
 class WeatherConfig(BaseModel):
+    """Per-speaker weather opt-in. Coordinates are personal data — they
+    do NOT live in the (potentially public) profile YAML. Instead they
+    come from the BEATBIRD_WEATHER_LAT / BEATBIRD_WEATHER_LON env vars,
+    rendered into /etc/beatbird/env by install/00-base.sh from the
+    gitignored `secrets/location.coords` file (one line: "lat,lon")."""
     enabled: bool = False
-    latitude: float = 0.0
-    longitude: float = 0.0
     interval_minutes: int = 30
 
 

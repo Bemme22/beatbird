@@ -72,12 +72,12 @@ hardware:
 
 # ─── Weather (optional, drives the standby screen) ────────────────────────────
 # Bridge polls Open-Meteo every `interval_minutes` and pushes a single WX:
-# line to the ESP32 (firmware ≥ post-2026-05-21). When disabled or omitted,
-# standby falls back to clock + heartbeat only.
+# line to the ESP32. Coordinates are personal data — they live in
+# `secrets/location.coords` (one line: "lat,lon"), NOT here in the profile.
+# `make secrets` scaffolds an example file. When disabled or when the
+# secrets file is missing, standby falls back to clock + heartbeat only.
 weather:
   enabled: false
-  latitude:  0.0                     # your actual coords
-  longitude: 0.0
   interval_minutes: 30
 
 # ─── WiFi ─────────────────────────────────────────────────────────────────────
