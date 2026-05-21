@@ -31,10 +31,13 @@ audio:
   loudness:
     enabled: true
     curve: smoothstep     # cubic decay from vol=10 (full boost) through vol=75 (no boost)
+    # Halved 2026-05-21 — low-volume bass was still too fat. Stays tasteful
+    # below 50%, base camilladsp gains carry above 50% where user says it
+    # already sits right.
     filters:
-      - {name: bass_shelf,   max_boost_db: 3.0}
-      - {name: sub_punch,    max_boost_db: 2.0}
-      - {name: timpani_body, max_boost_db: 1.5}
+      - {name: bass_shelf,   max_boost_db: 1.5}
+      - {name: sub_punch,    max_boost_db: 1.0}
+      - {name: timpani_body, max_boost_db: 0.75}
 
 display:
   type: amoled
