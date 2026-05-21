@@ -428,6 +428,12 @@ class BeatBirdBridge:
         if self.in_standby:
             self._exit_standby("user command")
 
+        # WAKE: tap-to-wake from the standby screen. Side-effect-free — the
+        # exit_standby call above is the whole point. Don't forward it to
+        # AVRCP / Spotify; those would either no-op or misinterpret.
+        if cmd == "WAKE":
+            return
+
         if self.source == Source.BLUETOOTH and self.bt:
             from beatbird.sources.bluetooth import send_avrcp
             active = self.bt.active_device()

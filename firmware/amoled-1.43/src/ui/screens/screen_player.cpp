@@ -565,7 +565,14 @@ static void on_pressing(lv_event_t *e) {
 
 static void on_released(lv_event_t *e) {
     rotary_active = false;
-    if (in_standby || in_shutdown) return;
+    if (in_shutdown) return;
+
+    // Tap-to-wake from standby. Any release wakes — the bridge calls
+    // _exit_standby() on any CMD: so WAKE is a no-op past that point.
+    if (in_standby) {
+        Proto::send_command("WAKE");
+        return;
+    }
 
     if (rotary_consumed) return;
 

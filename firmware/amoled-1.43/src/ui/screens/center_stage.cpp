@@ -44,9 +44,13 @@ static TriggerResult evaluate_persistent_trigger()
     TriggerResult none = { nullptr, Theme::accent };
 
     // 1. PI OFFLINE — only after we've received at least one status
-    //    (avoids a false-positive at cold boot before bridge connect)
+    //    (avoids a false-positive at cold boot before bridge connect).
+    //    Threshold = 12 s = 2.4× the bridge's 5 s STATUS_INTERVAL, so any
+    //    one delayed heartbeat (CPU temp / RSSI subprocess latency) doesn't
+    //    flicker the alert. Real Pi reboots take 30 s+ so detection is fast
+    //    enough.
     if (app.connected_to_pi && app.last_status_rx > 0 &&
-        (now - app.last_status_rx) > 5000) {
+        (now - app.last_status_rx) > 12000) {
         return { "PI OFFLINE", Theme::Color::ACCENT_ALERT };
     }
 
