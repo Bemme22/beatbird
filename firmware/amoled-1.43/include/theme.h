@@ -87,12 +87,15 @@ constexpr int WIFI_ARC2_DOTS    = 5;
 constexpr int WIFI_ARC3_DOTS    = 7;
 constexpr int WIFI_ARC_SPAN_DEG = 90;    // upward-opening 90° sweep
 
-// Text placement (relative to centre). Tightened by 4 px in places now that
-// Departure Mono is taller per glyph at matched body sizes.
-constexpr int TITLE_Y_OFFSET     = -22;
-constexpr int ARTIST_Y_OFFSET    =  18;
-constexpr int STATE_ICON_Y       =  66;
-constexpr int VOLUME_PCT_Y       =  124;
+// Text placement (relative to centre). Title / Artist moved further apart
+// in the CenterStage redesign — the freed-up middle slot is occupied by
+// the priority-chain status label (PAUSE / MUTE / PI OFFLINE / …).
+// STATE_ICON_Y and VOLUME_PCT_Y are kept for backward compat but unused
+// now that state_icon is permanently hidden and lbl_volume is gone.
+constexpr int TITLE_Y_OFFSET     = -43;   // y ≈ 190
+constexpr int ARTIST_Y_OFFSET    =  32;   // y ≈ 265
+constexpr int STATE_ICON_Y       =  66;   // unused after CenterStage refactor
+constexpr int VOLUME_PCT_Y       =  124;  // unused after CenterStage refactor
 constexpr int SOURCE_LABEL_Y     = -170;
 
 // ─── Animations & timing ────────────────────────────────────────────────────

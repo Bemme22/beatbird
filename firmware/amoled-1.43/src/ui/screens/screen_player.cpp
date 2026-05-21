@@ -28,6 +28,7 @@
 // =============================================================================
 
 #include "screens/screen_player.h"
+#include "screens/center_stage.h"
 #include "state.h"
 #include "theme.h"
 #include "proto.h"
@@ -60,7 +61,7 @@ static lv_obj_t *lbl_source    = nullptr;
 static lv_obj_t *lbl_title     = nullptr;
 static lv_obj_t *lbl_artist    = nullptr;
 static lv_obj_t *state_icon    = nullptr;
-static lv_obj_t *lbl_volume    = nullptr;
+// lbl_volume removed — CenterStage shows MUTE when volume == 0
 
 // Action feedback toast (custom-drawn icon)
 static lv_obj_t *action_icon   = nullptr;
@@ -577,9 +578,11 @@ static void on_released(lv_event_t *e) {
         if (dx < 0) {
             Proto::send_command("NEXT");
             show_action(ACT_NEXT);
+            CenterStage::show_toast("SKIP \xE2\x86\x92", 1200);   // → arrow (UTF-8)
         } else {
             Proto::send_command("PREV");
             show_action(ACT_PREV);
+            CenterStage::show_toast("\xE2\x86\x90 SKIP", 1200);   // ← arrow (UTF-8)
         }
         return;
     }
@@ -601,7 +604,8 @@ static void show_player_mode() {
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     S(vol_layer); S(prog_layer); S(energy_layer); S(wifi_layer);
     S(source_marker); S(lbl_source);
-    S(lbl_title); S(lbl_artist); S(state_icon); S(lbl_volume);
+    S(lbl_title); S(lbl_artist);
+    H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
     H(lbl_clock); H(standby_dot);
     stop_standby_pulse();
     // Restore the title's normal player offset (shutdown mode centered it).
@@ -617,7 +621,7 @@ static void show_standby_mode() {
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     H(vol_layer); H(prog_layer); H(energy_layer);
     H(source_marker); H(lbl_source);
-    H(lbl_title); H(lbl_artist); H(state_icon); H(lbl_volume);
+    H(lbl_title); H(lbl_artist); H(state_icon);
     if (action_icon) {
         lv_anim_del(action_icon, anim_action_opa_cb);
         lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
@@ -641,7 +645,7 @@ static void show_shutdown_mode() {
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     H(vol_layer); H(prog_layer); H(energy_layer); H(wifi_layer);
     H(source_marker); H(lbl_source);
-    H(lbl_artist); H(state_icon); H(lbl_volume);
+    H(lbl_artist); H(state_icon);
     H(lbl_clock); H(standby_dot);
     if (action_icon) {
         lv_anim_del(action_icon, anim_action_opa_cb);
@@ -753,17 +757,9 @@ void create() {
     lv_obj_clear_flag(state_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(state_icon, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(state_icon, state_icon_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+    // state_icon stays HIDDEN at runtime — CenterStage handles the pause glyph
 
-    // ── Volume % ────────────────────────────────────────────────────────────
-    lbl_volume = lv_label_create(scr);
-    lv_label_set_text(lbl_volume, "");
-    lv_obj_set_style_text_color(lbl_volume, Theme::accent, 0);
-    lv_obj_set_style_text_font(lbl_volume, Theme::font_display_md(), 0);
-    lv_obj_set_style_text_letter_space(lbl_volume, Theme::LETTER_SPACE_DISPLAY, 0);
-    lv_obj_set_style_text_align(lbl_volume, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl_volume, LV_ALIGN_CENTER, 0, Theme::VOLUME_PCT_Y);
-    lv_obj_add_flag(lbl_volume, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(lbl_volume, LV_OBJ_FLAG_CLICKABLE);
+    // (lbl_volume removed — CenterStage shows MUTE when volume == 0)
 
     // ── Standby clock ───────────────────────────────────────────────────────
     lbl_clock = lv_label_create(scr);
@@ -787,6 +783,9 @@ void create() {
     lv_obj_add_flag(standby_dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(standby_dot, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(standby_dot, LV_OBJ_FLAG_CLICKABLE);
+
+    // ── CenterStage — status announcement slot (priority chain) ─────────────
+    CenterStage::create(scr);
 
     // ── Action icon — created LAST so it renders on top of everything ───────
     action_icon = lv_obj_create(scr);
@@ -829,7 +828,6 @@ void update() {
 
     if (State::is_dirty(State::Dirty::ACCENT)) {
         lv_obj_set_style_text_color(lbl_title,   Theme::accent,     0);
-        lv_obj_set_style_text_color(lbl_volume,  Theme::accent,     0);
         lv_obj_invalidate(state_icon);
         lv_obj_invalidate(action_icon);
         lv_obj_set_style_text_color(lbl_source,  Theme::accent_dim, 0);
@@ -876,10 +874,7 @@ void update() {
         State::clear_dirty(State::Dirty::SOURCE);
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%d%%", State::app.volume);
-        lv_label_set_text(lbl_volume, buf);
-        lv_obj_align(lbl_volume, LV_ALIGN_CENTER, 0, Theme::VOLUME_PCT_Y);
+        // Volume text widget gone — vol ring + CenterStage's MUTE cover it now
         lv_obj_invalidate(vol_layer);
         State::clear_dirty(State::Dirty::VOLUME);
     }
@@ -898,6 +893,18 @@ void update() {
                State::is_dirty(State::Dirty::SPECTRUM)) {
         lv_obj_invalidate(energy_layer);
         State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
+    }
+
+    // CenterStage evaluates its own triggers from State. When active, the
+    // title/artist labels visually recede so the stage announcement reads
+    // unambiguously.
+    CenterStage::update();
+    if (lbl_title && lbl_artist) {
+        const bool stage_on = CenterStage::is_active();
+        const lv_opa_t title_opa  = stage_on ? (lv_opa_t)64 : LV_OPA_COVER;
+        const lv_opa_t artist_opa = stage_on ? (lv_opa_t)51 : LV_OPA_COVER;
+        lv_obj_set_style_text_opa(lbl_title,  title_opa,  0);
+        lv_obj_set_style_text_opa(lbl_artist, artist_opa, 0);
     }
 }
 
