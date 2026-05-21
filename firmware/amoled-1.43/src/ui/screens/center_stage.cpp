@@ -96,8 +96,11 @@ static void apply(const char *text, lv_color_t color)
         last_text[sizeof(last_text) - 1] = '\0';
     }
 
-    // Update color if changed
-    if (color.full != last_color.full) {
+    // Update color if changed (LVGL 9: lv_color_t has separate r/g/b members,
+    // no .full union; compare component-wise to avoid layout assumptions)
+    if (color.red   != last_color.red   ||
+        color.green != last_color.green ||
+        color.blue  != last_color.blue) {
         lv_obj_set_style_text_color(label, color, 0);
         last_color = color;
     }
