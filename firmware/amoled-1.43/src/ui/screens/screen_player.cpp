@@ -93,12 +93,13 @@ static constexpr float ROTARY_DEG_PER_TICK  = 6.0f;
 static constexpr float ROTARY_MIN_DEG       = 8.0f;
 static constexpr float ROTARY_DELTA_CAP_RAD = 30.0f * (float)M_PI / 180.0f;
 
-static bool  rotary_active          = false;
-static bool  rotary_consumed        = false;
-static bool  long_press_consumed    = false;   // long-press fired CMD:STANDBY — suppress the upcoming RELEASED tap
-static int   rotary_start_vol       = 0;
-static float rotary_last_angle_rad  = 0.0f;
-static float rotary_accumulated_deg = 0.0f;
+static bool     rotary_active          = false;
+static bool     rotary_consumed        = false;
+static bool     long_press_consumed    = false;   // long-press fired CMD:STANDBY — suppress the upcoming RELEASED tap
+static uint32_t press_start_ms         = 0;       // for manual long-press timing
+static int      rotary_start_vol       = 0;
+static float    rotary_last_angle_rad  = 0.0f;
+static float    rotary_accumulated_deg = 0.0f;
 
 // ─── Swipe / tap tracking ───────────────────────────────────────────────────
 
@@ -500,6 +501,7 @@ static void on_pressed(lv_event_t *e) {
     rotary_consumed        = false;
     long_press_consumed    = false;
     rotary_accumulated_deg = 0.0f;
+    press_start_ms         = millis();
 
     if (in_standby || in_shutdown) return;
 
@@ -530,6 +532,18 @@ static void on_pressing(lv_event_t *e) {
 
     press_last_x = p.x;
     press_last_y = p.y;
+
+    // Manual long-press detection. LVGL's LV_EVENT_LONG_PRESSED is
+    // sensitive to touch jitter (>scroll_limit cancels the timer), which
+    // capacitive touch hits within 1.5 s. We just look at elapsed-since-
+    // press here, with the same rotary_consumed guard so a volume drag
+    // doesn't accidentally enter standby.
+    if (!long_press_consumed && !rotary_consumed &&
+        millis() - press_start_ms >= Theme::LONG_PRESS_MS) {
+        long_press_consumed = true;
+        Proto::send_command("STANDBY");
+        return;
+    }
 
     if (!rotary_active) return;
 
@@ -563,17 +577,6 @@ static void on_pressing(lv_event_t *e) {
     if (fabsf(rotary_accumulated_deg) > ROTARY_MIN_DEG) {
         rotary_consumed = true;
     }
-}
-
-static void on_long_pressed(lv_event_t *e) {
-    if (in_standby || in_shutdown) return;
-    // rotary_active alone isn't enough to bail — it just means the press
-    // started in the outer ring (r > 140), which is most of the screen.
-    // Only abort if the user has actually started rotating (volume changed).
-    if (rotary_consumed) return;
-
-    long_press_consumed = true;
-    Proto::send_command("STANDBY");
 }
 
 static void on_released(lv_event_t *e) {
@@ -697,10 +700,9 @@ void create() {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, on_pressed,      LV_EVENT_PRESSED,      NULL);
-    lv_obj_add_event_cb(scr, on_pressing,     LV_EVENT_PRESSING,     NULL);
-    lv_obj_add_event_cb(scr, on_long_pressed, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_add_event_cb(scr, on_released,     LV_EVENT_RELEASED,     NULL);
+    lv_obj_add_event_cb(scr, on_pressed,  LV_EVENT_PRESSED,  NULL);
+    lv_obj_add_event_cb(scr, on_pressing, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(scr, on_released, LV_EVENT_RELEASED, NULL);
 
     // ── Full-screen custom-draw layers (back→front) ─────────────────────────
     auto make_layer = [&](void (*cb)(lv_event_t *)) -> lv_obj_t * {
