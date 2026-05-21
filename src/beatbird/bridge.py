@@ -43,6 +43,10 @@ LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
 STANDBY_TIMEOUT_S = 300.0
+# Source disconnect (no Spotify session, no BT phone, …) auto-standby. Short
+# grace period avoids a flicker when switching SPOTIFY ↔ BLUETOOTH (during
+# which source briefly becomes NONE before the new source registers).
+SOURCE_LOST_STANDBY_S = 10.0
 # Restart go-librespot if /status hangs for this many consecutive polls.
 # At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
 SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
@@ -212,6 +216,10 @@ class BeatBirdBridge:
         # silently take over the speaker at night.
         self.last_playback_time: float = time.monotonic()
         self.in_standby: bool = False
+        # Set when self.source transitions to NONE; cleared on any other source.
+        # Once held for SOURCE_LOST_STANDBY_S, triggers an early standby entry
+        # (independent of the idle-timeout STANDBY_TIMEOUT_S path).
+        self._source_none_since: float | None = None
 
         # ── librespot health watchdog ──
         # Counts consecutive get_state() failures (HTTP timeouts or refused).
@@ -425,14 +433,6 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
-
-        # STANDBY: user long-pressed to enter standby manually. Skip the
-        # exit_standby fall-through below (we're entering, not leaving).
-        if cmd == "STANDBY":
-            if not self.in_standby:
-                self._enter_standby("user long-press")
-            return
-
         if self.in_standby:
             self._exit_standby("user command")
 
@@ -778,8 +778,27 @@ class BeatBirdBridge:
                         self.last_playback_time = now
                         if self.in_standby:
                             self._exit_standby("playback resumed")
-                    elif (
+
+                    # Source-lost watcher: when source drops to NONE and stays
+                    # there for SOURCE_LOST_STANDBY_S, go straight to standby.
+                    # Grace period prevents flicker on SPOTIFY↔BLUETOOTH swaps.
+                    if self.source == Source.NONE:
+                        if self._source_none_since is None:
+                            self._source_none_since = now
+                        elif (
+                            not self.in_standby
+                            and now - self._source_none_since >= SOURCE_LOST_STANDBY_S
+                        ):
+                            try:
+                                self._enter_standby("source disconnected")
+                            except Exception as e:
+                                log.error("standby enter: %s", e)
+                    else:
+                        self._source_none_since = None
+
+                    if (
                         not self.in_standby
+                        and self.playback != Playback.PLAYING
                         and now - self.last_playback_time >= STANDBY_TIMEOUT_S
                     ):
                         try:

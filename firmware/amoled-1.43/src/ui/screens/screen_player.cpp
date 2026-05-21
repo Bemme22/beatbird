@@ -93,13 +93,11 @@ static constexpr float ROTARY_DEG_PER_TICK  = 6.0f;
 static constexpr float ROTARY_MIN_DEG       = 8.0f;
 static constexpr float ROTARY_DELTA_CAP_RAD = 30.0f * (float)M_PI / 180.0f;
 
-static bool     rotary_active          = false;
-static bool     rotary_consumed        = false;
-static bool     long_press_consumed    = false;   // long-press fired CMD:STANDBY — suppress the upcoming RELEASED tap
-static uint32_t press_start_ms         = 0;       // for manual long-press timing
-static int      rotary_start_vol       = 0;
-static float    rotary_last_angle_rad  = 0.0f;
-static float    rotary_accumulated_deg = 0.0f;
+static bool  rotary_active          = false;
+static bool  rotary_consumed        = false;
+static int   rotary_start_vol       = 0;
+static float rotary_last_angle_rad  = 0.0f;
+static float rotary_accumulated_deg = 0.0f;
 
 // ─── Swipe / tap tracking ───────────────────────────────────────────────────
 
@@ -499,9 +497,7 @@ static void stop_standby_pulse() {
 static void on_pressed(lv_event_t *e) {
     rotary_active          = false;
     rotary_consumed        = false;
-    long_press_consumed    = false;
     rotary_accumulated_deg = 0.0f;
-    press_start_ms         = millis();
 
     if (in_standby || in_shutdown) return;
 
@@ -532,18 +528,6 @@ static void on_pressing(lv_event_t *e) {
 
     press_last_x = p.x;
     press_last_y = p.y;
-
-    // Manual long-press detection. LVGL's LV_EVENT_LONG_PRESSED is
-    // sensitive to touch jitter (>scroll_limit cancels the timer), which
-    // capacitive touch hits within 1.5 s. We just look at elapsed-since-
-    // press here, with the same rotary_consumed guard so a volume drag
-    // doesn't accidentally enter standby.
-    if (!long_press_consumed && !rotary_consumed &&
-        millis() - press_start_ms >= Theme::LONG_PRESS_MS) {
-        long_press_consumed = true;
-        Proto::send_command("STANDBY");
-        return;
-    }
 
     if (!rotary_active) return;
 
@@ -589,9 +573,6 @@ static void on_released(lv_event_t *e) {
         Proto::send_command("WAKE");
         return;
     }
-
-    // Long-press already sent CMD:STANDBY — don't also fire a PLAYPAUSE tap.
-    if (long_press_consumed) return;
 
     if (rotary_consumed) return;
 
