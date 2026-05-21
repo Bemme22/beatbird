@@ -149,8 +149,9 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
   artefacts. The init-commit firmware shipped without any `0x36` command
   at all; that was the working state for Beat. New build flag skips the
   MADCTL write entirely. Zipp Mini 2 still uses the old `DISPLAY_ROTATE_DEG=90`
-  path (MADCTL=0xA0). New PIO env `[env:beat]` builds with NATIVE; legacy
-  envs `beat-rot{0,180,270}` retained for debugging.
+  path (MADCTL=0xA0). PIO envs renamed to match speaker profiles —
+  `pio run -e beat-1 -t upload`, `pio run -e zipp-mini-2 -t upload` etc.
+  Debug envs `beat-rot{0,180,270}` removed once NATIVE proved correct.
 - ✅ **`set_gap` rotation-dependency fix** — the call had been silently
   swapped during an earlier refactor: init commit had `set_gap(0x06,
   0x00)` (x_gap=6), current code had it as `set_gap(0x00, 0x06)`.
