@@ -64,7 +64,12 @@ wifi:
   disable_bluetooth: true
 
 mqtt:
-  enabled: true
+  # Disabled until a real broker exists. With enabled=true and the placeholder
+  # host below, the bridge's `mqtt.start()` blocks indefinitely on this Pi —
+  # main loop never starts, DSP volume stays at the boot default (0 dB / max),
+  # display receives no state. Re-enable once a real broker is up and host is
+  # replaced. (Zipp Mini 2 happens not to hang here, root cause still TBD.)
+  enabled: false
   host: 192.168.1.10             # adjust
   port: 1883
   user: beatbird
