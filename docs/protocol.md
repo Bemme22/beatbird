@@ -70,7 +70,31 @@ SOURCE:spotify|bluetooth|toslink|snapcast|none
 BOOT:stage|progress
 ERROR:service|message
 TIME:HH:MM          clock-only update
+WX:t=18|c=2|h=22|l=12   weather snapshot (see below)
 ```
+
+### WX: — Weather data (Bridge → Display)
+
+Pushed every 30 min by the bridge from an Open-Meteo poll.
+
+```
+WX:t=<temp>|c=<icon>|h=<high>|l=<low>
+```
+
+Fields:
+
+| Field | Meaning |
+|-------|---------|
+| `t`   | Current temperature in °C, rounded to int |
+| `c`   | Weather icon id (see `firmware/include/state.h::WeatherIcon`): `0`=clear, `1`=partly cloudy, `2`=cloudy, `3`=fog, `4`=rain, `5`=snow, `6`=thunderstorm |
+| `h`   | Today's high temperature in °C, rounded to int |
+| `l`   | Today's low  temperature in °C, rounded to int |
+
+All fields are optional and independent; missing fields keep their last
+known value. The first `WX:` ever received flips `State::weather.valid` to
+true; the standby screen uses that flag to gate showing the weather
+block (graceful degrade if no bridge config / no internet).
+
 
 ## ESP32 → Pi
 

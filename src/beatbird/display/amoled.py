@@ -182,6 +182,13 @@ class AmoledDisplay(DisplayInterface):
             parts.append("FX:" + ",".join(str(b) for b in bands))
         self._send("|".join(parts))
 
+    def push_raw(self, line: str) -> None:
+        # Strip trailing newline — _send adds one. Multi-line input is ignored
+        # past the first newline (caller should send line-by-line).
+        line = line.rstrip("\r\n")
+        if line:
+            self._send(line)
+
     def push_system(self, status: DisplaySystemStatus) -> None:
         amp_fields = "|".join(
             f"h{k[0]}={v}" for k, v in (status.amp_statuses or {}).items()

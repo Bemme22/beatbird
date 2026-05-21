@@ -9,6 +9,7 @@ namespace State {
 
 App app;
 System sys;
+Weather weather;
 
 // ─── Setters ────────────────────────────────────────────────────────────────
 

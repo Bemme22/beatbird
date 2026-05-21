@@ -67,6 +67,7 @@ void handle_line(const char *line)
     if (!strncmp(line, "PAL:",  4))     { handle_palette_line(line + 4); return; }
     if (!strncmp(line, "SYS:",  4))     { handle_system_line(line);      return; }
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
+    if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
     if (!strncmp(line, "TIME:", 5))     {
         State::set_clock(String(line + 5));
         return;
@@ -184,6 +185,40 @@ void handle_system_line(const char *line)
 
     State::app.last_status_rx = millis();
     State::mark_dirty(State::Dirty::SYSTEM);
+}
+
+// ─── WX: weather line ───────────────────────────────────────────────────────
+//
+// Format: WX:t=<int>|c=<icon>|h=<int>|l=<int>
+//   t = current temperature in °C (rounded)
+//   c = WeatherIcon enum value (0=clear .. 6=thunder)
+//   h = today's high in °C
+//   l = today's low  in °C
+//
+// Any subset of fields may be present; missing fields keep their last
+// known value. Receiving any valid WX: line flips State::weather.valid
+// to true, which the standby screen uses as gate for showing the
+// weather block (graceful degrade if no WX: ever received).
+
+void handle_weather_line(const char *line)
+{
+    char buf[16];
+    bool any = false;
+
+    if (parse_field(line, "t", buf, sizeof(buf))) { State::weather.temp_c = atoi(buf); any = true; }
+    if (parse_field(line, "c", buf, sizeof(buf))) {
+        int v = atoi(buf);
+        if (v >= 0 && v <= 6) {
+            State::weather.icon = (State::WeatherIcon)v;
+            any = true;
+        }
+    }
+    if (parse_field(line, "h", buf, sizeof(buf))) { State::weather.high_c = atoi(buf); any = true; }
+    if (parse_field(line, "l", buf, sizeof(buf))) { State::weather.low_c  = atoi(buf); any = true; }
+
+    if (any) {
+        State::weather.valid = true;
+    }
 }
 
 // ─── PAL: accent colour from Pi ─────────────────────────────────────────────

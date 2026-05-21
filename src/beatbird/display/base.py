@@ -65,5 +65,11 @@ class DisplayInterface(ABC):
     def poll(self) -> None:
         """Drain any input from the display (non-blocking). Call from main loop."""
 
+    def push_raw(self, line: str) -> None:
+        """Send an arbitrary single line (with trailing newline already
+        appended) to the display. Used by background pushers (e.g. the
+        weather poller) that don't fit the state/system schema. Default
+        is a no-op for displays that don't support out-of-band pushes."""
+
     @abstractmethod
     def close(self) -> None: ...

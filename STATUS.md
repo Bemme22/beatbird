@@ -236,6 +236,50 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+## Session 2026-05-21 — UI redesign Phase 5 (weather) + Phase 1 (center-stage) groundwork
+
+Implementation pass for the next big firmware patch — design locked
+in chat 2026-05-21 (interactive mockup `beatbird-ui-preview.html`):
+
+- ✅ **Phase 5 weather, end-to-end:**
+  - Bridge: `src/beatbird/weather.py` — Open-Meteo poller, runs in a
+    daemon thread with its own asyncio loop, pushes `WX:t=...|c=...|h=...|l=...`
+    via `display.push_raw()`. Httpx-async preferred, requests-fallback
+    if httpx isn't installed.
+  - Profile schema: new `WeatherConfig` block (`enabled`, `latitude`,
+    `longitude`, `interval_minutes` — defaults disabled).
+  - Bridge `start()` spawns the poller when `weather.enabled: true`.
+  - Display abstraction: new `push_raw()` method on `DisplayInterface`,
+    implemented by `AmoledDisplay`, default no-op for others.
+  - Firmware:
+    - `State::Weather` struct + `WeatherIcon` enum (state.h, state.cpp)
+    - `handle_weather_line()` in `serial_rx.cpp` parses `WX:` field-by-field
+    - `screen_standby.h` / `.cpp` — full standby redesign: clock @ 130,
+      dot-built weather icon @ 240, temp @ 320, H/L @ 358, condition @
+      385, heartbeat dot @ 415. Six icons (clear / partly / cloudy /
+      fog / rain / snow / thunder) built from dots + cloud helpers,
+      matching the rest of the UI's dot vocabulary.
+    - Graceful degrade: if `weather.valid == false` (no WX: ever
+      received), standby renders only clock + heartbeat, same as before.
+  - Docs: `WX:` line documented in `docs/protocol.md`.
+- ✅ **Phase 1 (center-stage) — files landed but not wired yet:**
+  - `firmware/.../screens/center_stage.h` / `.cpp`: single LVGL label
+    centered on the player screen, evaluates a trigger priority chain
+    every frame:
+      1. PI OFFLINE (last_status_rx > 5 s, alert color)
+      2. MUTE (volume == 0)
+      3. PAUSE (state == PAUSED)
+      4. WIFI WEAK (rssi < -85)
+      5. Toast (1.2 s, NEXT/PREV feedback)
+    Hidden when nothing active so title/artist breathe.
+  - `Theme::Color::ACCENT_ALERT` compile-time constant added to theme.h.
+  - **TODO** — actual `screen_player.cpp` refactor (remove
+    `lbl_volume` + `state_icon`, resize title/artist, hook
+    `CenterStage::create/update`) — separate patch, didn't land yet.
+- ⏭ **Phase 2 (sound-print halo + vol-ring energy)**: not started.
+- ⏭ **Phase 3 (source-select screen)**: not started.
+- ⏭ **Phase 4 (split-flap animation)**: not started.
+
 ### Display redesign — next big firmware patch (Steff 2026-05-19)
 
 A coherent UI overhaul that frees up the center of the screen for

@@ -133,6 +133,10 @@ namespace Color {
     // Defaults — overridden at runtime by PAL: command
     // Champagne gold — tuned for Zipp Mini 2 turquoise/cream enclosure
     constexpr lv_color_t ACCENT_DEFAULT = LV_COLOR_MAKE(0xF0, 0xCB, 0x7B);
+
+    // Center-stage alert color — for "PI OFFLINE" / "ERROR" announcements.
+    // Compile-time constant for now; future runtime palette will replace this.
+    constexpr lv_color_t ACCENT_ALERT   = LV_COLOR_MAKE(0xC7, 0x3E, 0x2C);
 }
 
 // ─── Runtime accent (set by PAL: command from Pi) ───────────────────────────

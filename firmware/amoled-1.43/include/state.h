@@ -96,10 +96,31 @@ struct System {
     int    wifi_rssi   = 0;
 };
 
+// ─── Weather (pushed by bridge every ~30 min via WX: serial line) ───────────
+
+enum WeatherIcon : uint8_t {
+    WX_CLEAR   = 0,
+    WX_PARTLY  = 1,
+    WX_CLOUDY  = 2,
+    WX_FOG     = 3,
+    WX_RAIN    = 4,
+    WX_SNOW    = 5,
+    WX_THUNDER = 6,
+};
+
+struct Weather {
+    bool        valid  = false;     // false until first WX: received
+    int         temp_c = 0;
+    int         high_c = 0;
+    int         low_c  = 0;
+    WeatherIcon icon   = WX_PARTLY;
+};
+
 // ─── Globals ────────────────────────────────────────────────────────────────
 
 extern App app;
 extern System sys;
+extern Weather weather;
 
 inline void mark_dirty(uint32_t bits) { app.dirty |= bits; }
 inline bool is_dirty(uint32_t bits)   { return (app.dirty & bits) != 0; }

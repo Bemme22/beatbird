@@ -159,6 +159,13 @@ class Hardware(BaseModel):
     power_button: PowerButton = Field(default_factory=PowerButton)
 
 
+class WeatherConfig(BaseModel):
+    enabled: bool = False
+    latitude: float = 0.0
+    longitude: float = 0.0
+    interval_minutes: int = 30
+
+
 class WiFi(BaseModel):
     ssid: str = ""
     country: str = "DE"
@@ -220,6 +227,7 @@ class Profile(BaseModel):
     audio: Audio = Field(default_factory=Audio)
     display: Display = Field(default_factory=Display)
     hardware: Hardware = Field(default_factory=Hardware)
+    weather: WeatherConfig = Field(default_factory=WeatherConfig)
     wifi: WiFi = Field(default_factory=WiFi)
     mqtt: MQTT = Field(default_factory=MQTT)
     sources: Sources = Field(default_factory=Sources)

@@ -255,6 +255,31 @@ class BeatBirdBridge:
         self.t_last_level = 0.0
         self.t_last_state_push = 0.0
 
+    # ─── Weather poller ──────────────────────────────────────────────────────
+
+    def _start_weather_poller(self) -> None:
+        """Spawn the Open-Meteo background poller if configured. Pushes
+        WX: lines directly to the display via push_raw."""
+        wcfg = self.profile.weather
+        if not wcfg.enabled or not self.display:
+            return
+        try:
+            from beatbird.weather import start_in_thread
+        except Exception as e:
+            log.warning("weather poller unavailable: %s", e)
+            return
+        try:
+            start_in_thread(
+                lat=wcfg.latitude,
+                lon=wcfg.longitude,
+                serial_writer=self.display.push_raw,
+                interval_s=wcfg.interval_minutes * 60,
+            )
+            log.info("weather poller started (%.4f, %.4f, every %d min)",
+                     wcfg.latitude, wcfg.longitude, wcfg.interval_minutes)
+        except Exception as e:
+            log.error("weather poller failed to start: %s", e)
+
     # ─── Source handoff ──────────────────────────────────────────────────────
 
     def _transition_source(self, new_source: Source) -> None:
@@ -302,6 +327,7 @@ class BeatBirdBridge:
             self.spectrum.start()
         if self.power_button:
             self.power_button.start()
+        self._start_weather_poller()
         self.mqtt.start()
 
         # Initial sync: CamillaDSP's persistent volume wins, with two safeguards.

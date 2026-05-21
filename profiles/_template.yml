@@ -70,6 +70,16 @@ hardware:
     gpio: 3                              # Pin 5 on the 40-pin header
     long_press_s: 2.0                    # how long to hold for shutdown
 
+# ─── Weather (optional, drives the standby screen) ────────────────────────────
+# Bridge polls Open-Meteo every `interval_minutes` and pushes a single WX:
+# line to the ESP32 (firmware ≥ post-2026-05-21). When disabled or omitted,
+# standby falls back to clock + heartbeat only.
+weather:
+  enabled: false
+  latitude:  0.0                     # your actual coords
+  longitude: 0.0
+  interval_minutes: 30
+
 # ─── WiFi ─────────────────────────────────────────────────────────────────────
 wifi:
   ssid: "your-ssid"

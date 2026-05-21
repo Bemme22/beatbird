@@ -29,6 +29,7 @@
 #include "proto.h"
 #include "screens/screen_boot.h"
 #include "screens/screen_player.h"
+#include "screens/screen_standby.h"
 
 // LVGL internal hit-test shim — kept for compilation parity with prior builds.
 struct _lv_hit_test_info_t {
@@ -377,6 +378,7 @@ void setup()
     ScreenBoot::create();
     ScreenBoot::show();
     ScreenPlayer::create();
+    ScreenStandby::create();
 
     Serial.println("Ready.");
     Proto::send_boot_marker();
@@ -399,6 +401,7 @@ void loop()
     }
 
     ScreenPlayer::update();
+    ScreenStandby::update();
 
     check_dim();
 
