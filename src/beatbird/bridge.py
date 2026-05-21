@@ -425,6 +425,14 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
+
+        # STANDBY: user long-pressed to enter standby manually. Skip the
+        # exit_standby fall-through below (we're entering, not leaving).
+        if cmd == "STANDBY":
+            if not self.in_standby:
+                self._enter_standby("user long-press")
+            return
+
         if self.in_standby:
             self._exit_standby("user command")
 
@@ -650,8 +658,8 @@ class BeatBirdBridge:
         if self.display:
             self.display.push_state(state)
 
-    def _enter_standby(self) -> None:
-        log.info("entering standby after %.0fs idle", STANDBY_TIMEOUT_S)
+    def _enter_standby(self, reason: str = "idle timeout") -> None:
+        log.info("entering standby (%s)", reason)
         self.in_standby = True
         if self.spotify:
             try:
