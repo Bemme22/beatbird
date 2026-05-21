@@ -567,7 +567,10 @@ static void on_pressing(lv_event_t *e) {
 
 static void on_long_pressed(lv_event_t *e) {
     if (in_standby || in_shutdown) return;
-    if (rotary_active || rotary_consumed) return;   // volume gesture — not a standby intent
+    // rotary_active alone isn't enough to bail — it just means the press
+    // started in the outer ring (r > 140), which is most of the screen.
+    // Only abort if the user has actually started rotating (volume changed).
+    if (rotary_consumed) return;
 
     long_press_consumed = true;
     Proto::send_command("STANDBY");
