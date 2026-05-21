@@ -71,6 +71,11 @@ sources:
   toslink:   {enabled: false}
   snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
 
+# Weather — coords live in secrets/location.coords (gitignored).
+weather:
+  enabled: true
+  interval_minutes: 30
+
 web:
   enabled: true
   port: 8080
