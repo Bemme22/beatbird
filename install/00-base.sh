@@ -59,10 +59,14 @@ BASE_TOPIC="$(pq mqtt.base_topic)"
 WX_LAT=""
 WX_LON=""
 LOC_FILE="$SECRETS_DIR/location.coords"
-if [[ -f "$LOC_FILE" ]]; then
-  IFS=',' read -r WX_LAT WX_LON < "$LOC_FILE"
-  WX_LAT="$(echo "$WX_LAT" | tr -d ' ')"
-  WX_LON="$(echo "$WX_LON" | tr -d ' ')"
+if [[ -s "$LOC_FILE" ]]; then
+  # -s = exists and non-empty. An empty file would make `read` exit 1
+  # under `set -e` and silently abort the script before the env write.
+  # Same with a file that has no trailing newline — `read` returns
+  # non-zero in that case too; the `|| true` keeps us going.
+  IFS=',' read -r WX_LAT WX_LON < "$LOC_FILE" || true
+  WX_LAT="$(echo "$WX_LAT" | tr -d '[:space:]')"
+  WX_LON="$(echo "$WX_LON" | tr -d '[:space:]')"
 fi
 
 # Snapcast server host — same out-of-repo treatment as the weather coords.
@@ -70,7 +74,7 @@ fi
 # the bridge falls back to profile.sources.snapcast.server (placeholder).
 SNAPCAST_HOST=""
 SNAPCAST_FILE="$SECRETS_DIR/snapcast.host"
-if [[ -f "$SNAPCAST_FILE" ]]; then
+if [[ -s "$SNAPCAST_FILE" ]]; then
   SNAPCAST_HOST="$(head -1 "$SNAPCAST_FILE" | tr -d '[:space:]')"
 fi
 
