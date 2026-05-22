@@ -41,6 +41,12 @@ log = logging.getLogger("beatbird.bridge")
 STATUS_INTERVAL = 5.0
 SPOTIFY_POLL_INTERVAL = 2.0
 SNAPCAST_POLL_INTERVAL = 3.0
+
+# Persistent runtime state — survives reboots through the writable path
+# /var/lib/beatbird (ReadWritePaths on the bridge service). Currently
+# stores the user's last volume so the safe-snap on cold boot doesn't
+# always slam to 25 %.
+STATE_FILE = "/var/lib/beatbird/state.json"
 LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
@@ -112,10 +118,11 @@ def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | N
     if not profile.audio.loudness.enabled or not profile.audio.loudness.filters:
         return None
     known_base = {
-        "bass_shelf":   {"type": "Lowshelf", "freq": 120, "base_gain": 10, "q": 0.6},
-        "sub_punch":    {"type": "Peaking",  "freq": 45,  "base_gain": 5,  "q": 0.7},
-        "timpani_body": {"type": "Peaking",  "freq": 70,  "base_gain": 3,  "q": 1.0},
-        "fullness":     {"type": "Peaking",  "freq": 200, "base_gain": 3,  "q": 1.0},
+        "bass_shelf":   {"type": "Lowshelf",  "freq": 120,  "base_gain": 10, "q": 0.6},
+        "sub_punch":    {"type": "Peaking",   "freq": 45,   "base_gain": 5,  "q": 0.7},
+        "timpani_body": {"type": "Peaking",   "freq": 70,   "base_gain": 3,  "q": 1.0},
+        "fullness":     {"type": "Peaking",   "freq": 200,  "base_gain": 3,  "q": 1.0},
+        "air_lift":     {"type": "Highshelf", "freq": 8000, "base_gain": 0,  "q": 0.7},
     }
     # P1: Try to read base gains from CamillaDSP config
     cdsp_config = dsp.get_config()
@@ -370,38 +377,48 @@ class BeatBirdBridge:
         self._start_weather_poller()
         self.mqtt.start()
 
-        # Initial sync: CamillaDSP's persistent volume wins, with two safeguards.
-        # 1) If the DSP is unreachable at start (rare race vs. systemd order),
-        #    fall back to a quiet-but-audible default — better than silent
-        #    (current_volume=0 from __init__ would persist) or current_volume
-        #    leaking a stale value into the first Spotify sync push.
-        # 2) If the DSP volume is above the profile's safe ceiling (max_db,
-        #    typically -10 dB), the persistent state file is almost certainly
-        #    fresh/wiped — CamillaDSP defaults to 0 dB in that case. Snap to a
-        #    conservative "first boot" volume instead of letting the speaker
-        #    blast at full output. The user can immediately turn it up if
-        #    they want; that's recoverable. A first-boot blast is not.
+        # Initial sync. Order of preference:
+        # 1) CamillaDSP's persistent volume if it's within the profile's
+        #    sane range (i.e. someone has used the speaker before).
+        # 2) /var/lib/beatbird/state.json — our own last-known-good
+        #    persisted value. Survives a reboot even when CDSP's state
+        #    got wiped (overlay tmpfs, fresh image, etc.).
+        # 3) SAFE_FIRST_BOOT_PCT (25 %) as the conservative default.
         SAFE_FIRST_BOOT_PCT = 25
+        persisted = self._load_persistent_state()
+        persisted_pct = persisted.get("volume_pct")
+        if not isinstance(persisted_pct, int) or not 0 <= persisted_pct <= 100:
+            persisted_pct = None
+
         db = self.dsp.get_volume_db()
         if db is None:
+            # DSP unreachable — fall back to persisted state if we have one,
+            # else the conservative default.
+            target = persisted_pct if persisted_pct is not None else SAFE_FIRST_BOOT_PCT
             log.warning(
-                "DSP volume unreadable at start, defaulting to %d%%",
-                SAFE_FIRST_BOOT_PCT,
+                "DSP volume unreadable at start, %s to %d%%",
+                "restoring persisted" if persisted_pct is not None else "defaulting",
+                target,
             )
-            self.current_volume = SAFE_FIRST_BOOT_PCT
+            self.current_volume = target
             self.current_volume_db = pct_to_db(
-                SAFE_FIRST_BOOT_PCT, self.vol_min_db, self.vol_max_db, self.vol_gamma,
+                target, self.vol_min_db, self.vol_max_db, self.vol_gamma,
             )
             self.dsp.set_volume_db(self.current_volume_db)
         elif db > self.vol_max_db + 0.5:
+            # DSP is at boot default (0 dB max). Prefer our persisted value
+            # over the blind 25 % snap.
+            target = persisted_pct if persisted_pct is not None else SAFE_FIRST_BOOT_PCT
             log.warning(
                 "DSP volume %.1f dB exceeds profile max %.1f dB (stale state?), "
-                "snapping to %d%%",
-                db, self.vol_max_db, SAFE_FIRST_BOOT_PCT,
+                "%s to %d%%",
+                db, self.vol_max_db,
+                "restoring persisted" if persisted_pct is not None else "snapping",
+                target,
             )
-            self.current_volume = SAFE_FIRST_BOOT_PCT
+            self.current_volume = target
             self.current_volume_db = pct_to_db(
-                SAFE_FIRST_BOOT_PCT, self.vol_min_db, self.vol_max_db, self.vol_gamma,
+                target, self.vol_min_db, self.vol_max_db, self.vol_gamma,
             )
             self.dsp.set_volume_db(self.current_volume_db)
         else:
@@ -429,6 +446,46 @@ class BeatBirdBridge:
         if self.display:
             self.display.close()
 
+    # ─── Persistent state (last-known-good volume) ──────────────────────────
+
+    def _load_persistent_state(self) -> dict:
+        """Read /var/lib/beatbird/state.json — returns {} if missing or
+        unreadable. Never throws; persistence is a polish, not critical."""
+        try:
+            import json
+            with open(STATE_FILE) as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return {}
+            return data
+        except (OSError, ValueError):
+            return {}
+
+    def _save_persistent_state(self) -> None:
+        """Atomically rewrite the state file with the current bridge values.
+        Atomic = write to a sibling .tmp, fsync, rename — survives a
+        crash during the write."""
+        try:
+            import json, os, tempfile
+            data = {
+                "volume_pct":   int(self.current_volume),
+                "volume_db":    float(self.current_volume_db),
+            }
+            dirn = os.path.dirname(STATE_FILE) or "."
+            fd, tmp = tempfile.mkstemp(prefix="state.", suffix=".tmp", dir=dirn)
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, STATE_FILE)
+            except Exception:
+                try: os.unlink(tmp)
+                except OSError: pass
+                raise
+        except Exception as e:
+            log.debug("persistent state save failed: %s", e)
+
     # ─── Volume (single source of truth: CamillaDSP) ────────────────────────
 
     def set_volume(self, pct: int) -> None:
@@ -446,6 +503,10 @@ class BeatBirdBridge:
             self.spotify.set_volume(pct, self._sp_volume_steps)
         elif self.source == Source.BLUETOOTH and self.bt:
             self.bt.push_volume_to_phone(pct)
+        # Persist last-known-good so the next boot can restore instead of
+        # safe-snapping to 25 %. Best-effort — failures are logged at DEBUG
+        # and don't disturb the user-visible volume change.
+        self._save_persistent_state()
 
     # ─── Display / MQTT callbacks ───────────────────────────────────────────
 

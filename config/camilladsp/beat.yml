@@ -59,6 +59,17 @@ filters:
       freq: 200
       gain: 3
       q: 1.0
+  # Air shelf — closes the loudness loop on the treble side. Base gain
+  # stays at 0; the bridge's loudness controller patches in +X dB at low
+  # volumes via the profile's loudness.filters[air_lift] entry, matching
+  # the Fletcher-Munson upper-end curve.
+  air_lift:
+    type: Biquad
+    parameters:
+      type: Highshelf
+      freq: 8000
+      gain: 0
+      q: 0.7
 
   # ─── REW-derived room/driver correction ────────────────────────────────────
   rew_600:
@@ -95,11 +106,11 @@ filters:
 pipeline:
   - type: Filter
     channels: [0]
-    names: [bass_shelf, sub_punch, timpani_body, fullness,
+    names: [bass_shelf, sub_punch, timpani_body, fullness, air_lift,
             rew_600, rew_2269, rew_9886, rew_14025,
             sub_protect, broadband_limiter]
   - type: Filter
     channels: [1]
-    names: [bass_shelf, sub_punch, timpani_body, fullness,
+    names: [bass_shelf, sub_punch, timpani_body, fullness, air_lift,
             rew_600, rew_2269, rew_9886, rew_14025,
             sub_protect, broadband_limiter]

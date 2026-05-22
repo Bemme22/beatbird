@@ -38,6 +38,9 @@ audio:
       - {name: bass_shelf,   max_boost_db: 1.5}
       - {name: sub_punch,    max_boost_db: 1.0}
       - {name: timpani_body, max_boost_db: 0.75}
+      # Treble side of the Fletcher-Munson curve — bass and air both
+      # need lifting at low volumes for a balanced perception.
+      - {name: air_lift,     max_boost_db: 2.5}
 
 display:
   type: amoled

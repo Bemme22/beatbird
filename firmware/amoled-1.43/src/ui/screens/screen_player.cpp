@@ -71,6 +71,11 @@ static uint32_t last_energy_render = 0;
 // 60 Hz repaint tick; vol-wobble and source-marker pulse both read from
 // this so they share inertia and stay phase-aligned.
 static float    energy_smoothed    = 0.0f;
+// One-shot "click" feedback for source switches — when the bridge flips
+// SOURCE, we set this to (millis() + duration). The energy-pulse loop
+// blends an additional scale boost in while now < this expiry.
+static uint32_t source_pulse_until = 0;
+static constexpr uint32_t SOURCE_PULSE_MS = 300;
 
 // Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
@@ -685,6 +690,10 @@ void update() {
         lv_obj_set_style_bg_color(source_marker, source_color(State::app.source), 0);
         lv_label_set_text(lbl_source, source_label_text(State::app.source));
         lv_obj_align(lbl_source, LV_ALIGN_CENTER, 0, Theme::SOURCE_LABEL_Y);
+        // Trigger the one-shot click pulse — energy loop reads source_pulse_until
+        // and blends an extra scale boost on top of the continuous energy
+        // modulation until it expires.
+        source_pulse_until = millis() + SOURCE_PULSE_MS;
         State::clear_dirty(State::Dirty::SOURCE);
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
@@ -704,7 +713,9 @@ void update() {
     // away — without this the source-marker would freeze at its last opacity
     // instead of fading back to its idle level on pause.
     const bool keep_animating =
-        (State::app.state == State::PLAY_PLAYING) || (energy_smoothed > 0.01f);
+        (State::app.state == State::PLAY_PLAYING) ||
+        (energy_smoothed > 0.01f) ||
+        (millis() < source_pulse_until);   // keep ticking through a source-switch pulse
     if (keep_animating) {
         uint32_t now = millis();
         if (now - last_energy_render >= 16) {
@@ -727,7 +738,16 @@ void update() {
                 if (o_i < 0)   o_i = 0;
                 if (o_i > 255) o_i = 255;
                 lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
-                int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak (was ±12 %)
+                int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak
+                // One-shot source-switch pulse blended on top — ease-out
+                // ramp from +50 % size back to baseline over 300 ms. Adds
+                // a "click" feedback for the user when MA / Spotify hands
+                // off the speaker.
+                if (now < source_pulse_until) {
+                    float remaining = (float)(source_pulse_until - now)
+                                    / (float)SOURCE_PULSE_MS;     // 1.0 → 0.0
+                    scale += (int)(remaining * 128.0f);           // +50 % at start
+                }
                 lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
         }
