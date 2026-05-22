@@ -52,7 +52,6 @@ static lv_obj_t *scr           = nullptr;
 // Custom-draw layers (back→front)
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
-static lv_obj_t *wifi_layer    = nullptr;   // dot-matrix wifi indicator (top-center)
 
 // Player widgets
 static lv_obj_t *source_marker = nullptr;
@@ -268,55 +267,6 @@ static void prog_draw_cb(lv_event_t *e) {
     }
 }
 
-// Dot-matrix "antenna" WiFi indicator — base dot + three upward arcs.
-// Matches the existing vol/prog/energy dot vocabulary instead of the
-// generic 4-bar phone glyph.
-static void wifi_draw_cb(lv_event_t *e) {
-    lv_layer_t *layer = lv_event_get_layer(e);
-
-    // RSSI → 0..4 signal level
-    int rssi = State::sys.wifi_rssi;
-    int level;
-    if (rssi == 0)        level = 0;
-    else if (rssi >= -55) level = 4;
-    else if (rssi >= -67) level = 3;
-    else if (rssi >= -75) level = 2;
-    else if (rssi >= -85) level = 1;
-    else                  level = 0;
-
-    const int cx = Theme::WIFI_CX;
-    const int cy = Theme::WIFI_CY;
-
-    // Distribute n dots along an upward-opening 90° arc (-135° … -45° in
-    // LVGL screen coords, where -90° points straight up). Only drawn when
-    // lit — empty arcs stay invisible to keep the area clean and let the
-    // user read signal strength at a glance.
-    auto draw_arc_of_dots = [&](int radius, int n, bool lit) {
-        if (!lit) return;
-        const float span = (float)Theme::WIFI_ARC_SPAN_DEG;
-        for (int i = 0; i < n; i++) {
-            float frac  = (n > 1) ? (i / (float)(n - 1)) : 0.5f;
-            float a_deg = -135.0f + frac * span;
-            float a     = a_deg * (float)M_PI / 180.0f;
-            int x = cx + (int)roundf(cosf(a) * radius);
-            int y = cy + (int)roundf(sinf(a) * radius);
-            draw_dot(layer, x, y, Theme::WIFI_ARC_DOT_R, Theme::accent, LV_OPA_COVER);
-        }
-    };
-
-    // Base dot — always drawn (dim when no signal, bright when connected)
-    {
-        bool lit = (level >= 1);
-        lv_color_t c = lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = lit ? LV_OPA_COVER : (lv_opa_t)110;
-        draw_dot(layer, cx, cy, Theme::WIFI_DOT_R, c, o);
-    }
-
-    draw_arc_of_dots(Theme::WIFI_ARC1_R, Theme::WIFI_ARC1_DOTS, level >= 2);
-    draw_arc_of_dots(Theme::WIFI_ARC2_R, Theme::WIFI_ARC2_DOTS, level >= 3);
-    draw_arc_of_dots(Theme::WIFI_ARC3_R, Theme::WIFI_ARC3_DOTS, level >= 4);
-}
-
 static void state_icon_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     lv_obj_t  *obj    = (lv_obj_t *)lv_event_get_target(e);
@@ -507,7 +457,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer); S(wifi_layer);
+    S(vol_layer); S(prog_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
@@ -530,7 +480,7 @@ static void show_standby_mode() {
     // Clear whatever CenterStage was last showing (e.g. PAUSE) so the clock
     // gets the centre to itself.
     CenterStage::invalidate();
-    S(lbl_clock); S(standby_dot); S(wifi_layer);
+    S(lbl_clock); S(standby_dot);
     start_standby_pulse();
 }
 
@@ -546,7 +496,7 @@ static void show_shutdown_mode() {
     stop_standby_pulse();
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(wifi_layer);
+    H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     H(lbl_clock); H(standby_dot);
@@ -592,7 +542,6 @@ void create() {
     };
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
-    wifi_layer   = make_layer(wifi_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
     source_marker = lv_obj_create(scr);
@@ -725,15 +674,12 @@ void update() {
         lv_obj_set_style_bg_color  (standby_dot, Theme::accent,     0);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
-        lv_obj_invalidate(wifi_layer);
         State::clear_dirty(State::Dirty::ACCENT);
     }
 
-    // SYS line carries wifi_rssi — repaint the indicator on every refresh
-    if (State::is_dirty(State::Dirty::SYSTEM)) {
-        lv_obj_invalidate(wifi_layer);
-        State::clear_dirty(State::Dirty::SYSTEM);
-    }
+    // SYS line still carries wifi_rssi — CenterStage's WIFI WEAK trigger reads
+    // State::sys.wifi_rssi directly, so we just clear the dirty bit here.
+    State::clear_dirty(State::Dirty::SYSTEM);
 
     if (in_standby) {
         if (State::is_dirty(State::Dirty::CLOCK)) {
