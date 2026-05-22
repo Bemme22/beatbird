@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include "screens/screen_standby.h"
+#include "proto.h"
 #include "state.h"
 #include "theme.h"
 
@@ -244,6 +245,14 @@ void create()
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    // Tap-to-wake: any release on the standby screen sends CMD:WAKE, which
+    // the bridge interprets as a no-op past _exit_standby(). The screen
+    // switch back to the player happens once the bridge pushes a ST: line
+    // with the non-standby state (handled in screen_player.cpp::update()).
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, [](lv_event_t *) {
+        Proto::send_command("WAKE");
+    }, LV_EVENT_RELEASED, NULL);
 
     // ── Clock (top, 44 px) ──────────────────────────────────────────────────
     lbl_clock = lv_label_create(scr);

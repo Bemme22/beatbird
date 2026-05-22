@@ -29,6 +29,7 @@
 
 #include "screens/screen_player.h"
 #include "screens/center_stage.h"
+#include "screens/screen_standby.h"
 #include "state.h"
 #include "theme.h"
 #include "proto.h"
@@ -61,15 +62,9 @@ static lv_obj_t *lbl_artist    = nullptr;
 static lv_obj_t *state_icon    = nullptr;
 // lbl_volume removed — CenterStage shows MUTE when volume == 0
 
-// Standby widgets
-static lv_obj_t *lbl_clock     = nullptr;
-static lv_obj_t *standby_dot   = nullptr;
-static lv_anim_t anim_standby;
-
 static bool     created            = false;
 static bool     in_standby         = false;
 static bool     in_shutdown        = false;
-static bool     standby_anim_alive = false;
 static uint32_t last_energy_render = 0;
 // Low-passed app.energy in [0..1]. Updates from State::app.energy at the
 // 60 Hz repaint tick; vol-wobble and source-marker pulse both read from
@@ -317,31 +312,6 @@ static void state_icon_draw_cb(lv_event_t *e) {
 
 // ─── Standby pulse ──────────────────────────────────────────────────────────
 
-static void standby_pulse_cb(void *var, int32_t v) {
-    lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
-}
-
-static void start_standby_pulse() {
-    if (standby_anim_alive) return;
-    standby_anim_alive = true;
-    lv_anim_init(&anim_standby);
-    lv_anim_set_var(&anim_standby, standby_dot);
-    lv_anim_set_exec_cb(&anim_standby, standby_pulse_cb);
-    lv_anim_set_values(&anim_standby, 80, 255);
-    lv_anim_set_time(&anim_standby, 1400);
-    lv_anim_set_playback_time(&anim_standby, 1400);
-    lv_anim_set_repeat_count(&anim_standby, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&anim_standby, lv_anim_path_ease_in_out);
-    lv_anim_start(&anim_standby);
-}
-
-static void stop_standby_pulse() {
-    if (!standby_anim_alive) return;
-    standby_anim_alive = false;
-    lv_anim_del(standby_dot, standby_pulse_cb);
-    lv_obj_set_style_opa(standby_dot, LV_OPA_COVER, 0);
-}
-
 // ─── Touch handlers (unified press / move / release) ────────────────────────
 
 static void on_pressed(lv_event_t *e) {
@@ -453,6 +423,7 @@ static void show_player_mode() {
     if (!in_standby && !in_shutdown && lbl_title && !lv_obj_has_flag(lbl_title, LV_OBJ_FLAG_HIDDEN))
         return;
     bool was_shutdown = in_shutdown;
+    bool was_standby  = in_standby;
     in_standby  = false;
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
@@ -461,8 +432,10 @@ static void show_player_mode() {
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
-    H(lbl_clock); H(standby_dot);
-    stop_standby_pulse();
+    // Switch back from the standby screen to our own (ScreenPlayer) scr.
+    if (was_standby) {
+        lv_screen_load(scr);
+    }
     // Restore the title's normal player offset (shutdown mode centered it).
     if (was_shutdown && lbl_title) {
         lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
@@ -472,16 +445,12 @@ static void show_player_mode() {
 static void show_standby_mode() {
     if (in_standby || in_shutdown) return;
     in_standby = true;
-    auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer);
-    H(source_marker); H(lbl_source);
-    H(lbl_title); H(lbl_artist); H(state_icon);
-    // Clear whatever CenterStage was last showing (e.g. PAUSE) so the clock
-    // gets the centre to itself.
+    // Clear whatever CenterStage was last showing (e.g. PAUSE) so the new
+    // screen owns the centre.
     CenterStage::invalidate();
-    S(lbl_clock); S(standby_dot);
-    start_standby_pulse();
+    // Hand over to the dedicated standby screen — it renders clock + weather
+    // + heartbeat from State::weather. Its own touch handler sends WAKE.
+    ScreenStandby::show();
 }
 
 // Shutdown screen: shown both during the long-press warn ("Halten zum
@@ -491,16 +460,19 @@ static void show_standby_mode() {
 // own. Touch is also suppressed (see in_shutdown guards in on_pressed etc.).
 static void show_shutdown_mode() {
     if (in_shutdown) return;
+    bool was_standby = in_standby;
     in_shutdown = true;
     in_standby  = false;
-    stop_standby_pulse();
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
-    H(lbl_clock); H(standby_dot);
     CenterStage::invalidate();
+    // Coming from standby — bring our own scr back so the shutdown text shows.
+    if (was_standby) {
+        lv_screen_load(scr);
+    }
     // Re-center the title for the shutdown message (player layout offsets it).
     if (lbl_title) {
         lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
@@ -612,28 +584,8 @@ void create() {
 
     // (lbl_volume removed — CenterStage shows MUTE when volume == 0)
 
-    // ── Standby clock ───────────────────────────────────────────────────────
-    lbl_clock = lv_label_create(scr);
-    lv_label_set_text(lbl_clock, "--:--");
-    lv_obj_set_style_text_color(lbl_clock, Theme::accent, 0);
-    lv_obj_set_style_text_font(lbl_clock, Theme::font_clock(), 0);
-    lv_obj_set_style_text_letter_space(lbl_clock, Theme::LETTER_SPACE_DISPLAY, 0);
-    lv_obj_align(lbl_clock, LV_ALIGN_CENTER, 0, -10);
-    lv_obj_add_flag(lbl_clock, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(lbl_clock, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(lbl_clock, LV_OBJ_FLAG_CLICKABLE);
-
-    // ── Standby heartbeat dot ───────────────────────────────────────────────
-    standby_dot = lv_obj_create(scr);
-    lv_obj_remove_style_all(standby_dot);
-    lv_obj_set_size(standby_dot, 10, 10);
-    lv_obj_set_style_bg_color(standby_dot, Theme::accent, 0);
-    lv_obj_set_style_bg_opa(standby_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(standby_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(standby_dot, LV_ALIGN_CENTER, 0, 70);
-    lv_obj_add_flag(standby_dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(standby_dot, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(standby_dot, LV_OBJ_FLAG_CLICKABLE);
+    // Standby UI now lives on ScreenStandby (clock + weather + heartbeat).
+    // The player screen no longer hosts standby widgets.
 
     // ── CenterStage — status announcement slot (priority chain) ─────────────
     // Created LAST so its text renders on top of all the ring layers.
@@ -670,8 +622,6 @@ void update() {
         lv_obj_set_style_text_color(lbl_title,   Theme::accent,     0);
         lv_obj_invalidate(state_icon);
         lv_obj_set_style_text_color(lbl_source,  Theme::accent_dim, 0);
-        lv_obj_set_style_text_color(lbl_clock,   Theme::accent,     0);
-        lv_obj_set_style_bg_color  (standby_dot, Theme::accent,     0);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
         State::clear_dirty(State::Dirty::ACCENT);
@@ -681,13 +631,10 @@ void update() {
     // State::sys.wifi_rssi directly, so we just clear the dirty bit here.
     State::clear_dirty(State::Dirty::SYSTEM);
 
-    if (in_standby) {
-        if (State::is_dirty(State::Dirty::CLOCK)) {
-            lv_label_set_text(lbl_clock, State::app.clockStr.c_str());
-            State::clear_dirty(State::Dirty::CLOCK);
-        }
-        return;
-    }
+    // Standby branch: the dedicated ScreenStandby owns its own render path
+    // (clock + weather + heartbeat), so all the player-side dirty handlers
+    // below would just thrash hidden widgets. Bail early.
+    if (in_standby) return;
 
     if (State::is_dirty(State::Dirty::TITLE)) {
         const char *t = State::app.title.length() ? State::app.title.c_str() : "—";
