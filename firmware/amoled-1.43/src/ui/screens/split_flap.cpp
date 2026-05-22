@@ -26,6 +26,7 @@ struct Anim {
     char target [MAX_LEN + 1];   // final text (padded with spaces to `positions`)
     char buf    [MAX_LEN + 1];   // current frame, rewritten every tick
     int  positions;
+    int  new_len;                // real length of new text (without space padding)
     int  tick;
     int8_t pos_ticks[MAX_LEN];   // ticks spent cycling on each position
     int8_t pos_start[MAX_LEN];   // tick at which each position starts cycling
@@ -98,8 +99,13 @@ static void tick_cb(lv_timer_t *t) {
     lv_label_set_text(a->label, a->buf);
 
     if (all_done) {
-        // Final paint with the clean target string and free the slot
-        lv_label_set_text(a->label, a->target);
+        // Final paint with the clean target — trim the trailing space
+        // padding that was added when the new text is shorter than the
+        // old one. Without this, the label keeps the padding visible
+        // (and a circular-scroll label may even decide to scroll a string
+        // that should comfortably fit).
+        a->buf[a->new_len] = '\0';
+        lv_label_set_text(a->label, a->buf);
         free_slot(a);
     }
 }
@@ -136,6 +142,7 @@ void set_text(lv_obj_t *label, const char *new_text) {
     }
 
     a->positions = positions;
+    a->new_len   = new_len;
     a->tick      = 0;
 
     // Seed buf with old text (padded with spaces), target with new text.
