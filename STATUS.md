@@ -218,6 +218,23 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
 
 ### Possible follow-ups (not bugs, ideas)
 
+- [ ] **Web UI — settings editor (V2)** — current `webserver.py` does
+  status + playback + volume + DSP reload. To add: live palette editor
+  (six colour pickers, push via PAL: through the bridge), loudness
+  max_boost sliders per filter (live patch via CamillaDSP, persist into
+  profile YAML), volume-mapping editor (min/max/gamma with response
+  curve preview), source-enable toggles. Requires a small bridge-side
+  IPC for the palette + profile-reload after YAML writes. V1
+  (2026-05-22) shipped just the system functions and live-loudness
+  sliders that don't need bridge involvement.
+- [ ] **Household portability** — the install assumes one specific
+  network (WiFi creds, MQTT broker host, lat/lon from secrets/) and
+  speaker layout. For someone else to deploy BeatBird on their hardware,
+  the first-boot flow should be self-discovering: WiFi-AP fallback for
+  initial connect, web-based onboarding wizard that walks through
+  speaker name + WiFi + optional MQTT/weather/Snapcast, profile
+  generated from the wizard. Currently impossible without SSH +
+  `make install` + manual YAML edits. Big lift, separate epic.
 - [ ] **persistent "last user volume" in `/var/lib/beatbird/state.json`** —
   so the stale-state snap has a real fallback ("last known good"), not the
   blind 25%.
