@@ -364,6 +364,15 @@ _HTML = """<!doctype html>
   document.getElementById('amp').textContent = Object.entries(s.amp||{{}}).map(([k,v])=>`${{k}}=${{v}}`).join(', ') || '—';
  }}
 
+ // Per-slider debounce so dragging fires lots of `input` events without
+ // hammering the backend with one request per pixel. Last value within
+ // `wait` ms wins. Use `input` (not `change`) so the change is committed
+ // while you're still dragging — `change` only fires on release, which
+ // touch users routinely miss.
+ function debounce(fn, wait=120) {{
+   let t; return (...args) => {{ clearTimeout(t); t = setTimeout(() => fn(...args), wait); }};
+ }}
+
  async function loadFilters() {{
   const r = await fetch('/api/filters').then(r=>r.json());
   const wrap = document.getElementById('filter-list');
@@ -376,19 +385,23 @@ _HTML = """<!doctype html>
      <span class="v">${{f.gain.toFixed(1)}} dB</span>`;
    const input = row.querySelector('input');
    const span = row.querySelector('.v');
-   input.addEventListener('input', () => {{ span.textContent = parseFloat(input.value).toFixed(1) + ' dB'; }});
-   input.addEventListener('change', async () => {{
+   const send = debounce(async v => {{
      await fetch('/api/filter', {{method:'POST',headers:{{'content-type':'application/json'}},
-       body:JSON.stringify({{name:f.name, gain:parseFloat(input.value)}})}});
+       body:JSON.stringify({{name:f.name, gain:v}})}});
+   }}, 150);
+   input.addEventListener('input', () => {{
+     const v = parseFloat(input.value);
+     span.textContent = v.toFixed(1) + ' dB';
+     send(v);
    }});
    wrap.appendChild(row);
   }}
  }}
 
- document.getElementById('vol').addEventListener('change', async e => {{
-  await fetch('/api/volume', {{method:'POST',headers:{{'content-type':'application/json'}}, body:JSON.stringify({{pct: +e.target.value}})}});
-  refresh();
- }});
+ const sendVolume = debounce(async pct => {{
+   await fetch('/api/volume', {{method:'POST',headers:{{'content-type':'application/json'}}, body:JSON.stringify({{pct}})}});
+ }}, 120);
+ document.getElementById('vol').addEventListener('input', e => sendVolume(+e.target.value));
  async function cmd(c) {{
   await fetch('/api/playback', {{method:'POST',headers:{{'content-type':'application/json'}}, body:JSON.stringify({{cmd:c}})}});
   setTimeout(refresh, 300);
