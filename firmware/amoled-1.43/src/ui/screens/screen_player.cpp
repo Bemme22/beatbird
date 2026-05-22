@@ -537,7 +537,7 @@ void create() {
     lbl_source = lv_label_create(scr);
     lv_label_set_text(lbl_source, "");
     lv_obj_set_style_text_color(lbl_source, Theme::accent_dim, 0);
-    lv_obj_set_style_text_font(lbl_source, Theme::font_body(), 0);
+    lv_obj_set_style_text_font(lbl_source, Theme::font_display_md(), 0);
     lv_obj_set_style_text_letter_space(lbl_source, Theme::LETTER_SPACE_LABEL, 0);
     lv_obj_align(lbl_source, LV_ALIGN_CENTER, 0, Theme::SOURCE_LABEL_Y);
     lv_obj_add_flag(lbl_source, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -547,7 +547,7 @@ void create() {
     lbl_title = lv_label_create(scr);
     lv_label_set_text(lbl_title, "");
     lv_obj_set_style_text_color(lbl_title, Theme::text_primary, 0);
-    lv_obj_set_style_text_font(lbl_title, Theme::font_display_lg(), 0);
+    lv_obj_set_style_text_font(lbl_title, Theme::font_clock(), 0);
     lv_obj_set_style_text_letter_space(lbl_title, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(lbl_title, 4, 0);
@@ -561,7 +561,7 @@ void create() {
     lbl_artist = lv_label_create(scr);
     lv_label_set_text(lbl_artist, "");
     lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
-    lv_obj_set_style_text_font(lbl_artist, Theme::font_display_md(), 0);
+    lv_obj_set_style_text_font(lbl_artist, Theme::font_display_lg(), 0);
     lv_obj_set_style_text_letter_space(lbl_artist, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_artist, 260);
