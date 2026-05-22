@@ -105,69 +105,130 @@ static void draw_cloud(lv_layer_t *layer,
 // All icons draw at the icon_obj coords. (cx, cy) is the obj origin.
 // Every literal pixel value below is wrapped in s() so the global icon
 // scale factor (ICON_SCALE_NUM/DEN at the top of the file) applies uniformly.
+//
+// Time-based animations use millis() and ScreenStandby::update() invalidates
+// the icon at ~20 fps to drive them. All animations are subtle — this is
+// ambient eye-catch, not a screensaver.
 
 static void icon_clear(lv_layer_t *l, int cx, int cy)
 {
+    const float t = (float)millis() * 0.001f;        // seconds
     draw_dot(l, cx, cy, s(7), Theme::accent, LV_OPA_COVER);
+    // Rays pulse opacity with phase-shift around the sun (wave running
+    // around the disc). ±0.25 amplitude on opacity 0.85 base.
     for (int i = 0; i < 8; i++) {
         float a = i * 45.0f * (float)M_PI / 180.0f;
+        float pulse = sinf(t * 2.0f + (float)i * 0.6f);    // -1..+1
+        lv_opa_t opa = (lv_opa_t)(190 + (int)(40 * pulse));
         int x = cx + (int)roundf(cosf(a) * sf(22.0f));
         int y = cy + (int)roundf(sinf(a) * sf(22.0f));
-        draw_dot(l, x, y, s(3), Theme::accent, (lv_opa_t)217);   // 0.85 * 255
+        draw_dot(l, x, y, s(3), Theme::accent, opa);
     }
 }
 
 static void icon_partly(lv_layer_t *l, int cx, int cy)
 {
-    // Sun upper-left
+    const float t = (float)millis() * 0.001f;
+    // Sun upper-left — pulsing rays, same algorithm as icon_clear.
     const int sx = cx + s(-16), sy = cy + s(-10);
     draw_dot(l, sx, sy, s(6), Theme::accent, LV_OPA_COVER);
     for (int i = 0; i < 8; i++) {
         float a = i * 45.0f * (float)M_PI / 180.0f;
+        float pulse = sinf(t * 2.0f + (float)i * 0.6f);
+        lv_opa_t opa = (lv_opa_t)(150 + (int)(40 * pulse));
         int x = sx + (int)roundf(cosf(a) * sf(16.0f));
         int y = sy + (int)roundf(sinf(a) * sf(16.0f));
-        draw_dot(l, x, y, s(2), Theme::accent, (lv_opa_t)178);   // 0.7
+        draw_dot(l, x, y, s(2), Theme::accent, opa);
     }
-    // Cloud lower-right (cloud offsets are pre-scaled inside draw_cloud)
-    draw_cloud(l, cx, cy, 6, 8, Theme::accent, (lv_opa_t)230);   // 0.9
+    // Cloud lower-right with very gentle horizontal drift.
+    int drift = (int)(sf(2.0f) * sinf(t * 0.4f));
+    draw_cloud(l, cx + drift, cy, 6, 8, Theme::accent, (lv_opa_t)230);
 }
 
 static void icon_cloudy(lv_layer_t *l, int cx, int cy)
 {
-    draw_cloud(l, cx, cy,  0,   0, Theme::accent, LV_OPA_COVER);
-    draw_cloud(l, cx, cy, -22, -10, Theme::accent, (lv_opa_t)115);   // 0.45
+    const float t = (float)millis() * 0.001f;
+    // Two clouds drift in opposite directions with different speeds,
+    // gives the icon a quiet "weather is happening" feel without being
+    // a distraction.
+    int drift_a = (int)(sf(3.0f) * sinf(t * 0.35f));
+    int drift_b = (int)(sf(4.0f) * sinf(t * 0.25f + 1.5f));
+    draw_cloud(l, cx + drift_a, cy,  0,   0, Theme::accent, LV_OPA_COVER);
+    draw_cloud(l, cx + drift_b, cy, -22, -10, Theme::accent, (lv_opa_t)115);
 }
 
 static void icon_rain(lv_layer_t *l, int cx, int cy)
 {
+    const float t = (float)millis() * 0.001f;
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + s(-10), cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx,          cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + s( 10), cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
+    // Three falling drops at staggered phases. Each drop falls from y=12
+    // to y=26 (s-scaled) over ~1.4 s, then teleports back to the start.
+    // Phase offset 0.4 between drops gives the visual cascade.
+    const float DROP_PERIOD = 1.4f;
+    const int   x_off[] = { -10, 0, 10 };
+    const float phases[] = { 0.0f, 0.4f, 0.8f };
+    for (int i = 0; i < 3; i++) {
+        float phase = fmodf(t / DROP_PERIOD + phases[i], 1.0f);   // 0..1
+        // y goes from 12 (top, near cloud) to 26 (bottom of icon zone)
+        int   y_off = 12 + (int)(14.0f * phase);
+        // Fade out at the very end of the fall so drops "evaporate"
+        // rather than blink off.
+        lv_opa_t opa = (lv_opa_t)(phase > 0.85f
+                                  ? (uint8_t)(255 * (1.0f - phase) / 0.15f)
+                                  : 255);
+        draw_dot(l, cx + s(x_off[i]), cy + s(y_off), s(3), Theme::accent, opa);
+    }
 }
 
 static void icon_snow(lv_layer_t *l, int cx, int cy)
 {
+    const float t = (float)millis() * 0.001f;
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
-    const int fx[] = { cx + s(-12), cx,          cx + s(12) };
-    const int fy[] = { cy + s( 18), cy + s(22),  cy + s(18) };
+    // Three flakes rotate slowly around their own centres — the 4
+    // satellite dots orbit the central dot at ~0.5 rev/sec. Plus a
+    // very gentle vertical bob to suggest they're floating.
+    const int fx_base[] = { -12, 0,  12 };
+    const int fy_base[] = {  18, 22, 18 };
     for (int i = 0; i < 3; i++) {
-        draw_dot(l, fx[i],         fy[i],         s(2), Theme::accent, LV_OPA_COVER);
-        draw_dot(l, fx[i] + s(3),  fy[i],         s(1), Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i] + s(-3), fy[i],         s(1), Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i],         fy[i] + s( 3), s(1), Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i],         fy[i] + s(-3), s(1), Theme::accent, (lv_opa_t)178);
+        // Rotation phase, offset per-flake so they don't sync
+        float rot = t * 2.5f + (float)i * 1.2f;
+        // Vertical bob — different period per flake
+        int bob = (int)(sf(1.5f) * sinf(t * 0.8f + (float)i * 1.7f));
+        int cx_f = cx + s(fx_base[i]);
+        int cy_f = cy + s(fy_base[i]) + bob;
+        draw_dot(l, cx_f, cy_f, s(2), Theme::accent, LV_OPA_COVER);
+        // Four satellites — rotate the cardinal cross
+        for (int k = 0; k < 4; k++) {
+            float a = rot + k * (float)M_PI * 0.5f;
+            int x = cx_f + (int)roundf(cosf(a) * sf(3.0f));
+            int y = cy_f + (int)roundf(sinf(a) * sf(3.0f));
+            draw_dot(l, x, y, s(1), Theme::accent, (lv_opa_t)178);
+        }
     }
 }
 
 static void icon_thunder(lv_layer_t *l, int cx, int cy)
 {
+    const uint32_t now = millis();
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
-    // Lightning bolt as dot zigzag
-    draw_dot(l, cx + s( 2), cy + s(12), s(3), Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + s(-3), cy + s(16), s(3), Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + s( 2), cy + s(20), s(3), Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + s(-3), cy + s(24), s(3), Theme::accent, LV_OPA_COVER);
+    // Lightning flashes briefly — ~120 ms on, ~3 s off. Plus a faint
+    // "glow" residual so the bolt remains visible most of the time as
+    // a dim shape (looks better than empty space + sudden flash).
+    constexpr uint32_t CYCLE_MS = 3200;
+    constexpr uint32_t FLASH_MS = 120;
+    uint32_t cycle = now % CYCLE_MS;
+    lv_opa_t bolt_opa;
+    if (cycle < FLASH_MS) {
+        // Bright flash, fades from full to baseline over the flash window
+        float p = (float)cycle / (float)FLASH_MS;
+        bolt_opa = (lv_opa_t)(255 - (int)(155 * p));   // 255 → 100
+    } else {
+        bolt_opa = 100;   // residual visibility
+    }
+    draw_dot(l, cx + s( 2), cy + s(12), s(3), Theme::accent, bolt_opa);
+    draw_dot(l, cx + s(-3), cy + s(16), s(3), Theme::accent, bolt_opa);
+    draw_dot(l, cx + s( 2), cy + s(20), s(3), Theme::accent, bolt_opa);
+    draw_dot(l, cx + s(-3), cy + s(24), s(3), Theme::accent, bolt_opa);
 }
 
 // Fog renders as cloudy for v1 — placeholder until a dedicated fog icon
@@ -333,7 +394,11 @@ void create()
 void show()
 {
     if (!created) create();
-    lv_screen_load(scr);
+    // Fade-in transition instead of hard cut — both screens share the same
+    // black background, so a 400 ms cross-fade reads as a soft segue
+    // rather than a flash-change. auto_del=false keeps the player screen
+    // alive (we'll lv_screen_load() it back when audio resumes).
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, false);
     State::app.active_screen = State::SCR_PLAYER;   // standby is a player sub-state
     start_heartbeat();
     // Re-apply palette tokens — they may have changed via PAL: while the
@@ -366,6 +431,17 @@ bool is_visible()
 void update()
 {
     if (!created || !is_visible()) return;
+
+    // Drive the icon animations at ~20 fps. The weather icons all use
+    // millis() in their draw callbacks (raindrops falling, sun rays
+    // pulsing, lightning flashing) — those only update when the obj
+    // gets invalidated, so we tick it here.
+    static uint32_t last_anim_tick = 0;
+    uint32_t now = millis();
+    if (now - last_anim_tick >= 50) {
+        last_anim_tick = now;
+        if (State::weather.valid) lv_obj_invalidate(icon_obj);
+    }
 
     // ACCENT/palette refresh — runtime palette tokens are pushed by the
     // bridge after connect (PAL:a=…|p=…|s=…). The colours assigned at

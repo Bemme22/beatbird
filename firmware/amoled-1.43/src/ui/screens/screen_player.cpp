@@ -464,8 +464,10 @@ static void show_player_mode() {
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
     // Switch back from the standby screen to our own (ScreenPlayer) scr.
+    // Fade-in symmetric to ScreenStandby::show() so the standby→player
+    // direction is just as smooth as the inverse.
     if (was_standby) {
-        lv_screen_load(scr);
+        lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, false);
     }
     // Restore the title's normal player offset (shutdown mode centered it).
     if (was_shutdown && lbl_title) {
@@ -501,6 +503,8 @@ static void show_shutdown_mode() {
     H(lbl_artist); H(state_icon);
     CenterStage::invalidate();
     // Coming from standby — bring our own scr back so the shutdown text shows.
+    // Hard-cut here on purpose: shutdown is urgent and an animated fade
+    // delays the user feedback.
     if (was_standby) {
         lv_screen_load(scr);
     }
