@@ -136,6 +136,20 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
           <stop offset="50%" stop-color="#219EBC"/>
           <stop offset="100%" stop-color="#023047"/>
         </linearGradient>
+        <!-- Round cover with feathered edge — radial alpha mask. The
+             solid-fully-opaque inner zone is configurable via JS so the
+             feather width slider takes effect live. -->
+        <radialGradient id="cover-feather" cx="0.5" cy="0.5" r="0.5">
+          <stop id="feather-inner"  offset="55%" stop-color="white" stop-opacity="1"/>
+          <stop id="feather-outer"  offset="100%" stop-color="white" stop-opacity="0"/>
+        </radialGradient>
+        <mask id="cover-mask" maskContentUnits="objectBoundingBox">
+          <rect width="1" height="1" fill="url(#cover-feather)"/>
+        </mask>
+        <!-- Hard circle clip alternative for "round hard" mode -->
+        <clipPath id="cover-circle" clipPathUnits="objectBoundingBox">
+          <circle cx="0.5" cy="0.5" r="0.5"/>
+        </clipPath>
       </defs>
 
       <g clip-path="url(#round)">
@@ -150,17 +164,12 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
         <!-- Title (one step higher than current to make room) -->
         <text id="title-text" class="t" x="233" y="160">Bewegtbild</text>
 
-        <!-- Album art group, centered at 233,233. Two layers:
-             a coloured square (the cover) with a faint inner stroke. -->
+        <!-- Album art group, centered at 233,233. Shape (square/round-hard/
+             round-feather) is set at runtime via attributes on cover-rect. -->
         <g id="cover-group" transform="translate(193, 193)">
           <rect id="cover-rect" x="0" y="0" width="80" height="80"
                 fill="url(#cover-a)" rx="2"/>
-          <!-- subtle inner stroke for "framed" look -->
-          <rect x="0.5" y="0.5" width="79" height="79" rx="2"
-                fill="none" stroke="#000" stroke-opacity="0.25" stroke-width="1"/>
-          <!-- faux track-icon overlay (small note in corner so it's
-               readable as an album, not just a colour swatch) -->
-          <text x="40" y="48" text-anchor="middle" font-family="serif"
+          <text id="cover-note" x="40" y="48" text-anchor="middle" font-family="serif"
                 font-size="34" fill="rgba(255,255,255,0.20)" font-weight="bold"
                 style="font-style:italic">♪</text>
         </g>
@@ -202,15 +211,36 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
   </div>
 
   <div class="block">
+    <h2>Cover-Form</h2>
+    <div class="row">
+      <button data-shape="square"  >Eckig hart</button>
+      <button data-shape="circle"  >Rund hart</button>
+      <button data-shape="feather"  class="active">Rund + fade</button>
+    </div>
+    <div class="slider-row" style="margin-top:.7em">
+      <label>Fade</label>
+      <input id="feather" type="range" min="30" max="90" value="55">
+      <span class="v" id="feather-v">55 %</span>
+    </div>
+    <p style="font-size:11px;color:#666;line-height:1.5;margin:8px 0 0">
+      Fade-Wert = Radius bis zu dem das Cover voll deckt. Drüber gehts
+      smooth auf 0 % aus. 55 % wirkt für mich am natürlichsten — das
+      Cover ist erkennbar, verliert aber die harten Kanten gegen den
+      schwarzen Display-Hintergrund.
+    </p>
+  </div>
+
+  <div class="block">
     <h2>Cover-Größe</h2>
     <div class="slider-row">
       <label>Pixel</label>
-      <input id="cover-size" type="range" min="50" max="120" value="80">
-      <span class="v" id="cover-size-v">80 px</span>
+      <input id="cover-size" type="range" min="50" max="140" value="100">
+      <span class="v" id="cover-size-v">100 px</span>
     </div>
     <p style="font-size:11px;color:#666;line-height:1.5;margin:8px 0 0">
-      80 px ist mein Vorschlag. Drüber wird's eng zum Title/Artist, drunter
-      verliert das Cover Aussage. Slider zum Selber-Ausprobieren.
+      Bei "Rund + fade" darf das Cover ruhig größer sein — der weiche
+      Rand reicht eh über die nominale Box hinaus aus. 100 px ist mein
+      neuer Startwert für die Fade-Variante.
     </p>
   </div>
 
@@ -269,7 +299,10 @@ const TRACKS = [
   { title: 'Move Around',        artist: 'Camo & Krooked', cover: 'cover-c' },
 ];
 
-const state = { mode: 'playing', track: 0, volume: 62, progress: 0.42, coverPx: 80 };
+const state = {
+  mode: 'playing', track: 0, volume: 62, progress: 0.42,
+  coverPx: 100, shape: 'feather', featherPct: 55,
+};
 
 function renderVol() {
   const dots = document.getElementById('vol-ring').children;
@@ -291,17 +324,44 @@ function renderProg() {
 function renderCover() {
   const t = TRACKS[state.track];
   const r = document.getElementById('cover-rect');
+  const note = document.getElementById('cover-note');
   r.setAttribute('fill', `url(#${t.cover})`);
   const s = state.coverPx;
   r.setAttribute('width',  s);
   r.setAttribute('height', s);
+  note.setAttribute('x', s/2);
+  note.setAttribute('y', s * 0.6);
+  note.setAttribute('font-size', s * 0.42);
   document.getElementById('cover-group').setAttribute('transform', `translate(${C.cx - s/2}, ${C.cy - s/2})`);
-  // Make CenterStage dim the cover when active
+  // Apply shape: clear all clip/mask attrs first, then set the active one.
+  r.removeAttribute('mask');
+  r.removeAttribute('clip-path');
+  r.removeAttribute('rx');
+  note.removeAttribute('mask');
+  note.removeAttribute('clip-path');
+  if (state.shape === 'square') {
+    r.setAttribute('rx', 2);
+  } else if (state.shape === 'circle') {
+    r.setAttribute('clip-path', 'url(#cover-circle)');
+    note.setAttribute('clip-path', 'url(#cover-circle)');
+  } else { // feather
+    r.setAttribute('mask', 'url(#cover-mask)');
+    note.setAttribute('mask', 'url(#cover-mask)');
+  }
+  // CenterStage dims the cover when active
   const dim = state.mode !== 'playing' && state.mode !== 'muted';
-  r.setAttribute('opacity', dim ? 0.25 : 1);
+  r.setAttribute('opacity',    dim ? 0.25 : 1);
+  note.setAttribute('opacity', dim ? 0.10 : 0.20);
 
   document.getElementById('title-text').textContent  = t.title;
   document.getElementById('artist-text').textContent = t.artist;
+}
+
+function updateFeather() {
+  // The radial gradient is in user-space objectBoundingBox (0..1).
+  // The "inner" stop sits at featherPct of the radius — everything inside
+  // is fully opaque; the outer 0..(100-featherPct)% feathers to 0 alpha.
+  document.getElementById('feather-inner').setAttribute('offset', state.featherPct + '%');
 }
 function renderCenterStage() {
   const t = document.getElementById('center-stage');
@@ -337,6 +397,18 @@ document.querySelectorAll('button[data-track]').forEach(b => {
     renderAll();
   });
 });
+document.querySelectorAll('button[data-shape]').forEach(b => {
+  b.addEventListener('click', () => {
+    state.shape = b.dataset.shape;
+    document.querySelectorAll('button[data-shape]').forEach(x => x.classList.toggle('active', x === b));
+    renderCover();
+  });
+});
+document.getElementById('feather').addEventListener('input', e => {
+  state.featherPct = +e.target.value;
+  document.getElementById('feather-v').textContent = state.featherPct + ' %';
+  updateFeather();
+});
 document.getElementById('cover-size').addEventListener('input', e => {
   state.coverPx = +e.target.value;
   document.getElementById('cover-size-v').textContent = state.coverPx + ' px';
@@ -348,6 +420,7 @@ document.getElementById('vol').addEventListener('input', e => {
   renderVol();
 });
 
+updateFeather();
 renderAll();
 </script>
 </body>
