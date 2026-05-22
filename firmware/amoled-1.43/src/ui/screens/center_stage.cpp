@@ -38,7 +38,7 @@ static void opa_cb(void *var, int32_t v) {
 }
 
 static void hide_after_fade_cb(lv_anim_t *a) {
-    lv_obj_t *o = (lv_obj_t *)lv_anim_get_var(a);
+    lv_obj_t *o = (lv_obj_t *)a->var;
     if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
 }
 
