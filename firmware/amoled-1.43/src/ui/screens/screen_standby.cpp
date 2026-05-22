@@ -26,6 +26,18 @@ namespace ScreenStandby {
 #define M_PI 3.14159265358979323846
 #endif
 
+// Icon-internal scale. All hardcoded offsets/radii in the icon helpers
+// were tuned at 1.0 (matching the 100×70 obj from the mockup). With the
+// rest of the standby labels bumped one font tier up, the icon felt
+// small in proportion — scaling by 1.3× restores the visual weight.
+// Bump ICON_OBJ_W/H if you raise this further, otherwise drawings clip.
+static constexpr int ICON_SCALE_NUM = 13;
+static constexpr int ICON_SCALE_DEN = 10;
+static constexpr int ICON_OBJ_W     = 140;
+static constexpr int ICON_OBJ_H     = 100;
+static inline int    s(int n)       { return (n * ICON_SCALE_NUM) / ICON_SCALE_DEN; }
+static inline float  sf(float n)    { return n * (float)ICON_SCALE_NUM / (float)ICON_SCALE_DEN; }
+
 // ─── LVGL objects ───────────────────────────────────────────────────────────
 
 static lv_obj_t *scr           = nullptr;
@@ -80,41 +92,43 @@ static void draw_cloud(lv_layer_t *layer,
                        int cx, int cy, int ox, int oy,
                        lv_color_t color, lv_opa_t opa)
 {
-    const int px = cx + ox;
-    const int py = cy + oy;
-    draw_dot(layer, px - 14, py - 1, 7, color, opa);
-    draw_dot(layer, px -  5, py - 6, 8, color, opa);
-    draw_dot(layer, px +  6, py - 5, 8, color, opa);
-    draw_dot(layer, px + 14, py + 1, 7, color, opa);
-    draw_rect(layer, px - 17, py + 1, px + 17, py + 9, color, opa, 4);
+    const int px = cx + s(ox);
+    const int py = cy + s(oy);
+    draw_dot(layer, px + s(-14), py + s(-1), s(7), color, opa);
+    draw_dot(layer, px + s(- 5), py + s(-6), s(8), color, opa);
+    draw_dot(layer, px + s(  6), py + s(-5), s(8), color, opa);
+    draw_dot(layer, px + s( 14), py + s( 1), s(7), color, opa);
+    draw_rect(layer, px + s(-17), py + s(1), px + s(17), py + s(9), color, opa, s(4));
 }
 
 // ─── Icon variants ──────────────────────────────────────────────────────────
 // All icons draw at the icon_obj coords. (cx, cy) is the obj origin.
+// Every literal pixel value below is wrapped in s() so the global icon
+// scale factor (ICON_SCALE_NUM/DEN at the top of the file) applies uniformly.
 
 static void icon_clear(lv_layer_t *l, int cx, int cy)
 {
-    draw_dot(l, cx, cy, 7, Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx, cy, s(7), Theme::accent, LV_OPA_COVER);
     for (int i = 0; i < 8; i++) {
         float a = i * 45.0f * (float)M_PI / 180.0f;
-        int x = cx + (int)roundf(cosf(a) * 22.0f);
-        int y = cy + (int)roundf(sinf(a) * 22.0f);
-        draw_dot(l, x, y, 3, Theme::accent, (lv_opa_t)217);   // 0.85 * 255
+        int x = cx + (int)roundf(cosf(a) * sf(22.0f));
+        int y = cy + (int)roundf(sinf(a) * sf(22.0f));
+        draw_dot(l, x, y, s(3), Theme::accent, (lv_opa_t)217);   // 0.85 * 255
     }
 }
 
 static void icon_partly(lv_layer_t *l, int cx, int cy)
 {
     // Sun upper-left
-    const int sx = cx - 16, sy = cy - 10;
-    draw_dot(l, sx, sy, 6, Theme::accent, LV_OPA_COVER);
+    const int sx = cx + s(-16), sy = cy + s(-10);
+    draw_dot(l, sx, sy, s(6), Theme::accent, LV_OPA_COVER);
     for (int i = 0; i < 8; i++) {
         float a = i * 45.0f * (float)M_PI / 180.0f;
-        int x = sx + (int)roundf(cosf(a) * 16.0f);
-        int y = sy + (int)roundf(sinf(a) * 16.0f);
-        draw_dot(l, x, y, 2, Theme::accent, (lv_opa_t)178);   // 0.7
+        int x = sx + (int)roundf(cosf(a) * sf(16.0f));
+        int y = sy + (int)roundf(sinf(a) * sf(16.0f));
+        draw_dot(l, x, y, s(2), Theme::accent, (lv_opa_t)178);   // 0.7
     }
-    // Cloud lower-right
+    // Cloud lower-right (cloud offsets are pre-scaled inside draw_cloud)
     draw_cloud(l, cx, cy, 6, 8, Theme::accent, (lv_opa_t)230);   // 0.9
 }
 
@@ -127,24 +141,22 @@ static void icon_cloudy(lv_layer_t *l, int cx, int cy)
 static void icon_rain(lv_layer_t *l, int cx, int cy)
 {
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
-    // Three falling raindrops (static in v1; animation deferred)
-    draw_dot(l, cx - 10, cy + 18, 3, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx,      cy + 18, 3, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + 10, cy + 18, 3, Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s(-10), cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx,          cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s( 10), cy + s(18), s(3), Theme::accent, LV_OPA_COVER);
 }
 
 static void icon_snow(lv_layer_t *l, int cx, int cy)
 {
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
-    // Three asterisk-style flakes: center + 4 cardinal smaller dots
-    const int fx[] = { cx - 12, cx,      cx + 12 };
-    const int fy[] = { cy + 18, cy + 22, cy + 18 };
+    const int fx[] = { cx + s(-12), cx,          cx + s(12) };
+    const int fy[] = { cy + s( 18), cy + s(22),  cy + s(18) };
     for (int i = 0; i < 3; i++) {
-        draw_dot(l, fx[i],     fy[i],     2, Theme::accent, LV_OPA_COVER);
-        draw_dot(l, fx[i] + 3, fy[i],     1, Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i] - 3, fy[i],     1, Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i],     fy[i] + 3, 1, Theme::accent, (lv_opa_t)178);
-        draw_dot(l, fx[i],     fy[i] - 3, 1, Theme::accent, (lv_opa_t)178);
+        draw_dot(l, fx[i],         fy[i],         s(2), Theme::accent, LV_OPA_COVER);
+        draw_dot(l, fx[i] + s(3),  fy[i],         s(1), Theme::accent, (lv_opa_t)178);
+        draw_dot(l, fx[i] + s(-3), fy[i],         s(1), Theme::accent, (lv_opa_t)178);
+        draw_dot(l, fx[i],         fy[i] + s( 3), s(1), Theme::accent, (lv_opa_t)178);
+        draw_dot(l, fx[i],         fy[i] + s(-3), s(1), Theme::accent, (lv_opa_t)178);
     }
 }
 
@@ -152,10 +164,10 @@ static void icon_thunder(lv_layer_t *l, int cx, int cy)
 {
     draw_cloud(l, cx, cy, 0, -8, Theme::accent, LV_OPA_COVER);
     // Lightning bolt as dot zigzag
-    draw_dot(l, cx + 2, cy + 12, 3, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx - 3, cy + 16, 3, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx + 2, cy + 20, 3, Theme::accent, LV_OPA_COVER);
-    draw_dot(l, cx - 3, cy + 24, 3, Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s( 2), cy + s(12), s(3), Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s(-3), cy + s(16), s(3), Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s( 2), cy + s(20), s(3), Theme::accent, LV_OPA_COVER);
+    draw_dot(l, cx + s(-3), cy + s(24), s(3), Theme::accent, LV_OPA_COVER);
 }
 
 // Fog renders as cloudy for v1 — placeholder until a dedicated fog icon
@@ -275,8 +287,8 @@ void create()
     // ── Weather icon container (centered on 233, 180) ───────────────────────
     icon_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(icon_obj);
-    lv_obj_set_size(icon_obj, 100, 80);
-    lv_obj_set_pos(icon_obj, Theme::CENTER - 50, 180 - 40);
+    lv_obj_set_size(icon_obj, ICON_OBJ_W, ICON_OBJ_H);
+    lv_obj_set_pos(icon_obj, Theme::CENTER - ICON_OBJ_W / 2, 180 - ICON_OBJ_H / 2);
     lv_obj_set_style_bg_opa(icon_obj, LV_OPA_TRANSP, 0);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_SCROLLABLE);
