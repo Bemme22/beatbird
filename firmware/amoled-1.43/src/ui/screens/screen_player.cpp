@@ -30,6 +30,7 @@
 #include "screens/screen_player.h"
 #include "screens/center_stage.h"
 #include "screens/screen_standby.h"
+#include "screens/split_flap.h"
 #include "state.h"
 #include "theme.h"
 #include "proto.h"
@@ -182,10 +183,11 @@ static void precompute_geometry() {
 // rush past with the same number. We measure the rendered text width with
 // lv_text_get_size and compute `duration_ms = width / px_per_sec * 1000`.
 // Floor at 2000 ms so the scroll doesn't tick fast on short text either.
-static void set_scroll_speed_pxs(lv_obj_t *lbl, int px_per_sec) {
-    if (!lbl || px_per_sec <= 0) return;
-    const char *txt = lv_label_get_text(lbl);
-    if (!txt || !txt[0]) return;
+static void set_scroll_speed_pxs(lv_obj_t *lbl, const char *txt, int px_per_sec) {
+    if (!lbl || !txt || !txt[0] || px_per_sec <= 0) return;
+    // Measure against the FINAL text, not lv_label_get_text(lbl) — when a
+    // SplitFlap animation is running, the label currently holds a flap
+    // frame, not the target text.
     const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
     int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
     lv_point_t sz;
@@ -655,13 +657,16 @@ void update() {
 
     if (State::is_dirty(State::Dirty::TITLE)) {
         const char *t = State::app.title.length() ? State::app.title.c_str() : "—";
-        lv_label_set_text(lbl_title, t);
-        set_scroll_speed_pxs(lbl_title, 30);
+        // Set scroll anim_time first (measures the FINAL string), then
+        // kick off the split-flap which leaves the label on `t` once done.
+        set_scroll_speed_pxs(lbl_title, t, 30);
+        SplitFlap::set_text(lbl_title, t);
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
-        lv_label_set_text(lbl_artist, State::app.artist.c_str());
-        set_scroll_speed_pxs(lbl_artist, 25);
+        const char *a = State::app.artist.c_str();
+        set_scroll_speed_pxs(lbl_artist, a, 25);
+        SplitFlap::set_text(lbl_artist, a);
         State::clear_dirty(State::Dirty::ARTIST);
     }
     if (State::is_dirty(State::Dirty::STATE)) {
