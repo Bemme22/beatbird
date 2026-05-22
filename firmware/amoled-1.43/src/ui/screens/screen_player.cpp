@@ -216,27 +216,43 @@ static inline int sq_dist_to_center(int x, int y) {
     return dx * dx + dy * dy;
 }
 
+// Stretch the bridge's RMS-derived energy_smoothed (0..1) into a more
+// visually dynamic range. Real music RMS sits ~0.55..0.93, so wobble
+// amplitude proportional to raw energy looks flat — quiet and loud both
+// modulate by similar percentages. Remap (raw - 0.35) * 2.5 puts quiet
+// material around 0.5 and loud peaks at 1.2 (touch of overdrive), which
+// the wobble/pulse formulas multiply into much more visible swings.
+static inline float energy_dyn(float raw) {
+    float e = (raw - 0.35f) * 2.5f;
+    if (e < 0.0f) e = 0.0f;
+    if (e > 1.2f) e = 1.2f;
+    return e;
+}
+
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
     int lit = (vol * 24 + 50) / 100;
-    // Phase-2 energy modulation: lit dots pulse with the per-frame
-    // smoothed energy. The sine provides motion texture (each dot
-    // independent via the *i*0.5 phase shift), energy modulates the
-    // amplitude. Unlit dots stay flat. At E=0 the wobble term collapses
-    // to 1.0 so behaviour matches the pre-Phase-2 flat look.
-    const float E = energy_smoothed;
+    // Phase-2 energy modulation. The dynamic-range remap (energy_dyn) is
+    // critical: raw RMS sits in 0.55..0.93 during music, which on its own
+    // makes the wobble look identical on quiet and loud passages. After
+    // remap, quiet → ~0.5, loud → ~1.2, and amplitude 0.65 expands that
+    // into a ±33 % (quiet) to ±78 % (loud) radius swing — clearly visible.
+    // Sine freq 0.005 ≈ 1.25 s cycle; per-dot phase offset i*0.5 makes
+    // the wobble travel around the ring instead of pulsing in sync.
+    const float E = energy_dyn(energy_smoothed);
     const float t = (float)millis();
     for (int i = 0; i < 24; i++) {
         if (i == 0) continue;
         bool is_lit = (i < lit);
         if (is_lit) {
-            float wob = 1.0f + E * 0.4f * sinf(t * 0.003f + (float)i * 0.5f);
+            float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * 0.5f);
             int   r   = (int)roundf((float)Theme::VOL_DOT_R * wob);
             if (r < 1) r = 1;
             lv_opa_t o = (lv_opa_t)(217 + (int)(E * 38.0f));   // 0.85..1.00
+            if (o > 255) o = 255;
             draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
         } else {
             draw_dot(layer, vol_x[i], vol_y[i],
@@ -685,20 +701,20 @@ void update() {
             energy_smoothed += (target - energy_smoothed) * 0.12f;
             lv_obj_invalidate(vol_layer);
             // Source marker pulse — opacity AND size driven by the same
-            // sinf(t*0.003) the vol dots use, with energy_smoothed as the
-            // amplitude. Pure opa modulation against the ~0.5..0.9 typical
-            // energy band wasn't readable on the AMOLED; combining a 30 %
-            // opa swing with a ±12 % scale on a 10×10 px square gives a
-            // pulse you can see across the room.
+            // sin the vol dots use, with the dynamic-remapped energy as
+            // the amplitude. Without the remap the marker pulses at a
+            // near-constant depth regardless of how loud the music is.
+            // Frequency matches the vol-ring (0.005) so the whole player
+            // breathes together.
             if (source_marker && !in_standby && !in_shutdown) {
-                const float wob = sinf((float)now * 0.003f);    // -1..+1
-                const float p   = energy_smoothed * wob;        // -E..+E
-                int o_i = 200 + (int)(p * 55.0f);               // 145..255 at peak E
+                const float E_dyn = energy_dyn(energy_smoothed);
+                const float wob   = sinf((float)now * 0.005f);  // -1..+1
+                const float p     = E_dyn * wob;                // -E_dyn..+E_dyn (≤ 1.2)
+                int o_i = 200 + (int)(p * 55.0f);
                 if (o_i < 0)   o_i = 0;
                 if (o_i > 255) o_i = 255;
                 lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
-                // 256 = 100% — LVGL transform scale unit.
-                int scale = 256 + (int)(p * 30.0f);             // 256 ± 30*E
+                int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak (was ±12 %)
                 lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
         }
