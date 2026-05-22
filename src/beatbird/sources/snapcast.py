@@ -74,6 +74,8 @@ class SnapcastClient:
             volume_pct: int, our snapclient's per-client volume (0..100)
             group_name: str, snapcast group name (MA uses ma_<MAC> per client)
             stream_id:  str, e.g. "default"
+            title:      str, track title (from MA-side stream metadata) or ""
+            artist:     str, joined artist names or ""
         Returns None if the server is unreachable or we can't find our
         client entry."""
         if not self.host or not self.my_mac:
@@ -86,6 +88,28 @@ class SnapcastClient:
         streams = server.get("streams", []) or []
         stream_by_id = {s.get("id"): s for s in streams}
 
+        # MA splits a single playback session into two streams: one carries
+        # the audio (status=playing, no metadata), the other carries the
+        # MPRIS-style metadata (status often "idle" or marker-only, has
+        # `properties.metadata` with title/artist). Both share the same
+        # MA "syncgroup<id>" suffix in their names. Pull metadata from any
+        # stream that has it — prefer the one matching our group's stream.
+        def stream_meta(s):
+            m = (s.get("properties") or {}).get("metadata") or {}
+            title = m.get("title") or ""
+            artist = m.get("artist")
+            if isinstance(artist, list):
+                artist = ", ".join(str(a) for a in artist if a)
+            else:
+                artist = str(artist) if artist else ""
+            return title, artist
+
+        any_title, any_artist = "", ""
+        for s in streams:
+            t, a = stream_meta(s)
+            if t and not any_title:
+                any_title, any_artist = t, a
+
         for g in groups:
             for c in g.get("clients", []) or []:
                 host = c.get("host", {}) or {}
@@ -95,11 +119,18 @@ class SnapcastClient:
                 stream_id = g.get("stream_id") or ""
                 stream = stream_by_id.get(stream_id) or {}
                 vol_pct = (((c.get("config") or {}).get("volume") or {}).get("percent")) or 0
+                # Prefer metadata from THIS stream if present, else fall
+                # back to the first stream that had any metadata.
+                own_title, own_artist = stream_meta(stream)
+                title  = own_title  or any_title
+                artist = own_artist or any_artist
                 return {
                     "playing":    stream.get("status") == "playing" and bool(c.get("connected")),
                     "volume_pct": int(vol_pct),
                     "group_name": g.get("name") or "",
                     "stream_id":  stream_id,
+                    "title":      title,
+                    "artist":     artist,
                 }
         return None
 

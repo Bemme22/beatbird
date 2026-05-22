@@ -69,7 +69,12 @@ sources:
     normalisation: true
   bluetooth: {enabled: false, a2dp: true}
   toslink:   {enabled: false}
-  snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+  snapcast:
+    # See beat-1.yml for the bridge's source-indicator behaviour. Real
+    # server IP comes from BEATBIRD_SNAPCAST_SERVER (secrets/snapcast.host).
+    enabled: true
+    server: 192.168.1.10
+    latency_ms: 30
 
 # Weather — coords live in secrets/location.coords (gitignored).
 weather:

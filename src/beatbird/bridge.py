@@ -664,14 +664,16 @@ class BeatBirdBridge:
                 self._transition_source(Source.SNAPCAST)
             self.playback = Playback.PLAYING
             self.last_playback_time = time.monotonic()
-            # Use the snap group name as a track-like label. MA labels
-            # groups `ma_<MAC>`; trim that prefix for readability.
-            label = state["group_name"] or "Snapcast"
-            if label.startswith("ma_"):
-                label = "Multiroom"
-            if self.song_title != label:
-                self.song_title = label
-                self.song_artist = ""
+            # Real track metadata if MA published it on any stream;
+            # otherwise fall back to a sensible label so the slot isn't
+            # empty.
+            title  = state.get("title") or ""
+            artist = state.get("artist") or ""
+            if not title:
+                title = "Multiroom"
+            if self.song_title != title or self.song_artist != artist:
+                self.song_title  = title
+                self.song_artist = artist
             # Mirror per-client volume to the display so the ring tracks
             # MA-side changes too. Only push when it actually changed.
             v = max(0, min(100, int(state["volume_pct"])))
