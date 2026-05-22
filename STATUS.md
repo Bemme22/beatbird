@@ -277,9 +277,24 @@ in chat 2026-05-21 (interactive mockup `beatbird-ui-preview.html`):
   - **TODO** — actual `screen_player.cpp` refactor (remove
     `lbl_volume` + `state_icon`, resize title/artist, hook
     `CenterStage::create/update`) — separate patch, didn't land yet.
-- ⏭ **Phase 2 (sound-print halo + vol-ring energy)**: not started.
-- ⏭ **Phase 3 (source-select screen)**: not started.
+- ⏭ **Phase 2 (sound-print halo + vol-ring energy)**: **DONE 2026-05-22**.
+      Halo was tried at r=225, found too noisy on the round 466 px panel
+      and ripped back out. Energy modulation lives on the vol-ring lit
+      dots + source-marker pulse (size + opacity), driven by a dynamic-
+      range-remapped energy_smoothed so quiet vs. loud is visibly
+      different. Plus full per-speaker palette protocol (PAL:a=…|p=…|s=…)
+      and a wired-up ScreenStandby with weather, clock, conditions.
+- ❌ **Phase 3 (source-select screen)**: **dropped** 2026-05-22 — only
+      Spotify is actively in use, BT/Toslink/Snapcast either disabled or
+      automatic, "last writer wins" in the bridge handles it. A
+      full-screen picker is overengineering for the current setup.
 - ⏭ **Phase 4 (split-flap animation)**: not started.
+- ⏭ **BT pairing-mode trigger**: when Bluetooth gets re-enabled
+      (currently parked due to GPIO3/I²C conflict), add a gesture or
+      long-press that puts the speaker into discoverable mode for ~60 s
+      and shows a `PAIRING…` CenterStage announcement with a countdown.
+      Not a full source picker — just the one-shot "let my phone find
+      this speaker" interaction. Out of scope until BT hardware works.
 
 ### Display redesign — next big firmware patch (Steff 2026-05-19)
 
