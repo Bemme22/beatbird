@@ -51,13 +51,11 @@ constexpr int PROG_SEG_COUNT = 60;
 constexpr int PROG_ARC_START_DEG = 135;   // bottom-left
 constexpr int PROG_ARC_SWEEP_DEG = 270;   // around the bottom
 
-constexpr int ENERGY_RING_R = 142;
-constexpr int ENERGY_DOT_R  = 3;
-constexpr int ENERGY_DOT_R_PEAK = 5;
-constexpr int ENERGY_DOT_COUNT = 12;
-constexpr int ENERGY_ARC_START_DEG = 20;  // bottom only — like a smile
-constexpr int ENERGY_ARC_SWEEP_DEG = 140;
-constexpr int ENERGY_DEFLECTION_PX = 16;   // max outward push of a peak dot
+// Sound-Print-Halo: 1-px outer ring at r=225, just outside VOL_RING_R=218.
+// Opacity + stroke width follow a low-pass-smoothed app.energy in
+// screen_player.cpp, so the ring feels like a breathing thing rather than a
+// flickering one. Replaces the old central 12-dot "energy smile" widget.
+constexpr int HALO_R = 225;
 
 constexpr int SOURCE_MARKER_SIZE = 10;     // square px
 constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge

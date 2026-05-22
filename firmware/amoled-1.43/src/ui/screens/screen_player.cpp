@@ -50,10 +50,10 @@ namespace ScreenPlayer {
 static lv_obj_t *scr           = nullptr;
 
 // Custom-draw layers (back→front)
-static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring
+static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
-static lv_obj_t *energy_layer  = nullptr;   // 12-dot smile
-static lv_obj_t *wifi_layer    = nullptr;   // 4-bar wifi indicator (top-right)
+static lv_obj_t *halo_layer    = nullptr;   // sound-print halo at r=225 (breathes with energy)
+static lv_obj_t *wifi_layer    = nullptr;   // dot-matrix wifi indicator (top-center)
 
 // Player widgets
 static lv_obj_t *source_marker = nullptr;
@@ -77,11 +77,14 @@ static bool     in_standby         = false;
 static bool     in_shutdown        = false;
 static bool     standby_anim_alive = false;
 static uint32_t last_energy_render = 0;
+// Low-passed app.energy in [0..1]. Updates from State::app.energy at the
+// 60 Hz repaint tick; halo + vol-wobble both read from this so they share
+// the same inertia and stay phase-aligned.
+static float    energy_smoothed    = 0.0f;
 
-// Precomputed dot positions / unit vectors
+// Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
 static int   prog_x[60],   prog_y[60];
-static float energy_cos[12], energy_sin[12];
 
 // ─── Rotary volume state ────────────────────────────────────────────────────
 
@@ -266,12 +269,7 @@ static void precompute_geometry() {
         prog_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::PROG_RING_R);
         prog_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::PROG_RING_R);
     }
-    for (int i = 0; i < 12; i++) {
-        float a_deg = 160.0f - (i / 11.0f) * 140.0f + (float)UI_RING_OFFSET_DEG;
-        float a = a_deg * (float)M_PI / 180.0f;
-        energy_cos[i] = cosf(a);
-        energy_sin[i] = sinf(a);
-    }
+    // Halo is a single ring at HALO_R — no per-dot geometry needed.
 }
 
 static void draw_dot(lv_layer_t *layer, int cx, int cy, int r,
@@ -300,13 +298,26 @@ static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
     int lit = (vol * 24 + 50) / 100;
+    // Phase-2 energy modulation: lit dots pulse with the per-frame
+    // smoothed energy. The sine provides motion texture (each dot
+    // independent via the *i*0.5 phase shift), energy modulates the
+    // amplitude. Unlit dots stay flat. At E=0 the wobble term collapses
+    // to 1.0 so behaviour matches the pre-Phase-2 flat look.
+    const float E = energy_smoothed;
+    const float t = (float)millis();
     for (int i = 0; i < 24; i++) {
         if (i == 0) continue;
         bool is_lit = (i < lit);
-        lv_color_t c = is_lit ? Theme::accent : Theme::accent_dim;
-        int r        = is_lit ? Theme::VOL_DOT_R : Theme::VOL_DOT_R_DIM;
-        lv_opa_t  o  = is_lit ? LV_OPA_COVER : (lv_opa_t)160;
-        draw_dot(layer, vol_x[i], vol_y[i], r, c, o);
+        if (is_lit) {
+            float wob = 1.0f + E * 0.4f * sinf(t * 0.003f + (float)i * 0.5f);
+            int   r   = (int)roundf((float)Theme::VOL_DOT_R * wob);
+            if (r < 1) r = 1;
+            lv_opa_t o = (lv_opa_t)(217 + (int)(E * 38.0f));   // 0.85..1.00
+            draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
+        } else {
+            draw_dot(layer, vol_x[i], vol_y[i],
+                     Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
+        }
     }
 }
 
@@ -327,45 +338,33 @@ static void prog_draw_cb(lv_event_t *e) {
     }
 }
 
-static void energy_draw_cb(lv_event_t *e) {
+// Sound-Print-Halo — a 1-2 px stroke ring at r=225, just outside the vol
+// ring. Opacity and stroke width both follow energy_smoothed so the ring
+// "breathes" with the audio. No bg fill (transparent), accent border only.
+// Drawn as a circle with border_width (cheaper than full lv_draw_arc).
+static void halo_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
+    const float E = energy_smoothed;
+    // Opacity range 0.18 .. 0.42 (matches the mockup's @keyframes halo-breathe).
+    // 0.18 = ~46/255, 0.42 = ~107/255.
+    const lv_opa_t opa = (lv_opa_t)(46 + (int)(E * 61.0f));
+    if (opa < 6) return;   // invisible — skip the draw entirely
 
-    uint8_t dot_e[12] = {0};
+    lv_draw_rect_dsc_t dsc;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.bg_opa       = LV_OPA_TRANSP;
+    dsc.border_color = Theme::accent;
+    dsc.border_opa   = opa;
+    dsc.border_width = 1 + (int)(E * 1.5f);   // 1..2 px stroke
+    dsc.radius       = LV_RADIUS_CIRCLE;
 
-    if (State::app.spectrum_bands > 0) {
-        int N = State::app.spectrum_bands;
-        for (int i = 0; i < 12; i++) {
-            int b0 = (i * N) / 12;
-            int b1 = ((i + 1) * N) / 12;
-            if (b1 <= b0) b1 = b0 + 1;
-            int sum = 0, cnt = 0;
-            for (int b = b0; b < b1 && b < N; b++) {
-                sum += State::app.spectrum[b];
-                cnt++;
-            }
-            dot_e[i] = (uint8_t)(cnt > 0 ? sum / cnt : 0);
-        }
-    } else {
-        uint32_t t = millis();
-        float E = (State::app.state == State::PLAY_PLAYING) ? State::app.energy : 0.0f;
-        for (int i = 0; i < 12; i++) {
-            float wob = sinf(t * 0.004f + i * 0.55f) * 0.3f + 0.7f;
-            float ev  = E * wob;
-            if (ev > 1.0f) ev = 1.0f;
-            dot_e[i] = (uint8_t)(ev * 100.0f);
-        }
-    }
-
-    for (int i = 0; i < 12; i++) {
-        float ev  = dot_e[i] / 100.0f;
-        int defl  = (int)(ev * Theme::ENERGY_DEFLECTION_PX);
-        int r     = Theme::ENERGY_RING_R + defl;
-        int x     = Theme::CENTER + (int)roundf(energy_cos[i] * r);
-        int y     = Theme::CENTER + (int)roundf(energy_sin[i] * r);
-        int dot_r = (ev > 0.65f) ? Theme::ENERGY_DOT_R_PEAK : Theme::ENERGY_DOT_R;
-        lv_opa_t o = (lv_opa_t)(110 + (int)(ev * 145.0f));
-        draw_dot(layer, x, y, dot_r, Theme::accent, o);
-    }
+    const int r = Theme::HALO_R;
+    lv_area_t a;
+    a.x1 = Theme::CENTER - r;
+    a.y1 = Theme::CENTER - r;
+    a.x2 = Theme::CENTER + r;
+    a.y2 = Theme::CENTER + r;
+    lv_draw_rect(layer, &dsc, &a);
 }
 
 // Dot-matrix "antenna" WiFi indicator — base dot + three upward arcs.
@@ -609,7 +608,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer); S(energy_layer); S(wifi_layer);
+    S(vol_layer); S(prog_layer); S(halo_layer); S(wifi_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
@@ -626,7 +625,7 @@ static void show_standby_mode() {
     in_standby = true;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(energy_layer);
+    H(vol_layer); H(prog_layer); H(halo_layer);
     H(source_marker); H(lbl_source);
     H(lbl_title); H(lbl_artist); H(state_icon);
     if (action_icon) {
@@ -650,7 +649,7 @@ static void show_shutdown_mode() {
     stop_standby_pulse();
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(energy_layer); H(wifi_layer);
+    H(vol_layer); H(prog_layer); H(halo_layer); H(wifi_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     H(lbl_clock); H(standby_dot);
@@ -700,7 +699,7 @@ void create() {
     };
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
-    energy_layer = make_layer(energy_draw_cb);
+    halo_layer   = make_layer(halo_draw_cb);
     wifi_layer   = make_layer(wifi_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
@@ -842,7 +841,7 @@ void update() {
         lv_obj_set_style_bg_color  (standby_dot, Theme::accent,     0);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
-        lv_obj_invalidate(energy_layer);
+        lv_obj_invalidate(halo_layer);
         lv_obj_invalidate(wifi_layer);
         State::clear_dirty(State::Dirty::ACCENT);
     }
@@ -890,17 +889,29 @@ void update() {
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    if (State::app.state == State::PLAY_PLAYING) {
+    // Energy-driven repaint at ~60 Hz while playing. energy_smoothed
+    // low-passes app.energy with alpha=0.12 so transients feel musical,
+    // not strobe-y. When state != PLAYING, the target collapses to 0 and
+    // the loop keeps running (cheaply) until the smoothed value decays
+    // away — without this the halo would freeze mid-pulse on pause.
+    const bool keep_animating =
+        (State::app.state == State::PLAY_PLAYING) || (energy_smoothed > 0.01f);
+    if (keep_animating) {
         uint32_t now = millis();
         if (now - last_energy_render >= 16) {
             last_energy_render = now;
-            lv_obj_invalidate(energy_layer);
+            const float target = (State::app.state == State::PLAY_PLAYING)
+                               ? State::app.energy : 0.0f;
+            energy_smoothed += (target - energy_smoothed) * 0.12f;
+            lv_obj_invalidate(halo_layer);
+            lv_obj_invalidate(vol_layer);
         }
-    } else if (State::is_dirty(State::Dirty::ENERGY) ||
-               State::is_dirty(State::Dirty::SPECTRUM)) {
-        lv_obj_invalidate(energy_layer);
-        State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
     }
+    // Drop the legacy spectrum / energy dirty bits — they no longer drive
+    // anything. ENERGY is consumed by the keep_animating loop above when
+    // playing; SPECTRUM is a NOP since spectrum_bands has been disabled in
+    // every active profile.
+    State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
 
     // CenterStage evaluates its own triggers from State. When active, the
     // title/artist labels visually recede so the stage announcement reads
