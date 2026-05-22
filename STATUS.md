@@ -296,72 +296,56 @@ in chat 2026-05-21 (interactive mockup `beatbird-ui-preview.html`):
       Not a full source picker — just the one-shot "let my phone find
       this speaker" interaction. Out of scope until BT hardware works.
 
-### Display redesign — next big firmware patch (Steff 2026-05-19)
+### Display redesign — landed across 2026-05-21..22
 
-A coherent UI overhaul that frees up the center of the screen for
-larger, more legible content. To be done in one cohesive pass, not
-piecemeal. Driving idea: the volume % and the small state icon are
-both consuming valuable center real estate that the title/artist could
-use better.
+A coherent UI overhaul that freed up the centre of the screen for
+larger, more legible content. Shipped in five phases (Phase 1 / 2 / 5
+done as planned, Phase 3 dropped, Phase 4 done as planned).
 
-- [ ] **Remove `lbl_volume` (`39%` text)** entirely. Volume is already
-      readable from the lit segments of the outer dot ring; the literal
-      number is redundant.
-- [ ] **Repurpose the center for large status announcements** instead
-      of the small `state_icon`. When something needs the user's
-      attention — paused, muted, skipping, connection lost, error —
-      render a large centered glyph or phrase (`PAUSE`, `MUTE`, `SKIP`,
-      `CONNECTION LOST`, `ERROR`…). Normal playback shows nothing in
-      the center, so title/artist breathe.
-- [ ] **Title + artist one font-step larger** since they don't compete
-      with the center icon and percent anymore. Display-md → display-lg
-      for the title, body → display-md for the artist (or similar).
-- [ ] **Energy visualization moves into volume OR progress ring** —
-      instead of the central 12-dot smile competing with title text,
-      modulate either the 24 vol_layer dots or the 60 prog_layer dots
-      with audio energy (brightness/scale ripple around the existing
-      ring while playing). One ring carries two pieces of info; central
-      area stays clean. Removes the `energy_layer` widget entirely.
-- [ ] **Source management UI rework** — current source-picker (touch
-      gesture → list of sources → `CMD:SOURCE:bluetooth` etc.) is
-      functional but visually ad-hoc. Redesign with the same
-      dot-vocabulary: e.g. four corner dots colored by `Color::SRC_*`,
-      tap to select. Bridge already implements mutual-kill handoff, so
-      this is purely display+touch UX.
+- [x] ~~**Remove `lbl_volume`**~~ — gone, CenterStage shows `MUTE` when vol==0.
+- [x] ~~**Centre status announcements**~~ — CenterStage with priority
+      chain PI OFFLINE > MUTE > PAUSE > WIFI WEAK, plus 1.2 s toasts
+      for SKIP > / < SKIP, fade-in/out transitions.
+- [x] ~~**Title + artist larger**~~ — title at 44 px (font_clock), artist
+      at 33 px (display_lg), source label at 22 px (display_md). Scroll
+      speed pinned to 30 / 25 px/s via dynamic anim_time computation.
+- [x] ~~**Energy visualisation into vol-ring**~~ — 12-dot smile widget
+      removed. Lit vol-dots wobble ±33..78 % with energy_dyn(); source
+      marker pulses opa+scale in phase. Dynamic-range remap stretches
+      raw RMS 0.55..0.93 into a visible 0..1.2 modulation amplitude.
+      Halo at r=225 was tried, found overloading on the round panel,
+      ripped out.
+- [x] ~~**Source management UI rework**~~ — **dropped** 2026-05-22. Only
+      Spotify is active today; BT/Toslink/Snapcast are disabled or
+      automatic. Last-writer-wins in the bridge is sufficient. A
+      pairing-mode trigger is parked for if/when BT comes back online.
 
-The Dot-vocabulary polish items below (mute glyph, pulse-on-weak-wifi,
-bridge-disconnect, source-pulse, boot antenna) ideally land in the same
-firmware patch — they all draw on the same visual language and share
-the new freed-up real estate.
+### Dot-vocabulary polish items — status
 
-### Dot-vocabulary polish items (group with redesign above)
+- [x] ~~**Mute glyph**~~ — CenterStage shows literal "MUTE" instead,
+      same intent, no glyph asset needed.
+- [⊘] ~~**Pulsing antenna at weak signal**~~ — obsolete. The WiFi dot
+      antenna was removed entirely; CenterStage's "WIFI WEAK" trigger
+      (RSSI < -85 dBm) covers the signal.
+- [x] ~~**Bridge-disconnect / Pi-reboot indicator**~~ — done as
+      CenterStage's "PI OFFLINE" trigger, threshold 12 s (= 2.4 × the
+      bridge's 5 s STATUS_INTERVAL so subprocess hiccups don't flicker).
+- [ ] **Source-change pulse** — last small polish item still open. On
+      `Dirty::SOURCE`, scale `source_marker` to 1.5× for ~300 ms via
+      `lv_obj_set_style_transform_scale`. Glyph-Phone "click" feedback
+      for source switches. ~30 min job. Doesn't conflict with the
+      continuous energy-driven marker pulse — just a one-shot overlay.
+- [⊘] ~~**Boot antenna echo**~~ — obsolete. WiFi antenna removed; boot
+      screen keeps its current "CONNECTING…" pulse.
 
-All small, parked for whenever the mood for UI work strikes. Each fits
-the same dot-glyph language as the volume/progress/energy/wifi rings.
+### Display palette protocol — done 2026-05-22
 
-- [ ] **Mute glyph** instead of `0%` text. When `volume == 0`, hide
-      `lbl_volume` and render a struck-through mini-dot in its place —
-      single dot with a horizontal line across it. More consistent than
-      the literal "0 %" number.
-- [ ] **Pulsing antenna at weak signal** (level 1). Reuse the standby
-      heartbeat animation (1500 ms breathing opacity) on the WiFi base
-      dot when signal is at the lowest non-zero level. Communicates
-      "Achtung, gleich weg" without text.
-- [ ] **Bridge-disconnect / Pi-reboot indicator**. When `last_status_rx`
-      is older than ~5 s, replace the player chrome with a large centered
-      status (consistent with the new redesign center) e.g. `PI OFFLINE`
-      or `RECONNECTING…`. Currently the display happily keeps showing
-      the last frame while the Pi reboots — user has no idea anything is
-      wrong until they touch a control and nothing happens.
-      Could also fade or strike through the WiFi antenna as secondary cue.
-- [ ] **Source-change pulse**. On `Dirty::SOURCE`, scale the
-      `source_marker` to 2× for ~300 ms then back via
-      `lv_obj_set_style_transform_scale()`. Glyph-Phone style "click"
-      feedback for source switches.
-- [ ] **Boot antenna echo**. In `ScreenBoot` reuse the same WiFi-antenna
-      glyph while waiting for the Pi connection, lighting the three
-      arcs sequentially. Visually anchors the boot screen to the player
-      screen's WiFi indicator — same vocabulary, different context.
+The reserved palette slots (`accent_glow`, `accent_dim`, `text_primary`,
+`text_secondary`, `accent_alert`) are now actually transmitted. Extended
+`PAL:` format `PAL:a=…|g=…|d=…|p=…|s=…|e=…` is sent on every reconnect;
+legacy `PAL:<hex>` single-accent form still accepted. Firmware tokens
+are runtime `Theme::`-variables, screens consume them via Dirty::ACCENT
+re-applies. Beat #1 boots with its forest+cream+linen+rust palette.
 
 ### Sound design ideas (whenever the mood strikes — not blocking anything)
 
@@ -395,15 +379,12 @@ the same dot-glyph language as the volume/progress/energy/wifi rings.
       Profile currently has `bass_shelf max_boost_db: 3.0`, `sub_punch: 2.0`,
       `timpani_body: 1.5`. Walk through all three filters with him,
       decide new values, possibly also revisit CamillaDSP base gains.
-- [ ] **WiFi status indicator on the display** — bridge already sends
-      `wifi_rssi` via the SYS: line and the firmware tracks it in
-      `sys.wifi_rssi`, but nothing renders it. Add a small signal-bars
-      widget (likely top of standby clock face, or status corner of
-      player screen).
-- [ ] **Bird brand graphic** — small "Vögelchen" silhouette as boot
-      screen / standby decoration, fitting the Departure-Mono /
-      Nothing-Glyph aesthetic. Source asset, convert via LVGL image
-      converter, integrate into screen_boot.cpp or screen_player.cpp.
+- [⊘] ~~**WiFi status indicator on the display**~~ — deliberately
+      dropped 2026-05-22. The dot-antenna widget existed briefly but
+      duplicated CenterStage's WIFI WEAK / PI OFFLINE coverage; one
+      channel is enough.
+- [⊘] ~~**Bird brand graphic**~~ — dropped 2026-05-22. Not pursuing the
+      Vögelchen aesthetic further.
 - [ ] **Power button rewire** when housing is next opened — move button
       from GPIO3 → GPIO17 (or another free pin). Then flip
       `hardware.power_button.enabled: true` in `zipp-mini-2.yml` and
