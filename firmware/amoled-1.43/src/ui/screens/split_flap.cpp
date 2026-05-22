@@ -145,12 +145,23 @@ void set_text(lv_obj_t *label, const char *new_text) {
     a->new_len   = new_len;
     a->tick      = 0;
 
+    // Direction of the staggered cycling wave:
+    //  - growing / same length → left-to-right (chars build up on the left)
+    //  - shrinking             → right-to-left (the long tail collapses
+    //    from the right end first, the surviving left chars flap last)
+    // Going left-to-right while shrinking made the tail dissolve position
+    // by position from the LEFT, which the eye reads as a sequential
+    // erase rather than an animation. Reversing it gives the classic
+    // station-board "curtain pulled toward the left" look.
+    bool reverse = (new_len < old_len);
+
     // Seed buf with old text (padded with spaces), target with new text.
     for (int i = 0; i < positions; i++) {
         a->buf[i]       = (i < old_len) ? old_text[i] : ' ';
         a->target[i]    = (i < new_len) ? new_text[i] : ' ';
         a->pos_ticks[i] = 0;
-        a->pos_start[i] = (int8_t)(i * FLAP_POS_STAGGER);
+        int stagger_idx = reverse ? (positions - 1 - i) : i;
+        a->pos_start[i] = (int8_t)(stagger_idx * FLAP_POS_STAGGER);
     }
     a->buf[positions]    = '\0';
     a->target[positions] = '\0';
