@@ -52,7 +52,6 @@ static lv_obj_t *scr           = nullptr;
 // Custom-draw layers (back→front)
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
-static lv_obj_t *halo_layer    = nullptr;   // sound-print halo at r=225 (breathes with energy)
 static lv_obj_t *wifi_layer    = nullptr;   // dot-matrix wifi indicator (top-center)
 
 // Player widgets
@@ -74,8 +73,8 @@ static bool     in_shutdown        = false;
 static bool     standby_anim_alive = false;
 static uint32_t last_energy_render = 0;
 // Low-passed app.energy in [0..1]. Updates from State::app.energy at the
-// 60 Hz repaint tick; halo + vol-wobble both read from this so they share
-// the same inertia and stay phase-aligned.
+// 60 Hz repaint tick; vol-wobble and source-marker pulse both read from
+// this so they share inertia and stay phase-aligned.
 static float    energy_smoothed    = 0.0f;
 
 // Precomputed dot positions
@@ -181,7 +180,6 @@ static void precompute_geometry() {
         prog_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::PROG_RING_R);
         prog_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::PROG_RING_R);
     }
-    // Halo is a single ring at HALO_R — no per-dot geometry needed.
 }
 
 static void draw_dot(lv_layer_t *layer, int cx, int cy, int r,
@@ -248,36 +246,6 @@ static void prog_draw_cb(lv_event_t *e) {
         lv_opa_t   o = is_lit ? LV_OPA_COVER : (lv_opa_t)120;
         draw_dot(layer, prog_x[i], prog_y[i], 2, c, o);
     }
-}
-
-// Sound-Print-Halo — a 1-2 px stroke ring at r=225, just outside the vol
-// ring. Opacity and stroke width both follow energy_smoothed so the ring
-// "breathes" with the audio. No bg fill (transparent), accent border only.
-// Drawn as a circle with border_width (cheaper than full lv_draw_arc).
-static void halo_draw_cb(lv_event_t *e) {
-    lv_layer_t *layer = lv_event_get_layer(e);
-    const float E = energy_smoothed;
-    // Opacity 0.35 .. 0.80. The mockup's 0.18..0.42 was tuned for the bright
-    // champagne accent; a darker palette (forest 2D6A4F etc.) needs more
-    // headroom to read at all. ~90 = 0.35, ~204 = 0.80.
-    const lv_opa_t opa = (lv_opa_t)(90 + (int)(E * 114.0f));
-    if (opa < 12) return;
-
-    lv_draw_rect_dsc_t dsc;
-    lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_opa       = LV_OPA_TRANSP;
-    dsc.border_color = Theme::accent;
-    dsc.border_opa   = opa;
-    dsc.border_width = 2 + (int)(E * 2.0f);   // 2..4 px stroke
-    dsc.radius       = LV_RADIUS_CIRCLE;
-
-    const int r = Theme::HALO_R;
-    lv_area_t a;
-    a.x1 = Theme::CENTER - r;
-    a.y1 = Theme::CENTER - r;
-    a.x2 = Theme::CENTER + r;
-    a.y2 = Theme::CENTER + r;
-    lv_draw_rect(layer, &dsc, &a);
 }
 
 // Dot-matrix "antenna" WiFi indicator — base dot + three upward arcs.
@@ -505,7 +473,7 @@ static void on_released(lv_event_t *e) {
     }
 
     // PLAYPAUSE: no toast — CenterStage already shows PAUSE persistently when
-    // the state flips to paused, and the wobble/halo resuming says "playing".
+    // the state flips to paused, and the vol-wobble resuming says "playing".
     Proto::send_command("PLAYPAUSE");
 }
 
@@ -519,7 +487,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer); S(halo_layer); S(wifi_layer);
+    S(vol_layer); S(prog_layer); S(wifi_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
@@ -536,7 +504,7 @@ static void show_standby_mode() {
     in_standby = true;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(halo_layer);
+    H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
     H(lbl_title); H(lbl_artist); H(state_icon);
     // Clear whatever CenterStage was last showing (e.g. PAUSE) so the clock
@@ -558,7 +526,7 @@ static void show_shutdown_mode() {
     stop_standby_pulse();
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer); H(halo_layer); H(wifi_layer);
+    H(vol_layer); H(prog_layer); H(wifi_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     H(lbl_clock); H(standby_dot);
@@ -604,7 +572,6 @@ void create() {
     };
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
-    halo_layer   = make_layer(halo_draw_cb);
     wifi_layer   = make_layer(wifi_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
@@ -734,7 +701,6 @@ void update() {
         lv_obj_set_style_bg_color  (standby_dot, Theme::accent,     0);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
-        lv_obj_invalidate(halo_layer);
         lv_obj_invalidate(wifi_layer);
         State::clear_dirty(State::Dirty::ACCENT);
     }
@@ -786,7 +752,8 @@ void update() {
     // low-passes app.energy with alpha=0.12 so transients feel musical,
     // not strobe-y. When state != PLAYING, the target collapses to 0 and
     // the loop keeps running (cheaply) until the smoothed value decays
-    // away — without this the halo would freeze mid-pulse on pause.
+    // away — without this the source-marker would freeze at its last opacity
+    // instead of fading back to its idle level on pause.
     const bool keep_animating =
         (State::app.state == State::PLAY_PLAYING) || (energy_smoothed > 0.01f);
     if (keep_animating) {
@@ -796,8 +763,14 @@ void update() {
             const float target = (State::app.state == State::PLAY_PLAYING)
                                ? State::app.energy : 0.0f;
             energy_smoothed += (target - energy_smoothed) * 0.12f;
-            lv_obj_invalidate(halo_layer);
             lv_obj_invalidate(vol_layer);
+            // Source marker pulses with the same smoothed energy. Range
+            // 0.55..1.00 (140..255) so it always stays clearly visible —
+            // the source identity matters more than the pulse depth.
+            if (source_marker && !in_standby && !in_shutdown) {
+                lv_opa_t o = (lv_opa_t)(140 + (int)(energy_smoothed * 115.0f));
+                lv_obj_set_style_bg_opa(source_marker, o, 0);
+            }
         }
     }
     // Drop the legacy spectrum / energy dirty bits — they no longer drive

@@ -51,11 +51,9 @@ constexpr int PROG_SEG_COUNT = 60;
 constexpr int PROG_ARC_START_DEG = 135;   // bottom-left
 constexpr int PROG_ARC_SWEEP_DEG = 270;   // around the bottom
 
-// Sound-Print-Halo: 1-px outer ring at r=225, just outside VOL_RING_R=218.
-// Opacity + stroke width follow a low-pass-smoothed app.energy in
-// screen_player.cpp, so the ring feels like a breathing thing rather than a
-// flickering one. Replaces the old central 12-dot "energy smile" widget.
-constexpr int HALO_R = 225;
+// Note: a sound-print halo at r=225 was tried (Phase-2 spec) and looked
+// noisy/overwhelming on the round 466 px panel. Energy modulation now
+// lives on the existing vol-ring lit dots and the source marker.
 
 constexpr int SOURCE_MARKER_SIZE = 10;     // square px
 constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
