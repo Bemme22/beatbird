@@ -243,18 +243,43 @@ void handle_weather_line(const char *line)
     }
 }
 
-// ─── PAL: accent colour from Pi ─────────────────────────────────────────────
+// ─── PAL: palette from Pi ───────────────────────────────────────────────────
+//
+// Two accepted forms:
+//   1. Legacy single-accent:    PAL:2D6A4F        (or PAL:#2D6A4F)
+//   2. Extended palette:        PAL:a=2D6A4F|g=52B788|d=1B4332|p=F4EFE0|s=A89E89|e=C73E2C
+//
+// Keys (each optional): a=accent  g=accent_glow  d=accent_dim  p=text_primary
+//                       s=text_secondary  e=accent_alert
+// The new form is detected by spotting '=' in the body. Missing slots keep
+// their previous value (or the compile-time default at boot).
 
-void handle_palette_line(const char *hex)
+void handle_palette_line(const char *body)
 {
-    if (!hex) return;
-    // Skip optional leading '#'
-    if (hex[0] == '#') hex++;
+    if (!body) return;
+    if (body[0] == '#') body++;
 
-    if (Theme::set_accent_hex(hex)) {
-        State::app.connected_to_pi = true;
-        State::mark_dirty(State::Dirty::ACCENT | State::Dirty::ALL);
+    // Heuristic: if the body contains '=', treat as the new key=value form.
+    // Otherwise it's the legacy 6-hex single-accent shortcut.
+    if (!strchr(body, '=')) {
+        if (Theme::set_accent_hex(body)) {
+            State::app.connected_to_pi = true;
+        }
+        return;
     }
+
+    // key=value form. Iterate over the 6 known slots; missing ones are
+    // silently skipped so a bridge can push a partial palette if it wants.
+    char buf[8];
+    static const char SLOTS[] = "agdpse";
+    bool any = false;
+    for (size_t i = 0; SLOTS[i]; i++) {
+        const char k[2] = { SLOTS[i], 0 };
+        if (parse_field_eq(body, k, buf, sizeof(buf))) {
+            if (Theme::set_palette_slot_hex(SLOTS[i], buf)) any = true;
+        }
+    }
+    if (any) State::app.connected_to_pi = true;
 }
 
 // ─── BOOT: progress line ────────────────────────────────────────────────────

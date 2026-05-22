@@ -108,26 +108,47 @@ namespace Color {
     constexpr lv_color_t SRC_SNAPCAST = LV_COLOR_MAKE(0xA6, 0x78, 0xFF);
     constexpr lv_color_t SRC_NONE     = LV_COLOR_MAKE(0x3a, 0x3a, 0x3a);
 
-    // Defaults — overridden at runtime by PAL: command
-    // Champagne gold — tuned for Zipp Mini 2 turquoise/cream enclosure
-    constexpr lv_color_t ACCENT_DEFAULT = LV_COLOR_MAKE(0xF0, 0xCB, 0x7B);
+    // Defaults — every runtime palette slot has a compile-time fallback so
+    // the firmware always boots with sensible colours even before the Pi
+    // pushes a PAL: line.
+    constexpr lv_color_t ACCENT_DEFAULT         = LV_COLOR_MAKE(0xF0, 0xCB, 0x7B);  // champagne gold
+    constexpr lv_color_t ACCENT_GLOW_DEFAULT    = LV_COLOR_MAKE(0xFF, 0xE6, 0xB3);  // brighter champagne
+    constexpr lv_color_t ACCENT_DIM_DEFAULT     = LV_COLOR_MAKE(0x3c, 0x32, 0x1e);  // ~25% of accent on black
+    constexpr lv_color_t TEXT_PRIMARY_DEFAULT   = LV_COLOR_MAKE(0xF4, 0xEF, 0xE0);  // cream
+    constexpr lv_color_t TEXT_SECONDARY_DEFAULT = LV_COLOR_MAKE(0xA8, 0x9E, 0x89);  // linen
+    constexpr lv_color_t ACCENT_ALERT_DEFAULT   = LV_COLOR_MAKE(0xC7, 0x3E, 0x2C);  // rust
 
-    // Center-stage alert color — for "PI OFFLINE" / "ERROR" announcements.
-    // Compile-time constant for now; future runtime palette will replace this.
-    constexpr lv_color_t ACCENT_ALERT   = LV_COLOR_MAKE(0xC7, 0x3E, 0x2C);
+    // Legacy alias for code that still references this name. Now lives as
+    // a runtime variable (Theme::accent_alert) too.
+    constexpr lv_color_t ACCENT_ALERT           = ACCENT_ALERT_DEFAULT;
 }
 
-// ─── Runtime accent (set by PAL: command from Pi) ───────────────────────────
+// ─── Runtime palette (set by the extended PAL: command from the Pi) ─────────
+// All six tokens above are mirrored as runtime variables. The bridge pushes
+// the per-speaker palette once after serial connect:
+//     PAL:a=2D6A4F|g=52B788|d=1B4332|p=F4EFE0|s=A89E89|e=C73E2C
+// Legacy `PAL:2D6A4F` (single accent, no key=value) is still accepted and
+// only sets `accent`; the other slots stay at their defaults.
 
-extern lv_color_t accent;
-extern lv_color_t accent_dim;   // ~25% accent on black, for unfilled segments
+extern lv_color_t accent;           // primary highlight (e.g. forest mid)
+extern lv_color_t accent_glow;      // brighter variant (e.g. sage glow)
+extern lv_color_t accent_dim;       // ~25% accent on black — derived if not pushed
+extern lv_color_t text_primary;     // body / title text (e.g. cream)
+extern lv_color_t text_secondary;   // labels / sublines (e.g. linen)
+extern lv_color_t accent_alert;     // warnings / errors  (e.g. rust)
 
-/** Apply a new accent colour. Called by the protocol layer when a PAL: line
- *  arrives. Recomputes derived shades and triggers a global UI refresh. */
+/** Apply a new accent colour. Called by the protocol layer when a legacy
+ *  PAL:<hex> line arrives. Recomputes accent_dim and triggers a refresh.
+ *  Other palette slots are left untouched. */
 void set_accent(uint8_t r, uint8_t g, uint8_t b);
 
-/** Parse a 6-char hex string (no leading #) and apply. Returns true on success. */
+/** Parse a 6-char hex string (no leading #) and apply as accent. */
 bool set_accent_hex(const char *hex6);
+
+/** Apply one specific palette slot by name char ('a'/'g'/'d'/'p'/'s'/'e').
+ *  Returns true if the slot was recognised. Used by the new PAL: parser
+ *  while iterating over key=value fields. */
+bool set_palette_slot_hex(char slot, const char *hex6);
 
 // ─── Fonts ──────────────────────────────────────────────────────────────────
 // Sizes are 11 px multiples for pixel-perfect rendering of Departure Mono.

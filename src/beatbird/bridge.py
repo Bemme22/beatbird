@@ -76,6 +76,11 @@ def _build_display(profile: Profile) -> DisplayInterface | None:
             serial_device=d.serial_device,
             spectrum_bands=d.spectrum_bands,
             accent_color=d.accent_color,
+            accent_glow=d.accent_glow,
+            accent_dim=d.accent_dim,
+            text_primary=d.text_primary,
+            text_secondary=d.text_secondary,
+            accent_alert=d.accent_alert,
         )
     if d.type == "led-button":
         from beatbird.display.led_button import LedButtonDisplay

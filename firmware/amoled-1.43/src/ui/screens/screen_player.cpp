@@ -546,7 +546,7 @@ void create() {
     // ── Title ───────────────────────────────────────────────────────────────
     lbl_title = lv_label_create(scr);
     lv_label_set_text(lbl_title, "");
-    lv_obj_set_style_text_color(lbl_title, Theme::accent, 0);
+    lv_obj_set_style_text_color(lbl_title, Theme::text_primary, 0);
     lv_obj_set_style_text_font(lbl_title, Theme::font_display_lg(), 0);
     lv_obj_set_style_text_letter_space(lbl_title, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
@@ -560,7 +560,7 @@ void create() {
     // ── Artist ──────────────────────────────────────────────────────────────
     lbl_artist = lv_label_create(scr);
     lv_label_set_text(lbl_artist, "");
-    lv_obj_set_style_text_color(lbl_artist, Theme::Color::TEXT_DIM, 0);
+    lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
     lv_obj_set_style_text_font(lbl_artist, Theme::font_display_md(), 0);
     lv_obj_set_style_text_letter_space(lbl_artist, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
@@ -619,9 +619,10 @@ void update() {
     else                                                   show_player_mode();
 
     if (State::is_dirty(State::Dirty::ACCENT)) {
-        lv_obj_set_style_text_color(lbl_title,   Theme::accent,     0);
+        lv_obj_set_style_text_color(lbl_title,  Theme::text_primary,   0);
+        lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
+        lv_obj_set_style_text_color(lbl_source, Theme::accent_dim,     0);
         lv_obj_invalidate(state_icon);
-        lv_obj_set_style_text_color(lbl_source,  Theme::accent_dim, 0);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
         State::clear_dirty(State::Dirty::ACCENT);

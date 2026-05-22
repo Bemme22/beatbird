@@ -69,42 +69,34 @@ static TriggerResult evaluate_persistent_trigger()
 {
     using namespace State;
     const uint32_t now = millis();
-    TriggerResult none = { nullptr, Theme::accent };
+    TriggerResult none = { nullptr, Theme::text_primary };
 
-    // 0. Hide on standby / shutdown — those screens own the centre and would
-    //    otherwise be visually overlaid by a stale CenterStage text (e.g. the
-    //    PAUSE that was shown right before standby kicked in).
+    // 0. Hide on standby / shutdown.
     if (app.state == PLAY_STANDBY ||
         app.state == PLAY_SHUTDOWN ||
         app.state == PLAY_SHUTDOWN_WARN) {
         return none;
     }
 
-    // 1. PI OFFLINE — only after we've received at least one status
-    //    (avoids a false-positive at cold boot before bridge connect).
-    //    Threshold = 12 s = 2.4× the bridge's 5 s STATUS_INTERVAL, so any
-    //    one delayed heartbeat (CPU temp / RSSI subprocess latency) doesn't
-    //    flicker the alert. Real Pi reboots take 30 s+ so detection is fast
-    //    enough.
+    // 1. PI OFFLINE — alert color (runtime configurable via PAL: e=…).
     if (app.connected_to_pi && app.last_status_rx > 0 &&
         (now - app.last_status_rx) > 12000) {
-        return { "PI OFFLINE", Theme::Color::ACCENT_ALERT };
+        return { "PI OFFLINE", Theme::accent_alert };
     }
 
-    // 2. MUTE — volume reduced to 0
+    // 2. MUTE — primary text colour (cream), it's a state announcement
     if (app.volume == 0) {
-        return { "MUTE", Theme::accent };
+        return { "MUTE", Theme::text_primary };
     }
 
-    // 3. PAUSE — explicit pause state
+    // 3. PAUSE — primary text colour
     if (app.state == PLAY_PAUSED) {
-        return { "PAUSE", Theme::accent };
+        return { "PAUSE", Theme::text_primary };
     }
 
-    // 4. WIFI WEAK — RSSI in danger zone, but rssi == 0 means "not
-    //    reported yet" and shouldn't fire the warning
+    // 4. WIFI WEAK — secondary text colour (dimmer, less urgent than MUTE).
     if (sys.wifi_rssi != 0 && sys.wifi_rssi < -85) {
-        return { "WIFI WEAK", Theme::accent_dim };
+        return { "WIFI WEAK", Theme::text_secondary };
     }
 
     return none;
@@ -160,7 +152,7 @@ void create(lv_obj_t *parent)
 
     label = lv_label_create(parent);
     lv_label_set_text(label, "");
-    lv_obj_set_style_text_color       (label, Theme::accent,               0);
+    lv_obj_set_style_text_color       (label, Theme::text_primary,         0);
     lv_obj_set_style_text_font        (label, Theme::font_display_lg(),    0);
     lv_obj_set_style_text_letter_space(label, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align       (label, LV_TEXT_ALIGN_CENTER,        0);

@@ -279,7 +279,7 @@ void create()
     // ── Clock (top, 44 px) ──────────────────────────────────────────────────
     lbl_clock = lv_label_create(scr);
     lv_label_set_text(lbl_clock, "--:--");
-    lv_obj_set_style_text_color       (lbl_clock, Theme::accent,              0);
+    lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,        0);
     lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock(),        0);
     lv_obj_set_style_text_letter_space(lbl_clock, Theme::LETTER_SPACE_DISPLAY,0);
     lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 70);
@@ -297,7 +297,7 @@ void create()
     // ── Temperature (44 px, was 33) ─────────────────────────────────────────
     lbl_temp = lv_label_create(scr);
     lv_label_set_text(lbl_temp, "");
-    lv_obj_set_style_text_color       (lbl_temp, Theme::accent,                0);
+    lv_obj_set_style_text_color       (lbl_temp, Theme::text_primary,          0);
     lv_obj_set_style_text_font        (lbl_temp, Theme::font_clock(),          0);
     lv_obj_set_style_text_letter_space(lbl_temp, Theme::LETTER_SPACE_DISPLAY,  0);
     lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 255);
@@ -305,7 +305,7 @@ void create()
     // ── High / Low (22 px, was 11) ──────────────────────────────────────────
     lbl_highlow = lv_label_create(scr);
     lv_label_set_text(lbl_highlow, "");
-    lv_obj_set_style_text_color       (lbl_highlow, Theme::Color::TEXT_DIM,    0);
+    lv_obj_set_style_text_color       (lbl_highlow, Theme::text_secondary,     0);
     lv_obj_set_style_text_font        (lbl_highlow, Theme::font_display_md(),  0);
     lv_obj_set_style_text_letter_space(lbl_highlow, Theme::LETTER_SPACE_LABEL, 0);
     lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 320);
@@ -313,7 +313,8 @@ void create()
     // ── Condition label (22 px, was 11) ─────────────────────────────────────
     lbl_condition = lv_label_create(scr);
     lv_label_set_text(lbl_condition, "");
-    lv_obj_set_style_text_color       (lbl_condition, Theme::Color::TEXT_FAINT, 0);
+    lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary,    0);
+    lv_obj_set_style_text_opa         (lbl_condition, (lv_opa_t)128,            0);  // 50 % for darker tier
     lv_obj_set_style_text_font        (lbl_condition, Theme::font_display_md(), 0);
     lv_obj_set_style_text_letter_space(lbl_condition, Theme::LETTER_SPACE_LABEL,0);
     lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 365);
@@ -335,6 +336,14 @@ void show()
     lv_screen_load(scr);
     State::app.active_screen = State::SCR_PLAYER;   // standby is a player sub-state
     start_heartbeat();
+    // Re-apply palette tokens — they may have changed via PAL: while the
+    // standby screen was unloaded, and the Dirty::ACCENT bit may already
+    // have been consumed by ScreenPlayer's update().
+    lv_obj_set_style_text_color(lbl_clock,     Theme::text_primary,   0);
+    lv_obj_set_style_text_color(lbl_temp,      Theme::text_primary,   0);
+    lv_obj_set_style_text_color(lbl_highlow,   Theme::text_secondary, 0);
+    lv_obj_set_style_text_color(lbl_condition, Theme::text_secondary, 0);
+    lv_obj_set_style_bg_color  (heartbeat,     Theme::accent,         0);
     last_icon_rendered  = 255;
     last_clock_rendered = "";
     last_valid_rendered = !State::weather.valid;     // force first render
@@ -357,6 +366,20 @@ bool is_visible()
 void update()
 {
     if (!created || !is_visible()) return;
+
+    // ACCENT/palette refresh — runtime palette tokens are pushed by the
+    // bridge after connect (PAL:a=…|p=…|s=…). The colours assigned at
+    // create() are snapshots; if they later change, re-apply them and
+    // invalidate the icon (which reads Theme::accent live in its draw_cb).
+    if (State::is_dirty(State::Dirty::ACCENT)) {
+        lv_obj_set_style_text_color(lbl_clock,     Theme::text_primary,   0);
+        lv_obj_set_style_text_color(lbl_temp,      Theme::text_primary,   0);
+        lv_obj_set_style_text_color(lbl_highlow,   Theme::text_secondary, 0);
+        lv_obj_set_style_text_color(lbl_condition, Theme::text_secondary, 0);
+        lv_obj_set_style_bg_color  (heartbeat,     Theme::accent,         0);
+        lv_obj_invalidate(icon_obj);
+        State::clear_dirty(State::Dirty::ACCENT);
+    }
 
     // Clock
     if (State::app.clockStr != last_clock_rendered) {

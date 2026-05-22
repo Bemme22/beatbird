@@ -62,11 +62,28 @@ class AmoledDisplay(DisplayInterface):
         baud: int = 115200,
         spectrum_bands: int = 16,
         accent_color: str = "F0CB7B",
+        accent_glow: str | None = None,
+        accent_dim: str | None = None,
+        text_primary: str | None = None,
+        text_secondary: str | None = None,
+        accent_alert: str | None = None,
     ):
         self.serial_device_hint = serial_device
         self.baud = baud
         self.spectrum_bands = spectrum_bands
         self.accent_color = accent_color.lstrip("#").upper()
+        # Optional extended-palette slots. None means "let firmware keep its
+        # default for this slot"; the bridge omits the field from PAL: then.
+        def _norm(c: str | None) -> str | None:
+            if not c: return None
+            return c.lstrip("#").upper()
+        self.palette = {
+            "g": _norm(accent_glow),
+            "d": _norm(accent_dim),
+            "p": _norm(text_primary),
+            "s": _norm(text_secondary),
+            "e": _norm(accent_alert),
+        }
         self.ser: serial.Serial | None = None
         self.on_command: CommandCallback | None = None
         self.on_volume: VolumeCallback | None = None
@@ -130,13 +147,22 @@ class AmoledDisplay(DisplayInterface):
     # ─── Palette ────────────────────────────────────────────────────────────
 
     def _send_palette(self) -> None:
-        """Push the speaker accent colour to the ESP32. Idempotent — safe to
-        call multiple times."""
+        """Push the speaker palette to the ESP32 once per (re)connect. If any
+        extended-palette slot is configured, emit the new key=value form so
+        the firmware applies all six tokens; otherwise fall back to the
+        legacy single-hex form. Both forms are accepted by the firmware
+        (handle_palette_line auto-detects via the presence of '=')."""
         if self._palette_sent:
             return
-        self._send(f"PAL:{self.accent_color}")
+        extras = [(k, v) for k, v in self.palette.items() if v]
+        if extras:
+            parts = [f"a={self.accent_color}"] + [f"{k}={v}" for k, v in extras]
+            self._send("PAL:" + "|".join(parts))
+        else:
+            self._send(f"PAL:{self.accent_color}")
         self._palette_sent = True
-        log.info("palette sent: %s", self.accent_color)
+        log.info("palette sent: a=%s%s", self.accent_color,
+                 "".join(f" {k}={v}" for k, v in extras))
 
     def set_accent_color(self, hex_color: str) -> None:
         """Update the accent colour at runtime (e.g. after a profile reload)."""
