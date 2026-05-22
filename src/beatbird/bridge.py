@@ -584,7 +584,17 @@ class BeatBirdBridge:
             if self._stopped_since is None:
                 self._stopped_since = time.monotonic()
             if time.monotonic() - self._stopped_since < 8.0:
-                self.playback = Playback.STOPPED
+                if self.source != Source.SNAPCAST:
+                    self.playback = Playback.STOPPED
+                return
+            # Don't clobber playback/title/artist/source if Snapcast is
+            # currently the active source. With Spotify stopped and
+            # Snapcast streaming, the old behaviour reset song_title to
+            # "" every poll tick — which the Snapcast poll then re-set
+            # to the real track title, triggering a split-flap every 3 s.
+            # Also kept the energy ring intermittent because playback
+            # flipped between PLAYING ↔ STOPPED every cycle.
+            if self.source == Source.SNAPCAST:
                 return
             self.playback = Playback.STOPPED
             if self.source == Source.SPOTIFY:
