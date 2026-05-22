@@ -32,6 +32,7 @@ from beatbird.display.base import (
 )
 from beatbird.ha.mqtt import MqttBridge
 from beatbird.hardware.base import HardwareInterface
+from beatbird.sources.snapcast import SnapcastClient, get_local_wlan_mac
 from beatbird.sources.spotify import SpotifyClient
 from beatbird import system
 
@@ -39,6 +40,7 @@ log = logging.getLogger("beatbird.bridge")
 
 STATUS_INTERVAL = 5.0
 SPOTIFY_POLL_INTERVAL = 2.0
+SNAPCAST_POLL_INTERVAL = 3.0
 LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
@@ -170,6 +172,23 @@ class BeatBirdBridge:
 
         self.dsp = CamillaDSP()
         self.spotify = SpotifyClient() if profile.sources.spotify.enabled else None
+        # Snapcast source detector. Server host comes from
+        # BEATBIRD_SNAPCAST_SERVER (set in /etc/beatbird/env from secrets/),
+        # falling back to profile.sources.snapcast.server. The committed
+        # profile uses a 192.168.1.10 placeholder — real IPs stay out of
+        # the public repo per the personal-data-out-of-repo convention.
+        self.snapcast: SnapcastClient | None = None
+        if profile.sources.snapcast.enabled:
+            snap_host = (os.environ.get("BEATBIRD_SNAPCAST_SERVER", "").strip()
+                         or profile.sources.snapcast.server)
+            my_mac = get_local_wlan_mac()
+            if snap_host and my_mac:
+                self.snapcast = SnapcastClient(host=snap_host, my_mac=my_mac)
+                log.info("Snapcast detector: server=%s, my_mac=%s",
+                         snap_host, my_mac)
+            else:
+                log.warning("Snapcast enabled but server (%r) or MAC (%r) missing",
+                            snap_host, my_mac)
         self.hardware = _build_hardware(profile)
         self.display = _build_display(profile)
         self.loudness = _build_loudness(profile, self.dsp)
@@ -257,8 +276,12 @@ class BeatBirdBridge:
         # ── Timing ──
         self.t_last_status = 0.0
         self.t_last_spotify = 0.0
+        self.t_last_snapcast = 0.0
         self.t_last_level = 0.0
         self.t_last_state_push = 0.0
+        # Last observed snapcast play state — used to suppress redundant
+        # source flips on every poll tick.
+        self._snapcast_playing = False
 
     # ─── Weather poller ──────────────────────────────────────────────────────
 
@@ -610,6 +633,40 @@ class BeatBirdBridge:
                 self.song_artist = ""
                 self.bt_device_alias = ""
 
+    def _poll_snapcast(self) -> None:
+        """Check whether the snapserver is actively streaming to us.
+        Only takes over `source` when Spotify is not playing — Snapcast
+        runs through the same ALSA Loopback as go-librespot, so if both
+        are pushing audio Spotify wins (the typical "Spotify on this one
+        speaker" use case) and the user would explicitly stop Spotify
+        before starting MA-Snapcast playback."""
+        if not self.snapcast:
+            return
+        playing = self.snapcast.is_playing_for_us()
+        if playing == self._snapcast_playing:
+            return  # no change
+        self._snapcast_playing = playing
+        if playing:
+            # Don't yank the source from Spotify mid-track. If Spotify is
+            # actively playing this is the user listening locally; Snapcast
+            # detection is interesting but shouldn't kick Spotify.
+            if self.playback == Playback.PLAYING and self.source == Source.SPOTIFY:
+                log.debug("Snapcast playing but Spotify holds the source")
+                return
+            log.info("Snapcast source active")
+            self._transition_source(Source.SNAPCAST)
+            self.playback = Playback.PLAYING
+            self.last_playback_time = time.monotonic()
+            self.song_title = "Snapcast"
+            self.song_artist = ""
+        else:
+            if self.source == Source.SNAPCAST:
+                log.info("Snapcast source idle")
+                self.source = Source.NONE
+                self.playback = Playback.STOPPED
+                self.song_title = ""
+                self.song_artist = ""
+
     def _refresh_system(self) -> None:
         self.sys_cpu = system.cpu_temp()
         self.sys_wifi = system.wifi_rssi()
@@ -768,6 +825,14 @@ class BeatBirdBridge:
                         self._poll_bluetooth()
                     except Exception as e:
                         log.error("bt poll: %s", e)
+
+                # Snapcast source detection (every 3s — cheap TCP poll)
+                if self.snapcast and now - self.t_last_snapcast >= SNAPCAST_POLL_INTERVAL:
+                    self.t_last_snapcast = now
+                    try:
+                        self._poll_snapcast()
+                    except Exception as e:
+                        log.error("snapcast poll: %s", e)
 
                     # Standby transitions: track last PLAYING observation, enter
                     # standby after idle timeout, exit on any new playback.

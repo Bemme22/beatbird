@@ -55,6 +55,7 @@ secrets: ## Create secrets/*.example templates (then edit them locally; NOT comm
 	@[ -f secrets/wifi.pass ] || { echo "your-wifi-psk" > secrets/wifi.pass; chmod 600 secrets/wifi.pass; echo "  wrote secrets/wifi.pass"; }
 	@[ -f secrets/mqtt.pass ] || { echo "your-mqtt-password" > secrets/mqtt.pass; chmod 600 secrets/mqtt.pass; echo "  wrote secrets/mqtt.pass"; }
 	@[ -f secrets/location.coords ] || { echo "0.0,0.0" > secrets/location.coords; chmod 600 secrets/location.coords; echo "  wrote secrets/location.coords (replace with 'lat,lon' to enable weather)"; }
+	@[ -f secrets/snapcast.host ] || { echo "192.168.1.10" > secrets/snapcast.host; chmod 600 secrets/snapcast.host; echo "  wrote secrets/snapcast.host (replace with the snapserver IP/hostname)"; }
 	@echo "Edit these files, then run 'make install'. They are in .gitignore."
 
 # ─── Full install ────────────────────────────────────────────────────────────

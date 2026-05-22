@@ -88,7 +88,14 @@ sources:
   toslink:
     enabled: false
   snapcast:
-    enabled: false                 # enable later once multi-room is set up
+    # Source-indicator only — bridge polls the snapserver's TCP control
+    # to detect when this client is in a group whose stream is playing,
+    # and flips source=SNAPCAST on the display. Audio routing itself is
+    # handled by the snapclient.service on the Pi, not by the bridge.
+    # Real server IP comes from BEATBIRD_SNAPCAST_SERVER (set by 00-base.sh
+    # from secrets/snapcast.host) so the personal address stays out of the
+    # public repo.
+    enabled: true
     server: 192.168.1.10
     latency_ms: 30
 
