@@ -121,6 +121,19 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
     <svg class="display" viewBox="0 0 466 466" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <clipPath id="round"><circle cx="233" cy="233" r="233"/></clipPath>
+        <!-- Heavy gaussian blur for the full-background layout (Layout B).
+             The real device gets the cover pre-blurred on the Pi side
+             (Pillow GaussianBlur radius 18-20), this is the same effect
+             cheaply done in the browser. -->
+        <filter id="cover-blur" x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur stdDeviation="14"/>
+        </filter>
+        <!-- Dark vignette so the text stays readable over any cover. -->
+        <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.7">
+          <stop offset="0%"   stop-color="#000" stop-opacity="0.35"/>
+          <stop offset="60%"  stop-color="#000" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#000" stop-opacity="0.85"/>
+        </radialGradient>
         <!-- Three faux covers for variety, switch with the track buttons -->
         <linearGradient id="cover-a" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="#52B788"/>
@@ -154,6 +167,14 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
 
       <g clip-path="url(#round)">
         <rect width="466" height="466" fill="#000"/>
+
+        <!-- LAYOUT B: full-bg cover with blur + vignette. Hidden when
+             Layout A is active. -->
+        <g id="cover-bg" style="display:none">
+          <rect id="cover-bg-rect" x="0" y="0" width="466" height="466"
+                fill="url(#cover-a)" filter="url(#cover-blur)"/>
+          <rect x="0" y="0" width="466" height="466" fill="url(#vignette)"/>
+        </g>
 
         <!-- Vol ring, prog ring, source marker, source label -->
         <g id="vol-ring"></g>
@@ -190,6 +211,21 @@ input[type=range] { width: 100%; accent-color: var(--accent-glow); }
 </div>
 
 <aside class="controls">
+
+  <div class="block">
+    <h2>Layout</h2>
+    <div class="row">
+      <button data-layout="a" class="active">A — Klein, zentriert</button>
+      <button data-layout="b" >B — Cover als Hintergrund</button>
+    </div>
+    <p style="font-size:11px;color:#666;line-height:1.5;margin:8px 0 0">
+      <b>A</b>: kleines Cover (60-140 px) zwischen Title und Artist —
+      gleicht der Mockup-Ästhetik der anderen Screens.<br>
+      <b>B</b>: Cover füllt das ganze Display, heavy-blurred + dunkle
+      Vignette darüber für Text-Lesbarkeit. Album dominiert visuell,
+      UI-Elemente schweben drüber.
+    </p>
+  </div>
 
   <div class="block">
     <h2>Display states</h2>
@@ -300,6 +336,7 @@ const TRACKS = [
 ];
 
 const state = {
+  layout: 'a',
   mode: 'playing', track: 0, volume: 62, progress: 0.42,
   coverPx: 100, shape: 'feather', featherPct: 55,
 };
@@ -321,8 +358,23 @@ function renderProg() {
     else         { dots[i].setAttribute('fill', FAINT); dots[i].setAttribute('opacity', 0.5); dots[i].setAttribute('r', 1.3); }
   }
 }
+function renderLayout() {
+  const a = state.layout === 'a';
+  // Layout A: small centered cover visible, full-bg hidden.
+  document.getElementById('cover-group').style.display = a ? '' : 'none';
+  document.getElementById('cover-bg').style.display    = a ? 'none' : '';
+  // Layout B: title/artist remain on top, vol/prog rings still around —
+  // they just sit on the dark vignette now.
+  // Hide the cover-shape controls when B is active since they don't apply.
+  document.querySelectorAll('[data-shape]').forEach(b => b.disabled = !a);
+  document.getElementById('feather').disabled = !a;
+  document.getElementById('cover-size').disabled = !a;
+}
+
 function renderCover() {
   const t = TRACKS[state.track];
+  // Update both: small cover for A, full-bg for B.
+  document.getElementById('cover-bg-rect').setAttribute('fill', `url(#${t.cover})`);
   const r = document.getElementById('cover-rect');
   const note = document.getElementById('cover-note');
   r.setAttribute('fill', `url(#${t.cover})`);
@@ -369,7 +421,7 @@ function renderCenterStage() {
   t.textContent = map[state.mode] || '';
   t.classList.toggle('alert', state.mode === 'piOffline');
 }
-function renderAll() { renderVol(); renderProg(); renderCover(); renderCenterStage(); }
+function renderAll() { renderLayout(); renderVol(); renderProg(); renderCover(); renderCenterStage(); }
 
 // Wire controls
 document.querySelectorAll('button[data-mode]').forEach(b => {
@@ -394,6 +446,13 @@ document.querySelectorAll('button[data-track]').forEach(b => {
   b.addEventListener('click', () => {
     state.track = +b.dataset.track;
     document.querySelectorAll('button[data-track]').forEach(x => x.classList.toggle('active', x === b));
+    renderAll();
+  });
+});
+document.querySelectorAll('button[data-layout]').forEach(b => {
+  b.addEventListener('click', () => {
+    state.layout = b.dataset.layout;
+    document.querySelectorAll('button[data-layout]').forEach(x => x.classList.toggle('active', x === b));
     renderAll();
   });
 });
