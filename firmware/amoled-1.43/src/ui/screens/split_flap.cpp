@@ -73,7 +73,7 @@ static void free_slot(Anim *a) {
 // ─── Animation tick ────────────────────────────────────────────────────────
 
 static void tick_cb(lv_timer_t *t) {
-    Anim *a = (Anim *)t->user_data;
+    Anim *a = (Anim *)lv_timer_get_user_data(t);
     a->tick++;
 
     bool all_done = true;
