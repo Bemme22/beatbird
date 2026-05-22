@@ -585,6 +585,10 @@ void create() {
     lv_obj_set_style_bg_color(source_marker, Theme::Color::SRC_NONE, 0);
     lv_obj_set_style_bg_opa(source_marker, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(source_marker, 0, 0);
+    // Pivot to centre so the energy-pulse transform_scale grows/shrinks the
+    // marker around its midpoint instead of dragging the top-left corner.
+    lv_obj_set_style_transform_pivot_x(source_marker, Theme::SOURCE_MARKER_SIZE / 2, 0);
+    lv_obj_set_style_transform_pivot_y(source_marker, Theme::SOURCE_MARKER_SIZE / 2, 0);
     lv_obj_add_flag(source_marker, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(source_marker, LV_OBJ_FLAG_CLICKABLE);
 
@@ -608,6 +612,10 @@ void create() {
     lv_obj_set_style_text_line_space(lbl_title, 4, 0);
     lv_obj_set_width(lbl_title, 280);
     lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    // Pin scroll to a fixed px/s instead of LVGL's "fit-to-default-anim-time"
+    // default, which makes long titles rush past unreadably. 30 px/s ≈ a
+    // comfortable reading pace at 33 px font.
+    lv_obj_set_style_anim_speed(lbl_title, 30, LV_PART_MAIN);
     lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
     lv_obj_add_flag(lbl_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_title, LV_OBJ_FLAG_CLICKABLE);
@@ -621,6 +629,7 @@ void create() {
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_artist, 260);
     lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_anim_speed(lbl_artist, 25, LV_PART_MAIN);   // slightly slower than title
     lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, Theme::ARTIST_Y_OFFSET);
     lv_obj_add_flag(lbl_artist, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_artist, LV_OBJ_FLAG_CLICKABLE);
@@ -764,12 +773,22 @@ void update() {
                                ? State::app.energy : 0.0f;
             energy_smoothed += (target - energy_smoothed) * 0.12f;
             lv_obj_invalidate(vol_layer);
-            // Source marker pulses with the same smoothed energy. Range
-            // 0.55..1.00 (140..255) so it always stays clearly visible —
-            // the source identity matters more than the pulse depth.
+            // Source marker pulse — opacity AND size driven by the same
+            // sinf(t*0.003) the vol dots use, with energy_smoothed as the
+            // amplitude. Pure opa modulation against the ~0.5..0.9 typical
+            // energy band wasn't readable on the AMOLED; combining a 30 %
+            // opa swing with a ±12 % scale on a 10×10 px square gives a
+            // pulse you can see across the room.
             if (source_marker && !in_standby && !in_shutdown) {
-                lv_opa_t o = (lv_opa_t)(140 + (int)(energy_smoothed * 115.0f));
-                lv_obj_set_style_bg_opa(source_marker, o, 0);
+                const float wob = sinf((float)now * 0.003f);    // -1..+1
+                const float p   = energy_smoothed * wob;        // -E..+E
+                int o_i = 200 + (int)(p * 55.0f);               // 145..255 at peak E
+                if (o_i < 0)   o_i = 0;
+                if (o_i > 255) o_i = 255;
+                lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
+                // 256 = 100% — LVGL transform scale unit.
+                int scale = 256 + (int)(p * 30.0f);             // 256 ± 30*E
+                lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
         }
     }
