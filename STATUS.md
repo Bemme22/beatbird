@@ -227,14 +227,28 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
   IPC for the palette + profile-reload after YAML writes. V1
   (2026-05-22) shipped just the system functions and live-loudness
   sliders that don't need bridge involvement.
-- [ ] **Household portability** — the install assumes one specific
-  network (WiFi creds, MQTT broker host, lat/lon from secrets/) and
-  speaker layout. For someone else to deploy BeatBird on their hardware,
-  the first-boot flow should be self-discovering: WiFi-AP fallback for
-  initial connect, web-based onboarding wizard that walks through
-  speaker name + WiFi + optional MQTT/weather/Snapcast, profile
-  generated from the wizard. Currently impossible without SSH +
-  `make install` + manual YAML edits. Big lift, separate epic.
+- [ ] **Household portability — family-friendly setup epic** (~3,5 h)
+  Goal: an assembled speaker handed to a family member just works after
+  plug-in. Scope is "family/friends", not commercial.
+  Trigger: 3 s long-press on the display while running normally.
+  Phases:
+    1. ScreenSetup firmware module — uses LVGL's lv_qrcode widget, shows
+       WiFi-format QR (`WIFI:T:WPA;S:BeatBird-XYZ4;P:setup1234;;`) plus
+       textual SSID/password below.
+    2. Bridge CMD:SETUP handler + new `setup-mode.service` that stops
+       wpa_supplicant/NM client mode and brings up `hostapd + dnsmasq`
+       as AP. dnsmasq with DNS-wildcard → captive portal effect (phone
+       OS auto-opens the speaker's web UI on join).
+    3. Web wizard at `/setup` (only active in setup mode): speaker name
+       (becomes hostname + friendly_name), WiFi SSID dropdown from
+       `iw scan`, password, optional Spotify/weather/snapcast hooks.
+       Submit → write secrets + profile → stop AP → join target WiFi →
+       reboot.
+    4. Factory-reset button in normal web UI — removes
+       `/etc/beatbird/onboarded.flag` and reboots into setup mode.
+  Hardware note: Pi Zero 2W has only one WiFi adapter, so AP and
+  client modes can't coexist — speaker has no internet during setup
+  itself (~30 s), expected limitation.
 - [ ] **persistent "last user volume" in `/var/lib/beatbird/state.json`** —
   so the stale-state snap has a real fallback ("last known good"), not the
   blind 25%.
