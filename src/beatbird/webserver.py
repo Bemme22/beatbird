@@ -222,6 +222,40 @@ def control_service(req: ServiceReq):
     return {"ok": True, "name": req.name, "action": req.action}
 
 
+@app.get("/api/health")
+def health():
+    """Aggregated network + service health snapshot. One call answers
+    the diagnostic questions that previously needed five SSH commands:
+    is the Pi on WiFi? does it see the gateway? does it reach the
+    internet, Spotify, MA's Snapserver? are the systemd units alive?
+    Also returns the last few bridge warnings/errors for quick triage.
+    All probes are time-bounded so the endpoint stays responsive even
+    when something is broken."""
+    p = _get_profile()
+    gw = system.default_gateway()
+    snap_host = (os.environ.get("BEATBIRD_SNAPCAST_SERVER", "").strip()
+                 or p.sources.snapcast.server)
+    return {
+        "hostname":     system.hostname(),
+        "ip":           system.ip_address(),
+        "ssid":         system.wifi_ssid(),
+        "rssi_dbm":    system.wifi_rssi(),
+        "gateway":      {"ip": gw, **system.ping(gw)} if gw else {"ip": "", "ok": False},
+        "internet":     system.ping("1.1.1.1"),
+        "spotify_api":  system.http_probe("https://api.spotify.com/"),
+        "spotify_ap":   {"ok": system.tcp_reachable("ap-gew4.spotify.com", 4070)},
+        "snapserver":   {"host": snap_host, "ok": system.tcp_reachable(snap_host, 1705)} if snap_host else {"host": "", "ok": False},
+        "mdns":         system.service_active("avahi-daemon"),
+        "services": {
+            "beatbird-bridge": system.service_active("beatbird-bridge"),
+            "camilladsp":      system.service_active("camilladsp"),
+            "go-librespot":    system.service_active("go-librespot"),
+            "snapclient":      system.service_active("snapclient"),
+        },
+        "recent_warnings": system.journal_recent_errors("beatbird-bridge", 20),
+    }
+
+
 @app.post("/api/system")
 def system_action(req: SystemReq):
     """Reboot or shutdown the host. Fires-and-forgets — by the time the
@@ -340,6 +374,9 @@ _HTML = """<!doctype html>
   <button class="warn" onclick="sys('reboot')">Reboot Pi</button>
   <button class="warn" onclick="sys('shutdown')">Shutdown Pi</button>
  </div>
+ <div style="margin-top:.6em">
+  <a href="/health" style="color:var(--accent,#888);text-decoration:none">→ Health check</a>
+ </div>
 </div>
 
 <div class="card" style="color:#666;font-size:12px">
@@ -448,6 +485,100 @@ def dashboard():
         driver=p.soundcard.driver,
         display=p.display.type,
     )
+
+
+# ─── /health page — one-glance network + service diagnostics ─────────────────
+
+_HEALTH_HTML = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BeatBird Health — {name}</title>
+<style>
+ body{{font:14px/1.45 system-ui,sans-serif;background:#111;color:#eee;max-width:720px;margin:1.2em auto;padding:0 1em 2em}}
+ h1{{font-weight:400;letter-spacing:.05em;margin:0 0 .2em}}
+ h1 a{{color:#888;font-size:13px;text-decoration:none;float:right}}
+ h2{{font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#777;margin:1.2em 0 .4em}}
+ .card{{background:#1c1c1c;border-radius:6px;padding:.8em 1em;margin:.4em 0}}
+ .row{{display:grid;grid-template-columns:170px 24px 1fr;gap:.4em;padding:.15em 0;align-items:baseline}}
+ .row .label{{color:#888}}
+ .row .badge{{font-family:ui-monospace,monospace;font-weight:bold;text-align:center}}
+ .ok{{color:#5d6}} .warn{{color:#fb6}} .bad{{color:#e66}} .neutral{{color:#999}}
+ #warnings{{background:#000;color:#fb8;font:11px/1.35 ui-monospace,monospace;padding:.6em;border-radius:4px;white-space:pre-wrap;max-height:260px;overflow-y:auto}}
+ .ts{{color:#666;font-size:11px;margin-top:.8em}}
+</style></head>
+<body>
+<h1>{name} <a href="/">← Dashboard</a></h1>
+<div id="root" class="neutral">Lade…</div>
+<h2>Bridge — letzte Warnungen / Errors</h2>
+<div class="card"><div id="warnings">(lade…)</div></div>
+<div class="ts" id="ts">–</div>
+<script>
+ const ICON = {{true: '✓', false: '✗'}};
+ const CLS  = {{true: 'ok', false: 'bad'}};
+
+ function row(label, ok, extra='') {{
+   const klass = (ok===null || ok===undefined) ? 'neutral' : CLS[Boolean(ok)];
+   const badge = (ok===null || ok===undefined) ? '·' : ICON[Boolean(ok)];
+   return `<div class="row"><span class="label">${{label}}</span><span class="badge ${{klass}}">${{badge}}</span><span>${{extra}}</span></div>`;
+ }}
+
+ async function refresh() {{
+   try {{
+     const r = await fetch('/api/health');
+     const h = await r.json();
+     const ip = h.ip || '?';
+     const ssid = h.ssid || '?';
+     const rssi = h.rssi_dbm;
+     const rssiCls = rssi>=-67?'ok':rssi>=-75?'warn':rssi>=-85?'warn':'bad';
+     const gw = h.gateway || {{}};
+     const inet = h.internet || {{}};
+     const sapi = h.spotify_api || {{}};
+     const sap = h.spotify_ap || {{}};
+     const snap = h.snapserver || {{}};
+     const svc = h.services || {{}};
+
+     const html = `
+       <div class="card">
+         <h2 style="margin-top:0">Network</h2>
+         ${{row('Hostname', true, h.hostname || '?')}}
+         ${{row('IP', !!h.ip, ip)}}
+         ${{row('SSID', !!h.ssid, ssid)}}
+         <div class="row"><span class="label">RSSI</span><span class="badge ${{rssiCls}}">${{rssi||0}}</span><span>dBm</span></div>
+         ${{row('Gateway', gw.ok, (gw.ip||'-') + (gw.rtt_ms ? ' · '+gw.rtt_ms.toFixed(1)+' ms' : ''))}}
+         ${{row('Internet (1.1.1.1)', inet.ok, inet.rtt_ms ? inet.rtt_ms.toFixed(1)+' ms' : '–')}}
+         ${{row('mDNS / avahi', h.mdns, h.mdns ? 'aktiv' : 'aus')}}
+       </div>
+       <div class="card">
+         <h2 style="margin-top:0">External</h2>
+         ${{row('Spotify API', sapi.ok, sapi.code ? 'HTTP '+sapi.code+(sapi.rtt_ms?' · '+sapi.rtt_ms.toFixed(0)+'ms':''): '–')}}
+         ${{row('Spotify AP :4070', sap.ok, sap.ok ? 'reachable' : 'refused / blocked')}}
+         ${{row('Snapserver :1705', snap.ok, snap.host || '–')}}
+       </div>
+       <div class="card">
+         <h2 style="margin-top:0">Services</h2>
+         ${{Object.entries(svc).map(([n,a]) => row(n, a, a?'active':'stopped')).join('')}}
+       </div>`;
+     document.getElementById('root').innerHTML = html;
+
+     const w = (h.recent_warnings || []);
+     document.getElementById('warnings').textContent =
+       w.length ? w.join('\\n') : '(keine Warnungen — alles ruhig)';
+     document.getElementById('ts').textContent =
+       'Stand: ' + new Date().toLocaleTimeString();
+   }} catch (e) {{
+     document.getElementById('root').innerHTML = `<div class="card bad">Fehler beim Laden: ${{e}}</div>`;
+   }}
+ }}
+ refresh(); setInterval(refresh, 4000);
+</script>
+</body></html>
+"""
+
+
+@app.get("/health", response_class=HTMLResponse)
+def health_page():
+    p = _get_profile()
+    return _HEALTH_HTML.format(name=p.identity.friendly_name)
 
 
 def main():
