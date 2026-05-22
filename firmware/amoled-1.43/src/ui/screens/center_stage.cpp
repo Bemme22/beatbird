@@ -27,6 +27,34 @@ static char       last_text[32]    = {0};
 static lv_color_t last_color       = LV_COLOR_MAKE(0, 0, 0);
 static bool       last_hidden      = true;
 
+// Fade-in / fade-out for show ↔ hide transitions. Snap-toggling HIDDEN
+// looked janky; the label now opacity-tweens. STAGE_FADE_MS matches the
+// title/artist dimming tween in screen_player.cpp so the two move together.
+static constexpr uint32_t STAGE_FADE_MS = 220;
+static lv_anim_t anim_opa;
+
+static void opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+
+static void hide_after_fade_cb(lv_anim_t *a) {
+    lv_obj_t *o = (lv_obj_t *)lv_anim_get_var(a);
+    if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void start_fade(lv_opa_t from, lv_opa_t to, bool hide_on_end) {
+    if (!label) return;
+    lv_anim_del(label, opa_cb);
+    lv_anim_init(&anim_opa);
+    lv_anim_set_var(&anim_opa, label);
+    lv_anim_set_exec_cb(&anim_opa, opa_cb);
+    lv_anim_set_values(&anim_opa, from, to);
+    lv_anim_set_time(&anim_opa, STAGE_FADE_MS);
+    lv_anim_set_path_cb(&anim_opa, lv_anim_path_ease_out);
+    if (hide_on_end) lv_anim_set_completed_cb(&anim_opa, hide_after_fade_cb);
+    lv_anim_start(&anim_opa);
+}
+
 // ─── Trigger evaluation ─────────────────────────────────────────────────────
 //
 // Returns the priority-winning persistent trigger, or {nullptr, _} if no
@@ -42,6 +70,15 @@ static TriggerResult evaluate_persistent_trigger()
     using namespace State;
     const uint32_t now = millis();
     TriggerResult none = { nullptr, Theme::accent };
+
+    // 0. Hide on standby / shutdown — those screens own the centre and would
+    //    otherwise be visually overlaid by a stale CenterStage text (e.g. the
+    //    PAUSE that was shown right before standby kicked in).
+    if (app.state == PLAY_STANDBY ||
+        app.state == PLAY_SHUTDOWN ||
+        app.state == PLAY_SHUTDOWN_WARN) {
+        return none;
+    }
 
     // 1. PI OFFLINE — only after we've received at least one status
     //    (avoids a false-positive at cold boot before bridge connect).
@@ -81,7 +118,8 @@ static void apply(const char *text, lv_color_t color)
 
     if (text == nullptr) {
         if (!last_hidden) {
-            lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+            // Fade out, hide once anim completes
+            start_fade(LV_OPA_COVER, LV_OPA_TRANSP, /*hide_on_end=*/true);
             last_hidden = true;
             last_text[0] = '\0';
         }
@@ -90,6 +128,8 @@ static void apply(const char *text, lv_color_t color)
 
     if (last_hidden) {
         lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_opa(label, LV_OPA_TRANSP, 0);
+        start_fade(LV_OPA_TRANSP, LV_OPA_COVER, /*hide_on_end=*/false);
         last_hidden = false;
     }
 
@@ -179,7 +219,14 @@ void invalidate()
     last_text[0] = '\0';
     last_color   = LV_COLOR_MAKE(0, 0, 0);
     last_hidden  = true;
-    if (label) lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    if (label) {
+        // Hard reset — kill any in-flight fade, hide immediately. Used by
+        // standby/shutdown transitions where the player chrome owns the
+        // centre after this call.
+        lv_anim_del(label, opa_cb);
+        lv_obj_set_style_text_opa(label, LV_OPA_TRANSP, 0);
+        lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 }  // namespace CenterStage

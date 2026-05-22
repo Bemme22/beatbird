@@ -63,10 +63,6 @@ static lv_obj_t *lbl_artist    = nullptr;
 static lv_obj_t *state_icon    = nullptr;
 // lbl_volume removed — CenterStage shows MUTE when volume == 0
 
-// Action feedback toast (custom-drawn icon)
-static lv_obj_t *action_icon   = nullptr;
-static lv_anim_t anim_action;
-
 // Standby widgets
 static lv_obj_t *lbl_clock     = nullptr;
 static lv_obj_t *standby_dot   = nullptr;
@@ -85,6 +81,34 @@ static float    energy_smoothed    = 0.0f;
 // Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
 static int   prog_x[60],   prog_y[60];
+
+// Title/artist text-opacity tween state. Snap-changing opa when CenterStage
+// toggles looked janky; the labels now tween to their target over a fixed
+// duration via lv_anim. last_*_opa is the most recently committed target —
+// we only kick off a new anim when it actually changes.
+static constexpr uint32_t STAGE_FADE_MS = 220;
+static lv_opa_t  last_title_opa  = LV_OPA_COVER;
+static lv_opa_t  last_artist_opa = LV_OPA_COVER;
+static lv_anim_t anim_title_opa;
+static lv_anim_t anim_artist_opa;
+
+static void title_opa_cb (void *var, int32_t v) { lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0); }
+static void artist_opa_cb(void *var, int32_t v) { lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0); }
+
+static void start_text_opa_anim(lv_obj_t *obj, lv_anim_t *anim,
+                                lv_anim_exec_xcb_t cb,
+                                lv_opa_t from, lv_opa_t to)
+{
+    if (!obj) return;
+    lv_anim_del(obj, cb);
+    lv_anim_init(anim);
+    lv_anim_set_var(anim, obj);
+    lv_anim_set_exec_cb(anim, cb);
+    lv_anim_set_values(anim, from, to);
+    lv_anim_set_time(anim, STAGE_FADE_MS);
+    lv_anim_set_path_cb(anim, lv_anim_path_ease_out);
+    lv_anim_start(anim);
+}
 
 // ─── Rotary volume state ────────────────────────────────────────────────────
 
@@ -110,118 +134,6 @@ static constexpr int SWIPE_RATIO_D  = 10;
 
 static int press_start_x = 0, press_start_y = 0;
 static int press_last_x  = 0, press_last_y  = 0;
-
-// ─── Action toast (custom-drawn icon) ───────────────────────────────────────
-
-enum ActionType {
-    ACT_NONE = 0,
-    ACT_PLAY,
-    ACT_PAUSE,
-    ACT_NEXT,
-    ACT_PREV,
-};
-
-static ActionType current_action = ACT_NONE;
-
-static constexpr int      ACTION_ICON_SIZE   = 100;
-static constexpr uint32_t TOAST_FADE_IN_MS   =  80;
-static constexpr uint32_t TOAST_HOLD_MS      = 500;
-static constexpr uint32_t TOAST_FADE_OUT_MS  = 250;
-
-static void anim_action_opa_cb(void *var, int32_t v) {
-    lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
-}
-
-static void anim_action_done(lv_anim_t *a) {
-    lv_obj_t *obj = (lv_obj_t *)lv_anim_get_user_data(a);
-    if (obj) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-    current_action = ACT_NONE;
-}
-
-static void action_icon_draw_cb(lv_event_t *e) {
-    if (current_action == ACT_NONE) return;
-    lv_layer_t *layer = lv_event_get_layer(e);
-    lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
-    lv_area_t coords;
-    lv_obj_get_coords(obj, &coords);
-
-    const int x = coords.x1;
-    const int y = coords.y1;
-    const int w = coords.x2 - coords.x1 + 1;
-    const int h = coords.y2 - coords.y1 + 1;
-
-    auto px = [&](int pct) -> lv_coord_t { return x + (w * pct) / 100; };
-    auto py = [&](int pct) -> lv_coord_t { return y + (h * pct) / 100; };
-
-    lv_draw_rect_dsc_t rdsc;
-    lv_draw_rect_dsc_init(&rdsc);
-    rdsc.bg_color = Theme::accent;
-    rdsc.bg_opa   = LV_OPA_COVER;
-    rdsc.radius   = 0;
-
-    lv_draw_triangle_dsc_t tdsc;
-    lv_draw_triangle_dsc_init(&tdsc);
-    tdsc.color = Theme::accent;
-    tdsc.opa   = LV_OPA_COVER;
-
-    switch (current_action) {
-        case ACT_PLAY: {
-            tdsc.p[0].x = px(25); tdsc.p[0].y = py(15);
-            tdsc.p[1].x = px(25); tdsc.p[1].y = py(85);
-            tdsc.p[2].x = px(80); tdsc.p[2].y = py(50);
-            lv_draw_triangle(layer, &tdsc);
-            break;
-        }
-        case ACT_PAUSE: {
-            lv_area_t b1 = { px(25), py(15), px(42), py(85) };
-            lv_area_t b2 = { px(58), py(15), px(75), py(85) };
-            lv_draw_rect(layer, &rdsc, &b1);
-            lv_draw_rect(layer, &rdsc, &b2);
-            break;
-        }
-        case ACT_NEXT: {
-            tdsc.p[0].x = px(12); tdsc.p[0].y = py(18);
-            tdsc.p[1].x = px(12); tdsc.p[1].y = py(82);
-            tdsc.p[2].x = px(58); tdsc.p[2].y = py(50);
-            lv_draw_triangle(layer, &tdsc);
-            lv_area_t bar = { px(64), py(18), px(80), py(82) };
-            lv_draw_rect(layer, &rdsc, &bar);
-            break;
-        }
-        case ACT_PREV: {
-            lv_area_t bar = { px(20), py(18), px(36), py(82) };
-            lv_draw_rect(layer, &rdsc, &bar);
-            tdsc.p[0].x = px(88); tdsc.p[0].y = py(18);
-            tdsc.p[1].x = px(88); tdsc.p[1].y = py(82);
-            tdsc.p[2].x = px(42); tdsc.p[2].y = py(50);
-            lv_draw_triangle(layer, &tdsc);
-            break;
-        }
-        default: break;
-    }
-}
-
-static void show_action(ActionType type) {
-    if (!action_icon || type == ACT_NONE) return;
-    current_action = type;
-    lv_obj_clear_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_opa(action_icon, LV_OPA_TRANSP, 0);
-    lv_obj_invalidate(action_icon);
-
-    lv_anim_del(action_icon, anim_action_opa_cb);
-
-    lv_anim_init(&anim_action);
-    lv_anim_set_var(&anim_action, action_icon);
-    lv_anim_set_user_data(&anim_action, action_icon);
-    lv_anim_set_exec_cb(&anim_action, anim_action_opa_cb);
-    lv_anim_set_values(&anim_action, 0, 255);
-    lv_anim_set_time(&anim_action, TOAST_FADE_IN_MS);
-    lv_anim_set_playback_delay(&anim_action, TOAST_HOLD_MS);
-    lv_anim_set_playback_time(&anim_action, TOAST_FADE_OUT_MS);
-    lv_anim_set_repeat_count(&anim_action, 1);
-    lv_anim_set_completed_cb(&anim_action, anim_action_done);
-    lv_anim_start(&anim_action);
-}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -345,17 +257,18 @@ static void prog_draw_cb(lv_event_t *e) {
 static void halo_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     const float E = energy_smoothed;
-    // Opacity range 0.18 .. 0.42 (matches the mockup's @keyframes halo-breathe).
-    // 0.18 = ~46/255, 0.42 = ~107/255.
-    const lv_opa_t opa = (lv_opa_t)(46 + (int)(E * 61.0f));
-    if (opa < 6) return;   // invisible — skip the draw entirely
+    // Opacity 0.35 .. 0.80. The mockup's 0.18..0.42 was tuned for the bright
+    // champagne accent; a darker palette (forest 2D6A4F etc.) needs more
+    // headroom to read at all. ~90 = 0.35, ~204 = 0.80.
+    const lv_opa_t opa = (lv_opa_t)(90 + (int)(E * 114.0f));
+    if (opa < 12) return;
 
     lv_draw_rect_dsc_t dsc;
     lv_draw_rect_dsc_init(&dsc);
     dsc.bg_opa       = LV_OPA_TRANSP;
     dsc.border_color = Theme::accent;
     dsc.border_opa   = opa;
-    dsc.border_width = 1 + (int)(E * 1.5f);   // 1..2 px stroke
+    dsc.border_width = 2 + (int)(E * 2.0f);   // 2..4 px stroke
     dsc.radius       = LV_RADIUS_CIRCLE;
 
     const int r = Theme::HALO_R;
@@ -583,19 +496,17 @@ static void on_released(lv_event_t *e) {
     if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
         if (dx < 0) {
             Proto::send_command("NEXT");
-            show_action(ACT_NEXT);
-            CenterStage::show_toast("SKIP \xE2\x86\x92", 1200);   // → arrow (UTF-8)
+            CenterStage::show_toast("SKIP >", 1200);
         } else {
             Proto::send_command("PREV");
-            show_action(ACT_PREV);
-            CenterStage::show_toast("\xE2\x86\x90 SKIP", 1200);   // ← arrow (UTF-8)
+            CenterStage::show_toast("< SKIP", 1200);
         }
         return;
     }
 
-    bool will_pause = (State::app.state == State::PLAY_PLAYING);
+    // PLAYPAUSE: no toast — CenterStage already shows PAUSE persistently when
+    // the state flips to paused, and the wobble/halo resuming says "playing".
     Proto::send_command("PLAYPAUSE");
-    show_action(will_pause ? ACT_PAUSE : ACT_PLAY);
 }
 
 // ─── Mode switching ─────────────────────────────────────────────────────────
@@ -628,11 +539,9 @@ static void show_standby_mode() {
     H(vol_layer); H(prog_layer); H(halo_layer);
     H(source_marker); H(lbl_source);
     H(lbl_title); H(lbl_artist); H(state_icon);
-    if (action_icon) {
-        lv_anim_del(action_icon, anim_action_opa_cb);
-        lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
-        current_action = ACT_NONE;
-    }
+    // Clear whatever CenterStage was last showing (e.g. PAUSE) so the clock
+    // gets the centre to itself.
+    CenterStage::invalidate();
     S(lbl_clock); S(standby_dot); S(wifi_layer);
     start_standby_pulse();
 }
@@ -653,11 +562,7 @@ static void show_shutdown_mode() {
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     H(lbl_clock); H(standby_dot);
-    if (action_icon) {
-        lv_anim_del(action_icon, anim_action_opa_cb);
-        lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
-        current_action = ACT_NONE;
-    }
+    CenterStage::invalidate();
     // Re-center the title for the shutdown message (player layout offsets it).
     if (lbl_title) {
         lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
@@ -791,19 +696,8 @@ void create() {
     lv_obj_clear_flag(standby_dot, LV_OBJ_FLAG_CLICKABLE);
 
     // ── CenterStage — status announcement slot (priority chain) ─────────────
+    // Created LAST so its text renders on top of all the ring layers.
     CenterStage::create(scr);
-
-    // ── Action icon — created LAST so it renders on top of everything ───────
-    action_icon = lv_obj_create(scr);
-    lv_obj_remove_style_all(action_icon);
-    lv_obj_set_size(action_icon, ACTION_ICON_SIZE, ACTION_ICON_SIZE);
-    lv_obj_set_style_bg_opa(action_icon, LV_OPA_TRANSP, 0);
-    lv_obj_align(action_icon, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(action_icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(action_icon, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(action_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(action_icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(action_icon, action_icon_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
 }
 
 void show() {
@@ -835,7 +729,6 @@ void update() {
     if (State::is_dirty(State::Dirty::ACCENT)) {
         lv_obj_set_style_text_color(lbl_title,   Theme::accent,     0);
         lv_obj_invalidate(state_icon);
-        lv_obj_invalidate(action_icon);
         lv_obj_set_style_text_color(lbl_source,  Theme::accent_dim, 0);
         lv_obj_set_style_text_color(lbl_clock,   Theme::accent,     0);
         lv_obj_set_style_bg_color  (standby_dot, Theme::accent,     0);
@@ -919,10 +812,18 @@ void update() {
     CenterStage::update();
     if (lbl_title && lbl_artist) {
         const bool stage_on = CenterStage::is_active();
-        const lv_opa_t title_opa  = stage_on ? (lv_opa_t)64 : LV_OPA_COVER;
-        const lv_opa_t artist_opa = stage_on ? (lv_opa_t)51 : LV_OPA_COVER;
-        lv_obj_set_style_text_opa(lbl_title,  title_opa,  0);
-        lv_obj_set_style_text_opa(lbl_artist, artist_opa, 0);
+        const lv_opa_t title_target  = stage_on ? (lv_opa_t)64 : LV_OPA_COVER;
+        const lv_opa_t artist_target = stage_on ? (lv_opa_t)51 : LV_OPA_COVER;
+        if (title_target != last_title_opa) {
+            start_text_opa_anim(lbl_title, &anim_title_opa, title_opa_cb,
+                                last_title_opa, title_target);
+            last_title_opa = title_target;
+        }
+        if (artist_target != last_artist_opa) {
+            start_text_opa_anim(lbl_artist, &anim_artist_opa, artist_opa_cb,
+                                last_artist_opa, artist_target);
+            last_artist_opa = artist_target;
+        }
     }
 }
 
