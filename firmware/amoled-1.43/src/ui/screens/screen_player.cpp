@@ -182,6 +182,26 @@ static void precompute_geometry() {
     }
 }
 
+// Tune a label's LV_LABEL_LONG_SCROLL_CIRCULAR animation so the text moves at
+// a fixed px/sec regardless of length. LVGL 9.5 only exposes `anim_time`
+// (the whole-cycle duration) — short titles end up creeping while long ones
+// rush past with the same number. We measure the rendered text width with
+// lv_text_get_size and compute `duration_ms = width / px_per_sec * 1000`.
+// Floor at 2000 ms so the scroll doesn't tick fast on short text either.
+static void set_scroll_speed_pxs(lv_obj_t *lbl, int px_per_sec) {
+    if (!lbl || px_per_sec <= 0) return;
+    const char *txt = lv_label_get_text(lbl);
+    if (!txt || !txt[0]) return;
+    const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
+    int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
+    lv_point_t sz;
+    lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    if (sz.x < 1) return;
+    uint32_t dur = (uint32_t)(((int64_t)sz.x * 1000) / px_per_sec);
+    if (dur < 2000) dur = 2000;
+    lv_obj_set_style_anim_time(lbl, dur, LV_PART_MAIN);
+}
+
 static void draw_dot(lv_layer_t *layer, int cx, int cy, int r,
                      lv_color_t color, lv_opa_t opa) {
     if (opa == LV_OPA_TRANSP || r <= 0) return;
@@ -612,10 +632,6 @@ void create() {
     lv_obj_set_style_text_line_space(lbl_title, 4, 0);
     lv_obj_set_width(lbl_title, 280);
     lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    // Pin scroll to a fixed px/s instead of LVGL's "fit-to-default-anim-time"
-    // default, which makes long titles rush past unreadably. 30 px/s ≈ a
-    // comfortable reading pace at 33 px font.
-    lv_obj_set_style_anim_speed(lbl_title, 30, LV_PART_MAIN);
     lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
     lv_obj_add_flag(lbl_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_title, LV_OBJ_FLAG_CLICKABLE);
@@ -629,7 +645,6 @@ void create() {
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_artist, 260);
     lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_style_anim_speed(lbl_artist, 25, LV_PART_MAIN);   // slightly slower than title
     lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, Theme::ARTIST_Y_OFFSET);
     lv_obj_add_flag(lbl_artist, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_artist, LV_OBJ_FLAG_CLICKABLE);
@@ -731,10 +746,12 @@ void update() {
     if (State::is_dirty(State::Dirty::TITLE)) {
         const char *t = State::app.title.length() ? State::app.title.c_str() : "—";
         lv_label_set_text(lbl_title, t);
+        set_scroll_speed_pxs(lbl_title, 30);
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
         lv_label_set_text(lbl_artist, State::app.artist.c_str());
+        set_scroll_speed_pxs(lbl_artist, 25);
         State::clear_dirty(State::Dirty::ARTIST);
     }
     if (State::is_dirty(State::Dirty::STATE)) {
