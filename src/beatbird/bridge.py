@@ -634,38 +634,59 @@ class BeatBirdBridge:
                 self.bt_device_alias = ""
 
     def _poll_snapcast(self) -> None:
-        """Check whether the snapserver is actively streaming to us.
-        Only takes over `source` when Spotify is not playing — Snapcast
-        runs through the same ALSA Loopback as go-librespot, so if both
-        are pushing audio Spotify wins (the typical "Spotify on this one
-        speaker" use case) and the user would explicitly stop Spotify
-        before starting MA-Snapcast playback."""
+        """Snapserver poll. Behaviour:
+          - When our snap-group is streaming AND Spotify isn't actively
+            playing, source flips to SNAPCAST and stays there.
+          - last_playback_time refreshes on every tick while playing, so
+            the idle-timeout doesn't trip on a long Snapcast session.
+          - Per-client volume (MA UI) is mirrored into the displayed
+            volume so the ring matches what MA shows.
+          - Group name is shown as the title — for MA's `ma_<mac>` naming
+            it's not pretty, but it identifies the stream.
+        Audio routing itself is handled by snapclient.service — bridge
+        is observation + display only."""
         if not self.snapcast:
             return
-        playing = self.snapcast.is_playing_for_us()
-        if playing == self._snapcast_playing:
-            return  # no change
-        self._snapcast_playing = playing
+        state = self.snapcast.get_state()
+        if not state:
+            return
+
+        playing = bool(state["playing"])
+
+        # Spotify wins if it's actively pushing audio (covers the
+        # standard "this speaker plays Spotify" case).
+        if playing and self.source == Source.SPOTIFY and self.playback == Playback.PLAYING:
+            return
+
         if playing:
-            # Don't yank the source from Spotify mid-track. If Spotify is
-            # actively playing this is the user listening locally; Snapcast
-            # detection is interesting but shouldn't kick Spotify.
-            if self.playback == Playback.PLAYING and self.source == Source.SPOTIFY:
-                log.debug("Snapcast playing but Spotify holds the source")
-                return
-            log.info("Snapcast source active")
-            self._transition_source(Source.SNAPCAST)
+            if self.source != Source.SNAPCAST or not self._snapcast_playing:
+                log.info("Snapcast source active (group=%s)", state["group_name"])
+                self._transition_source(Source.SNAPCAST)
             self.playback = Playback.PLAYING
             self.last_playback_time = time.monotonic()
-            self.song_title = "Snapcast"
-            self.song_artist = ""
-        else:
+            # Use the snap group name as a track-like label. MA labels
+            # groups `ma_<MAC>`; trim that prefix for readability.
+            label = state["group_name"] or "Snapcast"
+            if label.startswith("ma_"):
+                label = "Multiroom"
+            if self.song_title != label:
+                self.song_title = label
+                self.song_artist = ""
+            # Mirror per-client volume to the display so the ring tracks
+            # MA-side changes too. Only push when it actually changed.
+            v = max(0, min(100, int(state["volume_pct"])))
+            if v != self.current_volume:
+                self.current_volume = v
+                # Push to State without touching CDSP master — CDSP master
+                # is independent and stays under local rotary control.
+        elif self._snapcast_playing:
+            log.info("Snapcast source idle")
             if self.source == Source.SNAPCAST:
-                log.info("Snapcast source idle")
                 self.source = Source.NONE
                 self.playback = Playback.STOPPED
                 self.song_title = ""
                 self.song_artist = ""
+        self._snapcast_playing = playing
 
     def _refresh_system(self) -> None:
         self.sys_cpu = system.cpu_temp()

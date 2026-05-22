@@ -68,31 +68,45 @@ class SnapcastClient:
             log.debug("snapserver RPC %s failed: %s", method, e)
             return None
 
-    def is_playing_for_us(self) -> bool:
-        """True iff our snapclient is currently in a group whose stream
-        is in 'playing' status. Looks up our client by MAC."""
+    def get_state(self) -> dict | None:
+        """One status snapshot for this Pi. Returns a dict with:
+            playing:    bool, True if our group's stream is 'playing'
+            volume_pct: int, our snapclient's per-client volume (0..100)
+            group_name: str, snapcast group name (MA uses ma_<MAC> per client)
+            stream_id:  str, e.g. "default"
+        Returns None if the server is unreachable or we can't find our
+        client entry."""
         if not self.host or not self.my_mac:
-            return False
+            return None
         resp = self._rpc("Server.GetStatus")
         if not resp:
-            return False
+            return None
         server = resp.get("result", {}).get("server", {})
         groups = server.get("groups", []) or []
         streams = server.get("streams", []) or []
         stream_by_id = {s.get("id"): s for s in streams}
 
         for g in groups:
-            stream_id = g.get("stream_id")
-            stream = stream_by_id.get(stream_id) or {}
-            if stream.get("status") != "playing":
-                continue
-            # This group is actively streaming. Check if we're in it.
             for c in g.get("clients", []) or []:
                 host = c.get("host", {}) or {}
                 mac = (host.get("mac") or "").lower()
-                if mac == self.my_mac and c.get("connected"):
-                    return True
-        return False
+                if mac != self.my_mac:
+                    continue
+                stream_id = g.get("stream_id") or ""
+                stream = stream_by_id.get(stream_id) or {}
+                vol_pct = (((c.get("config") or {}).get("volume") or {}).get("percent")) or 0
+                return {
+                    "playing":    stream.get("status") == "playing" and bool(c.get("connected")),
+                    "volume_pct": int(vol_pct),
+                    "group_name": g.get("name") or "",
+                    "stream_id":  stream_id,
+                }
+        return None
+
+    def is_playing_for_us(self) -> bool:
+        """Legacy convenience wrapper — prefer get_state() now."""
+        s = self.get_state()
+        return bool(s and s.get("playing"))
 
 
 def get_local_wlan_mac() -> str:
