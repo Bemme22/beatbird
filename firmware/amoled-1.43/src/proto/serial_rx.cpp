@@ -86,18 +86,23 @@ void handle_line(const char *line)
 
 // ─── Field parser ───────────────────────────────────────────────────────────
 
-bool parse_field(const char *line, const char *key, char *out, size_t out_size)
+// Parse a `KEY<sep>value` pair from a `|`-delimited line. The state-line
+// uses `:` (e.g. `ST:play|TI:song|AR:artist`), the weather-line uses `=`
+// (e.g. `WX:t=17|c=1|h=23|l=11`) — they're parsed by the same engine with
+// a separator override below.
+static bool parse_field_sep(const char *line, const char *key, char sep,
+                            char *out, size_t out_size)
 {
     if (!line || !key || !out || out_size == 0) return false;
     size_t key_len = strlen(key);
 
-    // Search for `KEY:` preceded by `|` or at start-of-line
+    // Search for `KEY<sep>` preceded by `|` or at start-of-line
     const char *p = line;
     while ((p = strstr(p, key)) != nullptr) {
         bool boundary_ok = (p == line) || (*(p - 1) == '|');
-        bool colon_ok    = (*(p + key_len) == ':');
-        if (boundary_ok && colon_ok) {
-            const char *start = p + key_len + 1;     // skip "KEY:"
+        bool sep_ok      = (*(p + key_len) == sep);
+        if (boundary_ok && sep_ok) {
+            const char *start = p + key_len + 1;     // skip "KEY<sep>"
             const char *end   = strchr(start, '|');
             size_t len = end ? (size_t)(end - start) : strlen(start);
             if (len >= out_size) len = out_size - 1;
@@ -108,6 +113,16 @@ bool parse_field(const char *line, const char *key, char *out, size_t out_size)
         p += key_len;
     }
     return false;
+}
+
+bool parse_field(const char *line, const char *key, char *out, size_t out_size)
+{
+    return parse_field_sep(line, key, ':', out, out_size);
+}
+
+static bool parse_field_eq(const char *line, const char *key, char *out, size_t out_size)
+{
+    return parse_field_sep(line, key, '=', out, out_size);
 }
 
 int parse_int_at(const char *line, size_t key_len)
@@ -205,16 +220,18 @@ void handle_weather_line(const char *line)
     char buf[16];
     bool any = false;
 
-    if (parse_field(line, "t", buf, sizeof(buf))) { State::weather.temp_c = atoi(buf); any = true; }
-    if (parse_field(line, "c", buf, sizeof(buf))) {
+    // WX: uses `=` between key and value (per docs/protocol.md), unlike the
+    // state-line's `:`. parse_field_eq picks the right separator.
+    if (parse_field_eq(line, "t", buf, sizeof(buf))) { State::weather.temp_c = atoi(buf); any = true; }
+    if (parse_field_eq(line, "c", buf, sizeof(buf))) {
         int v = atoi(buf);
         if (v >= 0 && v <= 6) {
             State::weather.icon = (State::WeatherIcon)v;
             any = true;
         }
     }
-    if (parse_field(line, "h", buf, sizeof(buf))) { State::weather.high_c = atoi(buf); any = true; }
-    if (parse_field(line, "l", buf, sizeof(buf))) { State::weather.low_c  = atoi(buf); any = true; }
+    if (parse_field_eq(line, "h", buf, sizeof(buf))) { State::weather.high_c = atoi(buf); any = true; }
+    if (parse_field_eq(line, "l", buf, sizeof(buf))) { State::weather.low_c  = atoi(buf); any = true; }
 
     if (any) {
         State::weather.valid = true;
