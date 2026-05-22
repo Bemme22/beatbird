@@ -220,6 +220,11 @@ void handle_weather_line(const char *line)
     char buf[16];
     bool any = false;
 
+    // Strip the "WX:" prefix — parse_field_eq's boundary check expects each
+    // key to be at start-of-line or right after '|'. With the prefix kept,
+    // the first field (`t=…`) is preceded by `:` and gets rejected.
+    if (!strncmp(line, "WX:", 3)) line += 3;
+
     // WX: uses `=` between key and value (per docs/protocol.md), unlike the
     // state-line's `:`. parse_field_eq picks the right separator.
     if (parse_field_eq(line, "t", buf, sizeof(buf))) { State::weather.temp_c = atoi(buf); any = true; }

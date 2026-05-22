@@ -254,56 +254,66 @@ void create()
         Proto::send_command("WAKE");
     }, LV_EVENT_RELEASED, NULL);
 
+    // Layout y-anchors (TOP_MID with y_offset = top of label). Everything
+    // moved up + one font tier larger from the mockup spec — Departure Mono
+    // at small sizes was unreadable from across the room.
+    //   clock     y= 70  (44 px)
+    //   icon      y=140..220 (centered at y=180)
+    //   temp      y=255  (44 px — was 33)
+    //   highlow   y=320  (22 px — was 11)
+    //   condition y=365  (22 px — was 11)
+    //   heartbeat y=420  (10 px — was  8)
+
     // ── Clock (top, 44 px) ──────────────────────────────────────────────────
     lbl_clock = lv_label_create(scr);
     lv_label_set_text(lbl_clock, "--:--");
     lv_obj_set_style_text_color       (lbl_clock, Theme::accent,              0);
     lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock(),        0);
     lv_obj_set_style_text_letter_space(lbl_clock, Theme::LETTER_SPACE_DISPLAY,0);
-    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 105);   // y=105 ⇒ text centered ~130
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 70);
 
-    // ── Weather icon container (centered on 233, 240) ───────────────────────
+    // ── Weather icon container (centered on 233, 180) ───────────────────────
     icon_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(icon_obj);
-    lv_obj_set_size(icon_obj, 100, 70);
-    lv_obj_set_pos(icon_obj, Theme::CENTER - 50, 240 - 35);
+    lv_obj_set_size(icon_obj, 100, 80);
+    lv_obj_set_pos(icon_obj, Theme::CENTER - 50, 180 - 40);
     lv_obj_set_style_bg_opa(icon_obj, LV_OPA_TRANSP, 0);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(icon_obj, icon_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
 
-    // ── Temperature ─────────────────────────────────────────────────────────
+    // ── Temperature (44 px, was 33) ─────────────────────────────────────────
     lbl_temp = lv_label_create(scr);
     lv_label_set_text(lbl_temp, "");
     lv_obj_set_style_text_color       (lbl_temp, Theme::accent,                0);
-    lv_obj_set_style_text_font        (lbl_temp, Theme::font_display_lg(),     0);
+    lv_obj_set_style_text_font        (lbl_temp, Theme::font_clock(),          0);
     lv_obj_set_style_text_letter_space(lbl_temp, Theme::LETTER_SPACE_DISPLAY,  0);
-    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 303);    // ~y=320
+    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 255);
 
-    // ── High / Low ──────────────────────────────────────────────────────────
+    // ── High / Low (22 px, was 11) ──────────────────────────────────────────
     lbl_highlow = lv_label_create(scr);
     lv_label_set_text(lbl_highlow, "");
-    lv_obj_set_style_text_color       (lbl_highlow, Theme::Color::TEXT_DIM,   0);
-    lv_obj_set_style_text_font        (lbl_highlow, Theme::font_label(),      0);
-    lv_obj_set_style_text_letter_space(lbl_highlow, Theme::LETTER_SPACE_LABEL,0);
-    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 352);   // ~y=358
+    lv_obj_set_style_text_color       (lbl_highlow, Theme::Color::TEXT_DIM,    0);
+    lv_obj_set_style_text_font        (lbl_highlow, Theme::font_display_md(),  0);
+    lv_obj_set_style_text_letter_space(lbl_highlow, Theme::LETTER_SPACE_LABEL, 0);
+    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 320);
 
-    // ── Condition label (tiny, faintest text) ───────────────────────────────
+    // ── Condition label (22 px, was 11) ─────────────────────────────────────
     lbl_condition = lv_label_create(scr);
     lv_label_set_text(lbl_condition, "");
     lv_obj_set_style_text_color       (lbl_condition, Theme::Color::TEXT_FAINT, 0);
-    lv_obj_set_style_text_font        (lbl_condition, Theme::font_body(),       0);
-    lv_obj_set_style_text_letter_space(lbl_condition, Theme::LETTER_SPACE_BODY, 0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 380);   // ~y=385
+    lv_obj_set_style_text_font        (lbl_condition, Theme::font_display_md(), 0);
+    lv_obj_set_style_text_letter_space(lbl_condition, Theme::LETTER_SPACE_LABEL,0);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 365);
 
     // ── Heartbeat dot ───────────────────────────────────────────────────────
     heartbeat = lv_obj_create(scr);
     lv_obj_remove_style_all(heartbeat);
-    lv_obj_set_size(heartbeat, 8, 8);
+    lv_obj_set_size(heartbeat, 10, 10);
     lv_obj_set_style_bg_color(heartbeat, Theme::accent, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 411);   // ~y=415
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 420);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 }
 
@@ -359,7 +369,10 @@ void update()
 
     if (weather_changed) {
         if (State::weather.valid) {
-            char buf[16];
+            // Buf sized for the highlow line — "H -99°  ·  L -99°" is up to
+            // 22 bytes once the °/· UTF-8 sequences are counted. buf[16]
+            // truncated mid-string (lost the trailing "1°").
+            char buf[32];
             snprintf(buf, sizeof(buf), "%d\xC2\xB0", State::weather.temp_c);
             lv_label_set_text(lbl_temp, buf);
 
