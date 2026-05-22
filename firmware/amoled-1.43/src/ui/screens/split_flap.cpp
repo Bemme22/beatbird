@@ -115,11 +115,25 @@ static void tick_cb(lv_timer_t *t) {
 void set_text(lv_obj_t *label, const char *new_text) {
     if (!label || !new_text) return;
 
+    int new_len = (int)strnlen(new_text, MAX_LEN);
     const char *old_text = lv_label_get_text(label);
-    if (old_text && strcmp(old_text, new_text) == 0) return;   // no-op
+
+    // If a flap is already running on this label, compare against its
+    // settled target instead of the label's current text — the label
+    // currently shows a random-glyph frame mid-cycle, which would never
+    // match the new_text and would needlessly restart the animation
+    // (Dirty::ALL after PAL: was the field-reported trigger).
+    Anim *running = find_existing(label);
+    if (running) {
+        if (running->new_len == new_len &&
+            memcmp(running->target, new_text, new_len) == 0) {
+            return;   // already heading there
+        }
+    } else if (old_text && strcmp(old_text, new_text) == 0) {
+        return;   // label already shows it, no flap needed
+    }
 
     int old_len = old_text ? (int)strnlen(old_text, MAX_LEN) : 0;
-    int new_len = (int)strnlen(new_text, MAX_LEN);
     int positions = old_len > new_len ? old_len : new_len;
 
     if (positions == 0) {

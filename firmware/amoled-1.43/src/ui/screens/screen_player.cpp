@@ -246,13 +246,21 @@ static void vol_draw_cb(lv_event_t *e) {
     // the wobble travel around the ring instead of pulsing in sync.
     const float E = energy_dyn(energy_smoothed);
     const float t = (float)millis();
+    // Phase shift 2π/24 ≈ 0.262 rad spreads one full sine cycle across
+    // the 24 dot positions, so no two dots are simultaneously at the
+    // minimum radius. Previous 0.5 rad clustered dots i and i+12
+    // roughly in-phase, which at peak energy collapsed half the ring
+    // to r=1 at the same moment and read as "vol arc disappeared at
+    // 100 %". Min radius floor bumped to 2 so even at the lowest sine
+    // peak the lit dot stays visible (matches the unlit-dot radius).
+    constexpr float PHASE_PER_DOT = 6.2832f / 24.0f;
     for (int i = 0; i < 24; i++) {
         if (i == 0) continue;
         bool is_lit = (i < lit);
         if (is_lit) {
-            float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * 0.5f);
+            float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
             int   r   = (int)roundf((float)Theme::VOL_DOT_R * wob);
-            if (r < 1) r = 1;
+            if (r < 2) r = 2;
             lv_opa_t o = (lv_opa_t)(217 + (int)(E * 38.0f));   // 0.85..1.00
             if (o > 255) o = 255;
             draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
