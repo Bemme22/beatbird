@@ -974,13 +974,14 @@ class BeatBirdBridge:
     # ─── Main loop ──────────────────────────────────────────────────────────
 
     def run(self) -> None:
-        self.start()
-        # systemd-side liveness: tell systemd we're up and ping every loop
-        # iteration. Type=notify + WatchdogSec=90 in the unit means a
-        # silent hang for 90 s triggers a kill+restart. Notifications use
-        # the NOTIFY_SOCKET protocol — sd_notify_local is a no-op when
-        # the env var isn't set (e.g. running outside systemd for tests).
+        # Send READY=1 BEFORE start() — systemd's TimeoutStartSec only
+        # cares about the gap from fork to READY=1. start() does display
+        # init / weather poller / mqtt connect which can each take a
+        # second or two; the watchdog (WatchdogSec=90) in the main loop
+        # catches a real hang. Sending READY early just says "the python
+        # process is alive and entering the main flow".
         sd_notify_local("READY=1")
+        self.start()
         try:
             while True:
                 sd_notify_local("WATCHDOG=1")
