@@ -95,17 +95,64 @@ WantedBy=multi-user.target
 EOF
 enable_service wifi-powersave-off.service
 
-# ─── WiFi keepalive (prevents suspend/idle drops) ────────────────────────────
-log_step "WiFi keepalive"
+# ─── WiFi keepalive + self-healing watchdog ─────────────────────────────────
+# Previously just pinged 1.1.1.1 every 30 s to keep the link "warm" and
+# stop USB-dongle idle-disconnect. Now also acts as a recovery watchdog:
+# 5 consecutive ping failures → restart wpa_supplicant / NetworkManager,
+# then a wlan0 link cycle as a last resort. Removes the "speaker drops
+# off the LAN and stays off" failure mode we hit multiple times.
+log_step "WiFi keepalive + watchdog"
+install -m 755 -o root -g root /dev/stdin /usr/local/sbin/beatbird-wifi-watchdog <<'EOF'
+#!/usr/bin/env bash
+# Pings the gateway (more reliable than 1.1.1.1 — works even if
+# upstream internet is down). After N consecutive failures, bounce
+# whichever network manager is in use. Logs to journal so the failure
+# context is preserved.
+set -uo pipefail
+
+FAIL_THRESHOLD=5
+SLEEP_S=30
+GW="$(ip route show default | awk '/default/ {print $3; exit}')"
+[[ -z "$GW" ]] && GW="192.168.1.1"
+fails=0
+
+while true; do
+  if ping -c1 -W2 "$GW" >/dev/null 2>&1; then
+    fails=0
+  else
+    fails=$((fails + 1))
+    echo "wifi-watchdog: gateway $GW unreachable ($fails/$FAIL_THRESHOLD)"
+    if [[ $fails -ge $FAIL_THRESHOLD ]]; then
+      echo "wifi-watchdog: threshold hit, attempting recovery"
+      if systemctl is-active --quiet NetworkManager; then
+        systemctl restart NetworkManager
+      elif systemctl is-active --quiet wpa_supplicant; then
+        systemctl restart wpa_supplicant
+      else
+        # Last resort: cycle the link
+        ip link set wlan0 down; sleep 2; ip link set wlan0 up
+      fi
+      # Give it time to come back before counting again
+      sleep 30
+      fails=0
+      # Refresh gateway in case DHCP gave us a new one
+      GW="$(ip route show default | awk '/default/ {print $3; exit}')"
+      [[ -z "$GW" ]] && GW="192.168.1.1"
+    fi
+  fi
+  sleep "$SLEEP_S"
+done
+EOF
+
 cat > /etc/systemd/system/wifi-keepalive.service <<'EOF'
 [Unit]
-Description=Periodic ping to keep WiFi active (prevents idle disconnects)
+Description=BeatBird WiFi keepalive + self-healing watchdog
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c 'while true; do ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 || ping -c1 -W2 8.8.8.8 >/dev/null 2>&1 || true; sleep 30; done'
+ExecStart=/usr/local/sbin/beatbird-wifi-watchdog
 Restart=always
 RestartSec=60
 

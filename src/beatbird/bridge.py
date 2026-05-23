@@ -47,6 +47,25 @@ SNAPCAST_POLL_INTERVAL = 3.0
 # stores the user's last volume so the safe-snap on cold boot doesn't
 # always slam to 25 %.
 STATE_FILE = "/var/lib/beatbird/state.json"
+
+
+def sd_notify_local(msg: str) -> None:
+    """Lightweight sd_notify — no python-systemd dependency. Reads
+    NOTIFY_SOCKET from the env (systemd sets it on Type=notify units);
+    no-ops when run outside systemd (tests, dev, journal-less hosts).
+    Used for READY=1 at boot and WATCHDOG=1 in the main loop."""
+    import os, socket
+    sock_path = os.environ.get("NOTIFY_SOCKET")
+    if not sock_path:
+        return
+    # Abstract sockets are prefixed with '@'; replace with NUL for connect.
+    if sock_path.startswith("@"):
+        sock_path = "\0" + sock_path[1:]
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.sendto(msg.encode("utf-8"), sock_path)
+    except OSError:
+        pass
 LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
@@ -286,6 +305,14 @@ class BeatBirdBridge:
         self.t_last_snapcast = 0.0
         self.t_last_level = 0.0
         self.t_last_state_push = 0.0
+        # Spotify stuck-state watchdog. Pattern: go-librespot's local API
+        # keeps responding but its Spotify-cloud session is broken — track
+        # loads (we see title/artist), but state.paused stays true and
+        # position_ms never advances. Pre-watchdog this needed a manual
+        # `systemctl restart go-librespot`. Now we detect and auto-heal.
+        self._sp_last_progress_ms: int = -1
+        self._sp_last_progress_t:  float = 0.0
+        self._sp_stuck_restarts:    int = 0
         # Last observed snapcast play state — used to suppress redundant
         # source flips on every poll tick.
         self._snapcast_playing = False
@@ -680,6 +707,13 @@ class BeatBirdBridge:
             if state.title:
                 log.info("Now playing: %s — %s", state.title, state.artist)
 
+        # Stuck-state watchdog. When state.paused is FALSE (i.e. Spotify
+        # thinks playback is running) but position_ms doesn't advance
+        # between polls, go-librespot is wedged — usually after losing
+        # the AP heartbeat. Manual workaround was a service restart; we
+        # do that automatically after a generous grace period.
+        self._spotify_stuck_check(state)
+
     def _poll_bluetooth(self) -> None:
         if not self.bt:
             return
@@ -703,6 +737,55 @@ class BeatBirdBridge:
                 self.song_title = ""
                 self.song_artist = ""
                 self.bt_device_alias = ""
+
+    def _spotify_stuck_check(self, state) -> None:
+        """Detect go-librespot's "AP heartbeat lost, track-load fails"
+        state and auto-restart the service. Trigger conditions:
+          - state.paused == False (Spotify wants playback)
+          - state.title is set (a track is loaded)
+          - position_ms hasn't advanced in STUCK_GRACE_S seconds
+
+        Grace period is generous so a real pause-and-think (e.g. someone
+        scrubbing the slider) doesn't trip it. After the restart we log
+        what happened so the journal makes the cause obvious.
+        """
+        STUCK_GRACE_S = 30.0
+        now = time.monotonic()
+        # Reset baseline whenever state should NOT be progressing.
+        # state could be None on call-from-other-paths; guard.
+        if state is None or state.paused or state.stopped or not state.title:
+            self._sp_last_progress_ms = -1
+            self._sp_last_progress_t  = now
+            return
+
+        # Position changed at least 250 ms? Healthy.
+        if (self._sp_last_progress_ms < 0
+                or abs(state.position_ms - self._sp_last_progress_ms) > 250):
+            self._sp_last_progress_ms = state.position_ms
+            self._sp_last_progress_t  = now
+            return
+
+        # No progress within grace — restart.
+        if now - self._sp_last_progress_t >= STUCK_GRACE_S:
+            self._sp_stuck_restarts += 1
+            log.warning(
+                "Spotify stuck (no position progress for %.0fs while "
+                "playback=PLAYING, track=%r) — restarting go-librespot "
+                "[restart #%d]",
+                now - self._sp_last_progress_t, state.title,
+                self._sp_stuck_restarts,
+            )
+            try:
+                subprocess.run(
+                    ["sudo", "systemctl", "restart", "go-librespot"],
+                    capture_output=True, timeout=10,
+                )
+            except Exception as e:
+                log.error("go-librespot restart failed: %s", e)
+            # Reset so we don't fire again immediately while the service
+            # is mid-restart and reports no state.
+            self._sp_last_progress_ms = -1
+            self._sp_last_progress_t  = now
 
     def _poll_snapcast(self) -> None:
         """Snapserver poll. Behaviour:
@@ -892,8 +975,15 @@ class BeatBirdBridge:
 
     def run(self) -> None:
         self.start()
+        # systemd-side liveness: tell systemd we're up and ping every loop
+        # iteration. Type=notify + WatchdogSec=90 in the unit means a
+        # silent hang for 90 s triggers a kill+restart. Notifications use
+        # the NOTIFY_SOCKET protocol — sd_notify_local is a no-op when
+        # the env var isn't set (e.g. running outside systemd for tests).
+        sd_notify_local("READY=1")
         try:
             while True:
+                sd_notify_local("WATCHDOG=1")
                 now = time.monotonic()
 
                 if self.display:

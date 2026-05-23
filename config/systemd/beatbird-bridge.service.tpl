@@ -5,7 +5,14 @@ After=network.target camilladsp.service go-librespot.service
 Wants=camilladsp.service go-librespot.service
 
 [Service]
-Type=simple
+# Type=notify so we can use sd_notify-based liveness — the bridge pings
+# WATCHDOG=1 from its main loop. If 90 s pass without a ping (process
+# hung, deadlocked, blocked on a stuck socket) systemd kills + restarts
+# it. Catches the "alive but doing nothing" failure mode that the plain
+# Restart=on-failure path misses.
+Type=notify
+NotifyAccess=main
+WatchdogSec=90
 ExecStart={{ VENV }}/bin/python -m beatbird.bridge
 WorkingDirectory={{ REPO_DIR }}
 Restart=always
