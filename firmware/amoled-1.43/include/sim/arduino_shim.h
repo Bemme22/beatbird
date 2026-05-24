@@ -62,23 +62,22 @@ inline void delayMicroseconds(uint32_t us)
 inline long random(long max)              { return rand() % (max > 0 ? max : 1); }
 inline long random(long min, long max)    { return min + (rand() % ((max - min) > 0 ? (max - min) : 1)); }
 
-// ─── Arduino's min/max are macros at global scope ────────────────────────────
-// std::min / std::max live in the std namespace, but Arduino sketches assume
-// bare min()/max() are available. Provide macros so the same expressions
-// compile under both. (Macro form, not inline templates, because Arduino code
-// like `min(1L, atol(buf))` mixes types that template deduction rejects.)
-#ifndef max
-  #define max(a, b) ((a) > (b) ? (a) : (b))
-#endif
-#ifndef min
-  #define min(a, b) ((a) < (b) ? (a) : (b))
-#endif
-#ifndef constrain
-  #define constrain(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
-#endif
-#ifndef abs
-  #define abs(x) ((x) < 0 ? -(x) : (x))
-#endif
+// ─── Arduino's min/max/constrain/abs at global scope ────────────────────────
+// std::min / std::max live in std::, but Arduino sketches assume bare
+// min()/max(). Inline templates instead of macros — macros would clobber
+// std::numeric_limits<T>::min() inside LVGL's transitively-included headers.
+template <typename T, typename U>
+inline auto max(T a, U b) -> decltype(a > b ? a : b) { return a > b ? a : b; }
+template <typename T, typename U>
+inline auto min(T a, U b) -> decltype(a < b ? a : b) { return a < b ? a : b; }
+template <typename T, typename L, typename H>
+inline auto constrain(T v, L lo, H hi) -> decltype(v < lo ? lo : (v > hi ? hi : v)) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+// abs() — Arduino macro; here as inline template so it doesn't clobber
+// std::abs / lv_abs inside library headers.
+template <typename T>
+inline T abs(T x) { return x < 0 ? -x : x; }
 
 // ─── Minimal Serial stand-in (stdout) ────────────────────────────────────────
 // Just enough for our protocol senders (printf / println) and any debug
