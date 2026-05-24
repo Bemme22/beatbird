@@ -64,7 +64,12 @@ jobs:
           restore-keys: pio-${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: pip install -U platformio
+        run: |
+          # click<8.2 because pioarduino's bundled esptool calls
+          # ParamType.get_metavar() without the `ctx` arg that 8.2 made
+          # required — newer click breaks the bootloader.bin step.
+          # Drop the pin once tool-esptoolpy ships a click-8.2-compatible release.
+          pip install -U platformio 'click<8.2'
 
       - name: Compute firmware version
         id: ver
