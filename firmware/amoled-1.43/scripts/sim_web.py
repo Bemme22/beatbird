@@ -155,13 +155,27 @@ if flap_btn.button("Push flap", use_container_width=True):
 
 st.subheader("Live palette swap")
 # The firmware accepts an extended palette `PAL:a=…|g=…|d=…|p=…|s=…|e=…`
-# (accent / glow / dim / text_primary / text_secondary / alert). A single
-# colour picker isn't enough to drive all six — instead we pick an accent
-# and derive the others with simple HSL math so the whole UI shifts in
-# one click. Field complaint "Farbwechsel ändert nur ein Teil" was caused
-# by sending just the legacy single-hex form.
+# with one slot per UI role:
+#   a accent          — vol arc, source dot, flap text, etc.
+#   g glow            — vol-dot highlight when wobbling on audio
+#   d dim             — secondary accent uses (faded vol dots, dim source)
+#   p text_primary    — clock, temp, track title (cream by default)
+#   s text_secondary  — high/low row, condition label
+#   e alert           — PI OFFLINE / NO NETWORK / SPOTIFY OFFLINE colour
 
-def derive_palette(accent_hex: str) -> dict[str, str]:
+# Defaults match firmware compile-time values.
+PAL_DEFAULTS = {
+    "a": "F0CB7B",
+    "g": "FFE0A0",
+    "d": "553F26",
+    "p": "F0E5C8",
+    "s": "8A7E5C",
+    "e": "C73E2C",
+}
+
+def derive_from_accent(accent_hex: str) -> dict[str, str]:
+    """Auto-fill the 5 non-accent slots from a picked accent.
+    Convenience for 'I just want everything to shift one tone'."""
     h = accent_hex.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     def hx(rgb): return "%02X%02X%02X" % rgb
@@ -175,12 +189,34 @@ def derive_palette(accent_hex: str) -> dict[str, str]:
         "e": "C73E2C",
     }
 
-col1, col2 = st.columns([1, 3])
-hex_color = col1.color_picker("Accent", "#F0CB7B", label_visibility="collapsed")
-if col2.button("Push palette (all 6 slots)", use_container_width=True):
-    pal = derive_palette(hex_color)
-    line = "PAL:" + "|".join(f"{k}={v}" for k, v in pal.items())
-    fire(f"palette {hex_color}", [line])
+# Initialise persistent slot values via session_state so the pickers keep
+# their colour across reruns instead of resetting to default on every click.
+for k, v in PAL_DEFAULTS.items():
+    st.session_state.setdefault(f"pal_{k}", "#" + v)
+
+c1, c2, c3 = st.columns(3)
+c1.color_picker("Accent (a)",   key="pal_a")
+c2.color_picker("Glow (g)",     key="pal_g")
+c3.color_picker("Dim (d)",      key="pal_d")
+c4, c5, c6 = st.columns(3)
+c4.color_picker("Text primary (p)",   key="pal_p")
+c5.color_picker("Text secondary (s)", key="pal_s")
+c6.color_picker("Alert (e)",          key="pal_e")
+
+bcol1, bcol2 = st.columns(2)
+if bcol1.button("Derive from accent", use_container_width=True,
+                help="Auto-fills glow/dim/text/alert based on the current accent."):
+    derived = derive_from_accent(st.session_state["pal_a"])
+    for k, v in derived.items():
+        st.session_state[f"pal_{k}"] = "#" + v
+    st.rerun()
+
+if bcol2.button("Push palette", use_container_width=True, type="primary"):
+    parts = "|".join(
+        f"{k}={st.session_state[f'pal_{k}'].lstrip('#').upper()}"
+        for k in PAL_DEFAULTS
+    )
+    fire("palette", [f"PAL:{parts}"])
 
 st.subheader("Custom title")
 t_col, b_col = st.columns([3, 1])
