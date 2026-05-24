@@ -203,13 +203,20 @@ c4.color_picker("Text primary (p)",   key="pal_p")
 c5.color_picker("Text secondary (s)", key="pal_s")
 c6.color_picker("Alert (e)",          key="pal_e")
 
-bcol1, bcol2 = st.columns(2)
-if bcol1.button("Derive from accent", use_container_width=True,
-                help="Auto-fills glow/dim/text/alert based on the current accent."):
+def _derive_callback() -> None:
+    """on_click runs BEFORE the script re-executes — so session_state writes
+    here happen before the color_picker widgets are re-instantiated in the
+    next pass, avoiding 'cannot modify after widget instantiated'."""
     derived = derive_from_accent(st.session_state["pal_a"])
     for k, v in derived.items():
         st.session_state[f"pal_{k}"] = "#" + v
-    st.rerun()
+
+bcol1, bcol2 = st.columns(2)
+bcol1.button(
+    "Derive from accent", use_container_width=True,
+    on_click=_derive_callback,
+    help="Auto-fills glow/dim/text/alert based on the current accent.",
+)
 
 if bcol2.button("Push palette", use_container_width=True, type="primary"):
     parts = "|".join(
