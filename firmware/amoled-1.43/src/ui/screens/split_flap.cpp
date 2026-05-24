@@ -91,8 +91,12 @@ static void tick_cb(lv_timer_t *t) {
     bool all_done = true;
     for (int i = 0; i < a->positions; i++) {
         if (a->tick < a->pos_start[i]) {
-            // Position hasn't started cycling yet — keep whatever's in
-            // buf[i] (i.e. the old character at that slot).
+            // Position hasn't reached its lock-in phase yet — keep
+            // cycling random glyphs so the user sees motion across the
+            // whole label from frame 0. The old behaviour of "freeze
+            // whatever's in buf[i]" left static characters during the
+            // stagger window, which read as old text peeking through.
+            a->buf[i] = FLAP_CHARS[random(0, FLAP_CHARS_LEN)];
             all_done = false;
             continue;
         }
@@ -194,9 +198,15 @@ void set_text(lv_obj_t *label, const char *new_text) {
     // station-board "curtain pulled toward the left" look.
     bool reverse = (new_len < old_len);
 
-    // Seed buf with old text (padded with spaces), target with new text.
+    // Seed buf with RANDOM glyphs (not the old text). Why: when the label
+    // was mid-scroll showing characters N..N+visible, switching long-mode
+    // to CLIP would re-render the label from offset 0 — the user would
+    // see a visible "snap" from the mid-scroll position to "start of old
+    // text" before the flap cycle even begins. Painting random glyphs
+    // from frame 0 masks that jump — the eye reads the random chars as
+    // "the flap has started" rather than "the text repositioned".
     for (int i = 0; i < positions; i++) {
-        a->buf[i]       = (i < old_len) ? old_text[i] : ' ';
+        a->buf[i]       = FLAP_CHARS[random(0, FLAP_CHARS_LEN)];
         a->target[i]    = (i < new_len) ? new_text[i] : ' ';
         a->pos_ticks[i] = 0;
         int stagger_idx = reverse ? (positions - 1 - i) : i;
@@ -205,8 +215,8 @@ void set_text(lv_obj_t *label, const char *new_text) {
     a->buf[positions]    = '\0';
     a->target[positions] = '\0';
 
-    // Paint the initial frame so the user sees the old text re-anchored
-    // before the first cycle tick.
+    // Paint the scrambled initial frame immediately so the cross-over from
+    // old text → flap is invisible.
     lv_label_set_text(label, a->buf);
 
     a->timer = lv_timer_create(tick_cb, FLAP_TICK_MS, a);
