@@ -738,6 +738,39 @@ class BeatBirdBridge:
                 self.song_artist = ""
                 self.bt_device_alias = ""
 
+    def _log_wifi_snapshot(self, reason: str) -> None:
+        """Dump current WiFi state to the journal when we detect trouble.
+        Pairs with the periodic telemetry from beatbird-wifi-watchdog: the
+        watchdog logs RSSI continuously, this logs the bridge's *reason*
+        for caring at this instant. Together they let post-mortems answer
+        'was the link actually bad when the session died, or did it die
+        for other reasons while the link was fine?'."""
+        try:
+            iface = ""
+            for entry in os.listdir("/sys/class/net"):
+                if entry.startswith("wlan"):
+                    state_file = f"/sys/class/net/{entry}/operstate"
+                    try:
+                        with open(state_file) as f:
+                            if f.read().strip() == "up":
+                                iface = entry
+                                break
+                    except OSError:
+                        pass
+                    if not iface:
+                        iface = entry
+            link = subprocess.run(
+                ["iw", "dev", iface or "wlan0", "link"],
+                capture_output=True, text=True, timeout=2,
+            ).stdout if iface else ""
+            link_one = " | ".join(
+                l.strip() for l in link.splitlines()
+                if any(k in l for k in ("Connected to", "signal:", "tx bitrate:", "SSID:"))
+            ) or "no link"
+            log.warning("wifi-snapshot (%s): iface=%s %s", reason, iface or "?", link_one)
+        except Exception as e:
+            log.warning("wifi-snapshot (%s) failed: %s", reason, e)
+
     def _spotify_stuck_check(self, state) -> None:
         """Detect go-librespot's "AP heartbeat lost, track-load fails"
         state and auto-restart the service. Trigger conditions:
@@ -775,6 +808,7 @@ class BeatBirdBridge:
                 now - self._sp_last_progress_t, state.title,
                 self._sp_stuck_restarts,
             )
+            self._log_wifi_snapshot("spotify-stuck")
             try:
                 subprocess.run(
                     ["sudo", "systemctl", "restart", "go-librespot"],
@@ -1018,6 +1052,7 @@ class BeatBirdBridge:
                         self._poll_snapcast()
                     except Exception as e:
                         log.error("snapcast poll: %s", e)
+                        self._log_wifi_snapshot("snapcast-poll-error")
 
                     # Standby transitions: track last PLAYING observation, enter
                     # standby after idle timeout, exit on any new playback.
