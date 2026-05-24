@@ -85,36 +85,37 @@ IDLE_MESSAGE_INTERVAL = 45.0  # how often to flip the standby flap text
 #  - ASCII only (digraphs ae/oe/ue/ss instead of umlauts) — the split-flap
 #    animates byte-by-byte and would corrupt multi-byte UTF-8 mid-cycle
 IDLE_MESSAGES = [
-    "BEREIT WENN DU WILLST",
-    "AUF EMPFANG",
-    "WARTE AUFS SIGNAL",
-    "NIX LOS HIER",
-    "STILLE GENIESSEN",
-    "404 SOUND FEHLT",
-    "TAFEL LEER",
-    "STUMM UND GLUECKLICH",
-    "BIN GLEICH ZURUECK",
-    "DJ HAT PAUSE",
-    "INSERT BEATS",
-    "TIEFE STILLE",
-    "AUSGEFLOGEN",
-    "GROOVE PUFFERT",
-    "GROSSE PAUSE",
-    "AUF DEM ABSPRUNG",
-    "BAHN FREI",
-    "VOGEL GELANDET",
-    "AM GATE",
-    "WARTESCHLEIFE AKTIV",
-    "MUSIK GESUCHT",
-    "VERSTAERKER KUEHLT AB",
-    "FREQUENZ FREI",
-    "AM HORIZONT NIX",
-    "POWER NAP",
-    "PEGEL: NULL",
-    "ZEIG MIR DEN HIT",
-    "BUFFER LIEGT FRACH",
-    "STILLE PRODUKTION",
-    "TON AB MORGEN",
+    # Hard 17-char cap — anything longer gets clipped on the right edge of the
+    # round display at font_display_md (22 px). Field-tested limit: 21 chars
+    # ("VERSTAERKER KUEHLT AB") clipped to "VERSTAERKER KUEHLT A".
+    "AUF EMPFANG",          # 11
+    "BEREIT WENN DU",       # 14
+    "WARTE AUF SIGNAL",     # 16
+    "NIX LOS HIER",         # 12
+    "STILLE FUER ALLE",     # 16
+    "404 SOUND FEHLT",      # 15
+    "TAFEL LEER",           # 10
+    "STUMM UND GLUECK",     # 16
+    "BIN GLEICH DA",        # 13
+    "DJ HAT PAUSE",         # 12
+    "INSERT BEATS",         # 12
+    "TIEFE STILLE",         # 12
+    "AUSGEFLOGEN",          # 11
+    "GROOVE PUFFERT",       # 14
+    "GROSSE PAUSE",         # 12
+    "AUF DEM SPRUNG",       # 14
+    "BAHN FREI",            #  9
+    "VOGEL GELANDET",       # 14
+    "AM GATE",              #  7
+    "WARTESCHLEIFE",        # 13
+    "MUSIK GESUCHT",        # 13
+    "FREQUENZ FREI",        # 13
+    "POWER NAP",            #  9
+    "PEGEL NULL",           # 10
+    "ZEIG MIR HITS",        # 13
+    "STILLE EBBE",          # 11
+    "WARTE NOCH KURZ",      # 15
+    "OFFEN FUER MUSIK",     # 16
 ]
 
 

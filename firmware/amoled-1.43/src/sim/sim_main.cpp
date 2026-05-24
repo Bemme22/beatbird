@@ -290,15 +290,17 @@ static void handle_command(const std::string &raw) {
         inject(line.c_str());
     }
     // ── Weather conditions — codes match handle_weather_line() ──────────────
+    //   0 CLEAR  1 PARTLY  2 CLOUDY  3 FOG  4 RAIN  5 SNOW  6 THUNDER
     else if (s.rfind(":wx-", 0) == 0) {
-        int code = 0;
+        int code = -1;
         if      (s == ":wx-clear")    code = 0;
         else if (s == ":wx-partly")   code = 1;
-        else if (s == ":wx-cloudy")   code = 3;
-        else if (s == ":wx-rain")     code = 61;
-        else if (s == ":wx-snow")     code = 71;
-        else if (s == ":wx-thunder")  code = 95;
-        else { printf("[sim] unknown wx code in %s\n", s.c_str()); return; }
+        else if (s == ":wx-cloudy")   code = 2;
+        else if (s == ":wx-fog")      code = 3;
+        else if (s == ":wx-rain")     code = 4;
+        else if (s == ":wx-snow")     code = 5;
+        else if (s == ":wx-thunder")  code = 6;
+        if (code < 0) { printf("[sim] unknown wx code in %s\n", s.c_str()); return; }
         char buf[80];
         snprintf(buf, sizeof(buf), "WX:t=18|c=%d|h=22|l=11", code);
         inject(buf);

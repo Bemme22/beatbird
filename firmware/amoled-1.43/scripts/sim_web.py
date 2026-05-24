@@ -133,22 +133,54 @@ row([
 ])
 
 st.subheader("Standby flap text")
+# Field tested: round display clips at the right edge past ~17 chars at
+# font_display_md. Keep samples ≤ 16 chars.
 row([
-    ("BEREIT WENN DU WILLST", [":flap BEREIT WENN DU WILLST"]),
-    ("404 SOUND FEHLT",       [":flap 404 SOUND FEHLT"]),
-    ("DJ HAT PAUSE",          [":flap DJ HAT PAUSE"]),
+    ("BEREIT WENN DU",  [":flap BEREIT WENN DU"]),
+    ("404 SOUND FEHLT", [":flap 404 SOUND FEHLT"]),
+    ("DJ HAT PAUSE",    [":flap DJ HAT PAUSE"]),
 ])
+flap_col, flap_btn = st.columns([3, 1])
+custom_flap = flap_col.text_input(
+    "Custom flap", placeholder="Your own message (capped at 17 chars)",
+    label_visibility="collapsed", max_chars=17,
+)
+if flap_btn.button("Push flap", use_container_width=True):
+    if custom_flap.strip():
+        fire(f"flap: {custom_flap}", [f":flap {custom_flap.strip().upper()}"])
 
-st.subheader("Boot sequence")
-row([
-    ("Boot progress lines", [":boot-progress"]),
-])
+## Boot sequence parked — needs sim-side support to load Boot screen back
+## after the initial transition, and to reset State::app.connected_to_pi so
+## the boot→player auto-transition doesn't fire instantly. Coming next.
 
 st.subheader("Live palette swap")
+# The firmware accepts an extended palette `PAL:a=…|g=…|d=…|p=…|s=…|e=…`
+# (accent / glow / dim / text_primary / text_secondary / alert). A single
+# colour picker isn't enough to drive all six — instead we pick an accent
+# and derive the others with simple HSL math so the whole UI shifts in
+# one click. Field complaint "Farbwechsel ändert nur ein Teil" was caused
+# by sending just the legacy single-hex form.
+
+def derive_palette(accent_hex: str) -> dict[str, str]:
+    h = accent_hex.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    def hx(rgb): return "%02X%02X%02X" % rgb
+    def clamp(v): return max(0, min(255, int(v)))
+    return {
+        "a": h.upper(),
+        "g": hx((clamp(r * 1.2 + 20), clamp(g * 1.2 + 20), clamp(b * 1.2 + 20))),
+        "d": hx((clamp(r * 0.35),     clamp(g * 0.35),     clamp(b * 0.35))),
+        "p": "F0E5C8",
+        "s": "8A7E5C",
+        "e": "C73E2C",
+    }
+
 col1, col2 = st.columns([1, 3])
 hex_color = col1.color_picker("Accent", "#F0CB7B", label_visibility="collapsed")
-if col2.button("Push palette", use_container_width=True):
-    fire(f"palette {hex_color}", [f":palette {hex_color.lstrip('#').upper()}"])
+if col2.button("Push palette (all 6 slots)", use_container_width=True):
+    pal = derive_palette(hex_color)
+    line = "PAL:" + "|".join(f"{k}={v}" for k, v in pal.items())
+    fire(f"palette {hex_color}", [line])
 
 st.subheader("Custom title")
 t_col, b_col = st.columns([3, 1])
