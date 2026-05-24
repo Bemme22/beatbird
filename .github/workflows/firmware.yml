@@ -40,11 +40,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Only physically-existing speakers. beat-2 / zipp-2 envs are kept
+        # in platformio.ini as placeholders and can be added here when the
+        # hardware exists — keeping them out for now halves CI time.
         env:
           - zipp-mini-2
-          - zipp-2
           - beat-1
-          - beat-2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,6 +54,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Cache PlatformIO core + platforms
         uses: actions/cache@v4
@@ -83,6 +88,14 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Firmware version: $VERSION"
+
+      - name: Generate Departure Mono fonts
+        working-directory: firmware/amoled-1.43
+        run: |
+          # Generated .c files are .gitignored — dev machines run this once
+          # locally, CI has to do it every run. Downloads the OTF + calls
+          # lv_font_conv via npx (hence the setup-node step above).
+          python3 fonts/build.py
 
       - name: Build firmware (${{ matrix.env }})
         working-directory: firmware/amoled-1.43
