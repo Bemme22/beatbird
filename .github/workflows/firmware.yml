@@ -19,23 +19,17 @@ name: firmware
 # release would mean every WIP commit shipping to every device.
 
 on:
+  # Two triggers, defined separately because GitHub composes branches/tags
+  # with OR but applies `paths` to both — keeping them apart lets a
+  # fw-v* tag push always release, regardless of which files changed.
   push:
     branches: [main]
-    paths:
-      - 'firmware/**'
-      - '.github/workflows/firmware.yml'
-    tags:
-      - 'fw-v*'
+    tags: ['fw-v*']
   pull_request:
     paths:
       - 'firmware/**'
       - '.github/workflows/firmware.yml'
-  workflow_dispatch:
-    inputs:
-      release:
-        description: 'Create a release (requires manual tag afterwards to publish to Pis)'
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: write  # for creating releases
