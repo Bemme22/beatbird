@@ -112,12 +112,14 @@ static void tick_cb(lv_timer_t *t) {
         // (and a circular-scroll label may even decide to scroll a string
         // that should comfortably fit).
         a->buf[a->new_len] = '\0';
-        lv_label_set_text(a->label, a->buf);
-        // Restore the original long-mode so SCROLL_CIRCULAR labels start
-        // scrolling the new (now final) text. Done AFTER the last
-        // set_text so the new scroll cycle starts cleanly with the
-        // settled string, not mid-animation.
+        // Restore long-mode BEFORE set_text. LVGL initialises the scroll
+        // animation inside set_text — if we're still in CLIP when the
+        // final text lands, LVGL records "no scroll needed" and the
+        // subsequent set_long_mode(SCROLL_CIRCULAR) doesn't spawn a fresh
+        // animation. Result was a one-shot scroll, then a hard snap-back
+        // on the natural wrap, then a perceived re-render. Order matters.
         lv_label_set_long_mode(a->label, a->saved_long_mode);
+        lv_label_set_text(a->label, a->buf);
         free_slot(a);
     }
 }
