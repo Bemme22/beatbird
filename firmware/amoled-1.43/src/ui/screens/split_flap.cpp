@@ -30,6 +30,13 @@ struct Anim {
     int  tick;
     int8_t pos_ticks[MAX_LEN];   // ticks spent cycling on each position
     int8_t pos_start[MAX_LEN];   // tick at which each position starts cycling
+    // The label's long-mode is forced to CLIP while we animate, then
+    // restored from this saved value when the flap completes. Without
+    // this, a SCROLL_CIRCULAR label restarts its scroll on every
+    // lv_label_set_text() inside the tick — 14× per flap. The eye reads
+    // those scroll-restarts as "chaos → snap to final text" instead of a
+    // smooth reveal, which was the long-to-short jitter the user saw.
+    lv_label_long_mode_t saved_long_mode;
 };
 
 // Concurrent slots: title, artist, maybe boot wordmark later.
@@ -106,6 +113,11 @@ static void tick_cb(lv_timer_t *t) {
         // that should comfortably fit).
         a->buf[a->new_len] = '\0';
         lv_label_set_text(a->label, a->buf);
+        // Restore the original long-mode so SCROLL_CIRCULAR labels start
+        // scrolling the new (now final) text. Done AFTER the last
+        // set_text so the new scroll cycle starts cleanly with the
+        // settled string, not mid-animation.
+        lv_label_set_long_mode(a->label, a->saved_long_mode);
         free_slot(a);
     }
 }
@@ -145,7 +157,9 @@ void set_text(lv_obj_t *label, const char *new_text) {
     // MAX_ANIMS=4), just set the text directly.
     Anim *a = find_existing(label);
     if (a) {
-        // Kill the running timer; we'll restart with the new target.
+        // Already animating on this label — keep saved_long_mode untouched
+        // (still holds the *original* mode from before the in-flight flap)
+        // and just kill the timer so we can restart with the new target.
         if (a->timer) { lv_timer_del(a->timer); a->timer = nullptr; }
     } else {
         a = alloc_slot(label);
@@ -153,6 +167,11 @@ void set_text(lv_obj_t *label, const char *new_text) {
             lv_label_set_text(label, new_text);
             return;
         }
+        // Fresh slot — capture the label's current long-mode so we can
+        // put it back after the flap. Then freeze it to CLIP so LVGL's
+        // SCROLL_CIRCULAR doesn't restart on every per-tick set_text.
+        a->saved_long_mode = lv_label_get_long_mode(label);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
     }
 
     a->positions = positions;
