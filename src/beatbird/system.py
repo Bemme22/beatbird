@@ -87,6 +87,21 @@ def wifi_ssid() -> str:
         return ""
 
 
+def gateway_reachable(timeout_s: float = 1.5) -> bool:
+    """True iff the default gateway responds to a single ping.
+
+    Cheap heartbeat for "do we still have a route off this machine" that the
+    bridge polls every few seconds. Pairs with the wifi-watchdog systemd
+    service: the watchdog runs its own ping on a longer interval and
+    auto-recovers, this one is just a flag the display shows in real-time
+    via the SYS:gw= field.
+    """
+    gw = default_gateway()
+    if not gw:
+        return False
+    return ping(gw, timeout_s)["ok"]
+
+
 def ping(host: str, timeout_s: float = 1.5) -> dict:
     """Single ping, returns {"ok": bool, "rtt_ms": float|None}."""
     try:

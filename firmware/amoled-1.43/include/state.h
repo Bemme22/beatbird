@@ -92,8 +92,10 @@ struct System {
     String amp_stereo  = "---";
     String amp_sub     = "---";
     bool   dsp_active  = false;
-    bool   svc_active  = false;
+    bool   svc_active  = false;        // go-librespot service running
     int    wifi_rssi   = 0;
+    bool   gateway_ok  = true;         // bridge pings default gw — false = no route off Pi
+    bool   spotify_stuck = false;      // bridge fired a go-librespot restart in last 60s
 };
 
 // ─── Weather (pushed by bridge every ~30 min via WX: serial line) ───────────

@@ -84,17 +84,39 @@ static TriggerResult evaluate_persistent_trigger()
         return { "PI OFFLINE", Theme::accent_alert };
     }
 
-    // 2. MUTE — primary text colour (cream), it's a state announcement
+    // 2. NO NETWORK — gateway ping failing. Most urgent connectivity state
+    //    short of "Pi itself is dead": speaker is islanded, Spotify/Snapcast
+    //    will both fail until the route is back. Bridge sends SYS:gw=0.
+    if (!sys.gateway_ok) {
+        return { "NO NETWORK", Theme::accent_alert };
+    }
+
+    // 3. SPOTIFY OFFLINE — Spotify is the active source but go-librespot
+    //    service is down. Distinct from "stuck" (still running but broken
+    //    cloud session) which gets a softer label in step 6.
+    if (app.source == SRC_SPOTIFY && !sys.svc_active) {
+        return { "SPOTIFY OFFLINE", Theme::accent_alert };
+    }
+
+    // 4. MUTE — primary text colour (cream), it's a state announcement
     if (app.volume == 0) {
         return { "MUTE", Theme::text_primary };
     }
 
-    // 3. PAUSE — primary text colour
+    // 5. PAUSE — primary text colour
     if (app.state == PLAY_PAUSED) {
         return { "PAUSE", Theme::text_primary };
     }
 
-    // 4. WIFI WEAK — secondary text colour (dimmer, less urgent than MUTE).
+    // 6. RECONNECTING — bridge fired a go-librespot restart in the last
+    //    minute (typically after losing the AP heartbeat). Source label
+    //    is already shown elsewhere, so the bare verb is clearer than
+    //    "SPOTIFY RECONNECTING" which would also overflow at 33px.
+    if (app.source == SRC_SPOTIFY && sys.spotify_stuck) {
+        return { "RECONNECTING", Theme::text_secondary };
+    }
+
+    // 7. WIFI WEAK — secondary text colour (dimmer, less urgent than MUTE).
     if (sys.wifi_rssi != 0 && sys.wifi_rssi < -85) {
         return { "WIFI WEAK", Theme::text_secondary };
     }

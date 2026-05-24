@@ -39,6 +39,8 @@ class DisplaySystemStatus:
     amp_statuses: dict[str, str] = None    # type: ignore[assignment]
     dsp_active: bool = False
     spotify_active: bool = False
+    gateway_reachable: bool = True         # default true so a stale push doesn't lie
+    spotify_stuck_recent: bool = False     # bridge fired a go-librespot restart in last 60s
 
 
 # Callbacks fired by the display when the user interacts with it.

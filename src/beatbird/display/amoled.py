@@ -229,6 +229,8 @@ class AmoledDisplay(DisplayInterface):
             + f"|ds={1 if status.dsp_active else 0}"
             + f"|sv={1 if status.spotify_active else 0}"
             + f"|wi={status.wifi_rssi}"
+            + f"|gw={1 if status.gateway_reachable else 0}"
+            + f"|ss={1 if status.spotify_stuck_recent else 0}"
         )
         self._send(line)
 

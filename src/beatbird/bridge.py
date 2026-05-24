@@ -298,6 +298,8 @@ class BeatBirdBridge:
         self.sys_wifi = 0
         self.sys_dsp = False
         self.sys_spotify = False
+        self.sys_gateway = True             # gateway ping ok? (default optimistic)
+        self._sp_stuck_recent_t = 0.0       # monotonic of last stuck-restart fire
 
         # ── Timing ──
         self.t_last_status = 0.0
@@ -801,6 +803,7 @@ class BeatBirdBridge:
         # No progress within grace — restart.
         if now - self._sp_last_progress_t >= STUCK_GRACE_S:
             self._sp_stuck_restarts += 1
+            self._sp_stuck_recent_t = now   # drives SYS:ss= → "SPOTIFY RECONNECTING" overlay
             log.warning(
                 "Spotify stuck (no position progress for %.0fs while "
                 "playback=PLAYING, track=%r) — restarting go-librespot "
@@ -884,6 +887,10 @@ class BeatBirdBridge:
         self.sys_amp = self.hardware.read_status()
         self.sys_dsp = system.service_active("camilladsp")
         self.sys_spotify = system.service_active("go-librespot")
+        # gateway_reachable does one ping with 1.5s timeout — fine at the
+        # 5s _refresh_system cadence. Source of the SYS:gw= flag the
+        # display turns into a "NO NETWORK" overlay.
+        self.sys_gateway = system.gateway_reachable()
 
         db = self.dsp.get_volume_db()
         if db is not None:
@@ -981,6 +988,12 @@ class BeatBirdBridge:
         self.display.push_state(state)
 
     def _push_system_now(self) -> None:
+        # stuck-restart counts as "recent" for 60s — long enough for the
+        # display to show "SPOTIFY RECONNECTING" through the actual reconnect.
+        stuck_recent = (
+            self._sp_stuck_recent_t > 0
+            and (time.monotonic() - self._sp_stuck_recent_t) < 60.0
+        )
         if self.display:
             self.display.push_system(DisplaySystemStatus(
                 cpu_temp=self.sys_cpu,
@@ -988,6 +1001,8 @@ class BeatBirdBridge:
                 amp_statuses=self.sys_amp,
                 dsp_active=self.sys_dsp,
                 spotify_active=self.sys_spotify,
+                gateway_reachable=self.sys_gateway,
+                spotify_stuck_recent=stuck_recent,
             ))
         self.mqtt.publish_status({
             "cpu_temp":    round(self.sys_cpu, 1),
