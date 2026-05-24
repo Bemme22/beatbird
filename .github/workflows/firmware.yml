@@ -1,0 +1,136 @@
+name: firmware
+
+# Builds the AMOLED display firmware for every speaker env and publishes
+# the .bin artifacts. Two trigger modes:
+#
+#   • push to main / PR     → build all envs, upload as workflow artifacts
+#                             (CI gate — fails the run if firmware doesn't
+#                             compile, but no release is created)
+#   • push tag `fw-v*`      → build all envs AND attach .bin to a GitHub
+#                             Release. The Pi-side updater (bin/beatbird-
+#                             firmware-update) reads the latest fw-v* tag
+#                             from the Releases API.
+#   • workflow_dispatch     → manual one-off build (also creates a release
+#                             draft when `release` input is true)
+#
+# Why tag-gated releases instead of "release every main": releases are the
+# only thing the Pis automatically download. Tagging is the explicit "I
+# want every speaker to pull this" gesture — every main push being a
+# release would mean every WIP commit shipping to every device.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+    tags:
+      - 'fw-v*'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create a release (requires manual tag afterwards to publish to Pis)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # for creating releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - zipp-mini-2
+          - zipp-2
+          - beat-1
+          - beat-2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history so the version embed sees tags
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO core + platforms
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/amoled-1.43/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/amoled-1.43/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Compute firmware version
+        id: ver
+        run: |
+          # fw-v* tag if we're on one, otherwise short SHA. Used both as
+          # display string and as the GitHub Release tag.
+          if [[ "${GITHUB_REF}" == refs/tags/fw-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Firmware version: $VERSION"
+
+      - name: Build firmware (${{ matrix.env }})
+        working-directory: firmware/amoled-1.43
+        env:
+          # Bypass upload_via_pi.py — we only want the build artifact,
+          # not an SSH attempt to a non-existent Pi from the runner.
+          PLATFORMIO_UPLOAD_PROTOCOL: esptool
+          BEATBIRD_FW_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          pio run -e ${{ matrix.env }}
+
+      - name: Stage artifacts
+        working-directory: firmware/amoled-1.43
+        run: |
+          mkdir -p ../../dist
+          ENV=${{ matrix.env }}
+          VER=${{ steps.ver.outputs.version }}
+          cp .pio/build/$ENV/firmware.bin    ../../dist/firmware-$ENV.bin
+          cp .pio/build/$ENV/bootloader.bin  ../../dist/bootloader-$ENV.bin
+          cp .pio/build/$ENV/partitions.bin  ../../dist/partitions-$ENV.bin
+          # Record SHA256 so the Pi can verify before flashing
+          (cd ../../dist && sha256sum firmware-$ENV.bin > firmware-$ENV.bin.sha256)
+          echo "$VER" > ../../dist/version-$ENV.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: dist/
+          retention-days: 30
+
+  release:
+    # Only on fw-v* tags. Bundles all matrix artifacts into one release.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/fw-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release contents
+        run: ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

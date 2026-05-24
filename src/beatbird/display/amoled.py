@@ -98,6 +98,10 @@ class AmoledDisplay(DisplayInterface):
         # false-positive reconnects under bursty bridge→ESP traffic.
         self._last_hb_received = 0.0
         self._hb_timeout = 60.0
+        # Self-reported by the firmware via "FW:<version>" on boot. Used by
+        # the OTA updater (bin/beatbird-firmware-update) to skip flashing
+        # when the running version already matches the latest release tag.
+        self.firmware_version: str | None = None
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -288,5 +292,20 @@ class AmoledDisplay(DisplayInterface):
             log.info("ESP32 boot marker received, re-sending palette")
             self._palette_sent = False
             self._send_palette()
+        elif raw.startswith("FW:"):
+            # Firmware version self-report on boot. Stored so the updater can
+            # skip flashing if the running version already matches the latest
+            # release tag.
+            self.firmware_version = raw[3:].strip()
+            log.info("Display firmware version: %s", self.firmware_version)
+            # Persist to a tiny file the OTA script reads. Best-effort —
+            # off-Pi (dev machine) the path won't exist and that's fine.
+            try:
+                import os
+                os.makedirs("/var/lib/beatbird", exist_ok=True)
+                with open("/var/lib/beatbird/firmware-version", "w") as f:
+                    f.write(self.firmware_version + "\n")
+            except OSError:
+                pass
         else:
             log.debug("unknown RX: %s", raw)

@@ -27,7 +27,8 @@ ETC_DIR      := /etc/beatbird
 PROFILE ?=
 
 .PHONY: help profile secrets install update status logs amixer-apply dsp-reload \
-        uninstall check-profile check-root install-role _banner
+        uninstall check-profile check-root install-role _banner \
+        firmware-check firmware-update firmware-update-force
 
 help:
 	@echo "BeatBird targets:"
@@ -94,6 +95,23 @@ status: ## systemd status for all beatbird services
 
 logs: ## follow bridge log
 	@journalctl -u beatbird-bridge -f
+
+# ─── Firmware OTA ────────────────────────────────────────────────────────────
+# beatbird-firmware-update lives in src/beatbird/firmware_updater.py and is
+# installed as a console_script by pip into /opt/beatbird/venv/bin/. The
+# targets call it by absolute path so they work from a fresh shell with no
+# venv activated.
+
+FWUPD := /opt/beatbird/venv/bin/beatbird-firmware-update
+
+firmware-check: ## report installed firmware vs. latest GitHub release
+	@$(FWUPD) --check
+
+firmware-update: ## pull latest fw-v* release from GitHub and flash via esptool
+	$(FWUPD)
+
+firmware-update-force: ## reflash even if version already matches
+	$(FWUPD) --force
 
 amixer-apply: check-profile ## re-apply amplifier levels for the active soundcard
 	REPO_DIR=$(REPO_DIR) PROFILE_YML=$(PROFILE_LINK) sudo -E bash install/10-soundcard/_apply-levels.sh

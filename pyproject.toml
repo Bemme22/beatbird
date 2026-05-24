@@ -27,6 +27,7 @@ dev = ["ruff", "pytest"]
 [project.scripts]
 beatbird-bridge = "beatbird.bridge:main"
 beatbird-web = "beatbird.webserver:main"
+beatbird-firmware-update = "beatbird.firmware_updater:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

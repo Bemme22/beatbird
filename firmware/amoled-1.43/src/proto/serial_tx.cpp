@@ -52,4 +52,13 @@ void send_boot_marker()
     Serial.println("[boot]");
 }
 
+void send_version()
+{
+#ifdef BEATBIRD_FW_VERSION
+    Serial.printf("FW:%s\n", BEATBIRD_FW_VERSION);
+#else
+    Serial.println("FW:unknown");
+#endif
+}
+
 }  // namespace Proto

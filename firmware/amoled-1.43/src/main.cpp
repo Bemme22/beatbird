@@ -279,6 +279,10 @@ void setup()
     esp_log_level_set("*",                ESP_LOG_WARN);
     esp_log_level_set("esp32-hal-i2c-ng", ESP_LOG_WARN);
     Serial.println("\n=== BeatBird Display v4 ===");
+#ifdef BEATBIRD_FW_VERSION
+    Serial.printf("Firmware: %s\n", BEATBIRD_FW_VERSION);
+#endif
+    Proto::send_version();
 
     flush_done_sem = xSemaphoreCreateBinary();
 

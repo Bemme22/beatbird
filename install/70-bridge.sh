@@ -23,7 +23,8 @@ log_step "Installing Python dependencies"
   pyyaml \
   pydantic \
   fastapi \
-  'uvicorn[standard]'
+  'uvicorn[standard]' \
+  esptool   # needed by beatbird-firmware-update (OTA over /dev/ttyACM0)
 
 # Spectrum FFT capture is currently disabled by default (spectrum_bands=0 in
 # profiles) because PortAudio can't share the ALSA Loopback sub with CamillaDSP.
