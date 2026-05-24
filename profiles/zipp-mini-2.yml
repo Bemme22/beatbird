@@ -42,8 +42,8 @@ display:
 
 hardware:
   power_button:
-    enabled: false       # parked: GPIO3 conflicts with the Louder Hat's I²C SCL — needs rewiring to a free pin (GPIO17/27/22) before re-enabling
-    gpio: 3
+    enabled: true        # rewired to GPIO17 (Pin 11) — clear of Louder Hat I²C and AMOLED SPI
+    gpio: 17
     long_press_s: 2.0
 
 wifi:
