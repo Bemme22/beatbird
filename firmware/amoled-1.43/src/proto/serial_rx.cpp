@@ -6,7 +6,11 @@
 #include "theme.h"
 #include "screens/screen_standby.h"
 
-#include <Arduino.h>
+#ifdef ARDUINO
+  #include <Arduino.h>
+#else
+  #include "sim/arduino_shim.h"
+#endif
 #include <string.h>
 
 namespace Proto {

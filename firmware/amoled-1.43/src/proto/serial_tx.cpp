@@ -3,8 +3,12 @@
 // =============================================================================
 #include "proto.h"
 
-#include <Arduino.h>
-#include <esp_system.h>
+#ifdef ARDUINO
+  #include <Arduino.h>
+  #include <esp_system.h>
+#else
+  #include "sim/arduino_shim.h"
+#endif
 
 namespace Proto {
 

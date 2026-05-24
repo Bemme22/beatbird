@@ -22,7 +22,11 @@
 // =============================================================================
 #pragma once
 
-#include <Arduino.h>
+#ifdef ARDUINO
+  #include <Arduino.h>
+#else
+  #include "sim/arduino_shim.h"
+#endif
 
 namespace Proto {
 

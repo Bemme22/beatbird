@@ -71,4 +71,22 @@
 // === Tick ===
 // LVGL 9.2 removed LV_TICK_CUSTOM — use lv_tick_set_cb() in setup() instead.
 
+// ─── Simulator backend (desktop builds only) ────────────────────────────────
+// Enabled by the [env:sim] PlatformIO env which sets -DBEATBIRD_SIM=1.
+// On the ESP32 path these defines stay off and the panel init in main.cpp
+// owns the LVGL display the usual way.
+#ifdef BEATBIRD_SIM
+  #define LV_USE_SDL          1
+  #define LV_SDL_HOR_RES      466
+  #define LV_SDL_VER_RES      466
+  #define LV_SDL_RENDER_MODE  LV_DISPLAY_RENDER_MODE_DIRECT
+  #define LV_SDL_BUF_COUNT    1
+  #define LV_SDL_FULLSCREEN   0
+  // DIRECT_EXIT=1 closes the program when the SDL window is closed.
+  #define LV_SDL_DIRECT_EXIT  1
+  // Keep LV_USE_OS=LV_OS_NONE so we tick LVGL manually from sim_main's
+  // main loop — simpler than wiring up pthreads, and aligns with how the
+  // ESP32 build does it (no OS scheduling layer inside LVGL).
+#endif
+
 #endif // LV_CONF_H
