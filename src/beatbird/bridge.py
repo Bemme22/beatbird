@@ -930,6 +930,28 @@ class BeatBirdBridge:
         if self.display:
             self.display.push_state(state)
 
+    def _idle_timeout(self) -> float:
+        """How long to sit on the player screen before switching to standby.
+
+        The default 60s grace is right when a track is loaded and the user
+        might come back to resume — but for a freshly-booted speaker with
+        no source yet, holding on an empty player screen for a minute
+        looks broken. Cases where the player screen has nothing meaningful
+        on it drop down to short timeouts so the clock+weather standby
+        screen comes up quickly instead.
+        """
+        # Nothing connected / never played anything this session — the
+        # player screen would just be empty slots. Standby is more useful.
+        if self.source == Source.NONE or not self.song_title:
+            return 10.0
+        # Track was loaded but playback stopped (queue ended, or remote
+        # stopped). Moderate window so a quick resume still feels live.
+        if self.playback == Playback.STOPPED:
+            return 30.0
+        # Paused with a track loaded — keep the full grace, the user
+        # likely walked away mid-song and will be back to resume.
+        return STANDBY_TIMEOUT_S
+
     def _enter_standby(self, reason: str = "idle timeout") -> None:
         log.info("entering standby (%s)", reason)
         self.in_standby = True
@@ -1070,14 +1092,15 @@ class BeatBirdBridge:
                         self._log_wifi_snapshot("snapcast-poll-error")
 
                     # Standby transitions: track last PLAYING observation, enter
-                    # standby after idle timeout, exit on any new playback.
+                    # standby after a content-adaptive idle timeout, exit on
+                    # any new playback. See _idle_timeout() for the policy.
                     if self.playback == Playback.PLAYING:
                         self.last_playback_time = now
                         if self.in_standby:
                             self._exit_standby("playback resumed")
                     elif (
                         not self.in_standby
-                        and now - self.last_playback_time >= STANDBY_TIMEOUT_S
+                        and now - self.last_playback_time >= self._idle_timeout()
                     ):
                         try:
                             self._enter_standby()
