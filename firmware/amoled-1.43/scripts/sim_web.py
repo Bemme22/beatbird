@@ -100,12 +100,65 @@ row([
     ("All healthy", [":healthy"]),
 ])
 
+st.subheader("Sources")
+row([
+    ("Spotify",   [":play"]),
+    ("Bluetooth", [":bluetooth"]),
+    ("Snapcast",  [":snapcast"]),
+])
+
+st.subheader("Shutdown sequence")
+row([
+    ("Long-press warn", [":shutdown-warn"]),
+    ("Shutting down",   [":shutdown"]),
+])
+
+st.subheader("Volume")
+row([
+    ("Mute (0)",   [":vol 0"]),
+    ("Quiet (25)", [":vol 25"]),
+    ("Mid (50)",   [":vol 50"]),
+    ("Loud (75)",  [":vol 75"]),
+    ("Max (100)",  [":vol 100"]),
+])
+
+st.subheader("Weather (standby icon)")
+row([
+    ("Clear",      [":wx-clear"]),
+    ("Partly",     [":wx-partly"]),
+    ("Cloudy",     [":wx-cloudy"]),
+    ("Rain",       [":wx-rain"]),
+    ("Snow",       [":wx-snow"]),
+    ("Thunder",    [":wx-thunder"]),
+])
+
 st.subheader("Standby flap text")
 row([
     ("BEREIT WENN DU WILLST", [":flap BEREIT WENN DU WILLST"]),
     ("404 SOUND FEHLT",       [":flap 404 SOUND FEHLT"]),
     ("DJ HAT PAUSE",          [":flap DJ HAT PAUSE"]),
 ])
+
+st.subheader("Boot sequence")
+row([
+    ("Boot progress lines", [":boot-progress"]),
+])
+
+st.subheader("Live palette swap")
+col1, col2 = st.columns([1, 3])
+hex_color = col1.color_picker("Accent", "#F0CB7B", label_visibility="collapsed")
+if col2.button("Push palette", use_container_width=True):
+    fire(f"palette {hex_color}", [f":palette {hex_color.lstrip('#').upper()}"])
+
+st.subheader("Custom title")
+t_col, b_col = st.columns([3, 1])
+custom_title = t_col.text_input(
+    "Custom title", placeholder="Title to test split-flap + scroll",
+    label_visibility="collapsed",
+)
+if b_col.button("Push title", use_container_width=True):
+    if custom_title.strip():
+        fire(f"title: {custom_title}", [f":title {custom_title.strip()}"])
 
 st.subheader("Stress tests")
 row([

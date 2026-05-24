@@ -230,7 +230,10 @@ static void handle_command(const std::string &raw) {
         inject("ST:stop|TI:|AR:|SO:none|VO:42|PO:0|DU:1|LV:0|TM:14:32");
     }
     else if (s == ":standby") {
-        inject("ST:stop|TI:|AR:|SO:none|VO:42|PO:0|DU:1|LV:0|TM:14:32");
+        // `ST:standby` is the firmware-state token that routes screen_player's
+        // update() to show_standby_mode() → ScreenStandby::show(). `ST:stop`
+        // would stay on the empty player screen, which is `:stop` below.
+        inject("ST:standby|TI:|AR:|SO:none|VO:42|PO:0|DU:1|LV:0|TM:14:32");
         inject("STBY:BEREIT WENN DU WILLST");
     }
     else if (s == ":wake") {
@@ -243,6 +246,62 @@ static void handle_command(const std::string &raw) {
     else if (s == ":healthy")    { sim_sys = SimSys{}; send_sys(); }
     else if (s == ":next") {
         inject("ST:play|TI:Lights Out (Go Crazy)|AR:Modestep|SO:spotify|VO:42|PO:0|DU:260000|LV:35|TM:14:32");
+    }
+    // ── Shutdown sequence (long-press behaviour on hardware) ────────────────
+    else if (s == ":shutdown-warn") {
+        inject("ST:shutdown_warn|TI:HALTEN ZUM AUSSCHALTEN|AR:|SO:none|VO:42|PO:0|DU:1|LV:0");
+    }
+    else if (s == ":shutdown") {
+        inject("ST:shutdown|TI:AUSSCHALTEN...|AR:|SO:none|VO:42|PO:0|DU:1|LV:0");
+    }
+    // ── Sources other than Spotify ───────────────────────────────────────────
+    else if (s == ":bluetooth") {
+        inject("ST:play|TI:Phone Audio|AR:Steff iPhone|SO:bluetooth|VO:42|PO:0|DU:0|LV:30|TM:14:32");
+    }
+    else if (s == ":snapcast") {
+        inject("ST:play|TI:Multiroom|AR:Living Room|SO:snapcast|VO:42|PO:0|DU:0|LV:25|TM:14:32");
+    }
+    // ── Boot progress lines (BOOT:stage|progress) ───────────────────────────
+    else if (s == ":boot-progress") {
+        inject("BOOT:Initializing audio|10");
+        inject("BOOT:Loading CamillaDSP|30");
+        inject("BOOT:Starting Spotify|60");
+        inject("BOOT:Ready|100");
+    }
+    // ── Volume presets — emit a fresh play-state with the new VO field ──────
+    else if (s.rfind(":vol ", 0) == 0) {
+        int pct = atoi(s.c_str() + 5);
+        if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+        char buf[200];
+        snprintf(buf, sizeof(buf),
+                 "ST:play|TI:Hang My Heart|AR:Modestep|SO:spotify|VO:%d|PO:32000|DU:240000|LV:35|TM:14:32",
+                 pct);
+        inject(buf);
+    }
+    // ── Title override — short way to test scroll / split-flap with custom text
+    else if (s.rfind(":title ", 0) == 0) {
+        std::string title = s.substr(7);
+        std::string line = "ST:play|TI:" + title + "|AR:Sim|SO:spotify|VO:42|PO:0|DU:240000|LV:35|TM:14:32";
+        inject(line.c_str());
+    }
+    // ── Palette override (live accent colour swap) ──────────────────────────
+    else if (s.rfind(":palette ", 0) == 0) {
+        std::string line = "PAL:" + s.substr(9);
+        inject(line.c_str());
+    }
+    // ── Weather conditions — codes match handle_weather_line() ──────────────
+    else if (s.rfind(":wx-", 0) == 0) {
+        int code = 0;
+        if      (s == ":wx-clear")    code = 0;
+        else if (s == ":wx-partly")   code = 1;
+        else if (s == ":wx-cloudy")   code = 3;
+        else if (s == ":wx-rain")     code = 61;
+        else if (s == ":wx-snow")     code = 71;
+        else if (s == ":wx-thunder")  code = 95;
+        else { printf("[sim] unknown wx code in %s\n", s.c_str()); return; }
+        char buf[80];
+        snprintf(buf, sizeof(buf), "WX:t=18|c=%d|h=22|l=11", code);
+        inject(buf);
     }
     else if (s.rfind(":flap ", 0) == 0) {
         std::string line = "STBY:" + s.substr(6);
