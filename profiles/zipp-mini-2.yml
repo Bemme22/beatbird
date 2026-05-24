@@ -42,7 +42,7 @@ display:
 
 hardware:
   power_button:
-    enabled: true        # rewired to GPIO17 (Pin 11) — clear of Louder Hat I²C and AMOLED SPI
+    enabled: false       # parked: GPIO17 wiring tried but didn't trigger — rework when the case has to come off for another reason anyway
     gpio: 17
     long_press_s: 2.0
 
