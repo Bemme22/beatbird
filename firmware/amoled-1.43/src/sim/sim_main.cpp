@@ -41,6 +41,7 @@
 #include <SDL.h>
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -49,6 +50,12 @@
 #include <queue>
 #include <string>
 #include <thread>
+
+// POSIX socket API for the optional TCP control listener (port 7777). The web
+// UI in scripts/sim_web.py sends protocol lines + scenario commands over this.
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 // ─── Global instances declared `extern` in arduino_shim.h ───────────────────
 
@@ -96,6 +103,56 @@ static void stdin_reader() {
         std::lock_guard<std::mutex> g(cmd_mu);
         cmd_queue.push(line);
     }
+}
+
+// ─── Optional TCP control listener (port 7777) ──────────────────────────────
+// Accepts newline-separated commands — same grammar as stdin, both `:scenario`
+// shortcuts and raw protocol lines. Used by scripts/sim_web.py so a browser
+// on a different host can drive the sim. Multiple clients allowed.
+
+static constexpr int CTRL_PORT = 7777;
+
+static void tcp_listener() {
+    int srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv < 0) { perror("socket"); return; }
+    int yes = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    sockaddr_in addr{};
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port        = htons(CTRL_PORT);
+    if (bind(srv, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind"); close(srv); return;
+    }
+    if (listen(srv, 4) < 0) { perror("listen"); close(srv); return; }
+    printf("[sim] TCP control listening on :%d\n", CTRL_PORT); fflush(stdout);
+
+    while (!stop_reader.load()) {
+        sockaddr_in cli{}; socklen_t cl = sizeof(cli);
+        int fd = accept(srv, (sockaddr*)&cli, &cl);
+        if (fd < 0) { if (errno == EINTR) continue; perror("accept"); break; }
+        // Per-client read until close. Keep it lockstep — one client doing
+        // a quick POST won't block another, and we don't expect high QPS.
+        std::string buf;
+        char chunk[256];
+        ssize_t n;
+        while ((n = read(fd, chunk, sizeof(chunk))) > 0) {
+            buf.append(chunk, n);
+            size_t p;
+            while ((p = buf.find('\n')) != std::string::npos) {
+                std::string line = buf.substr(0, p);
+                buf.erase(0, p + 1);
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (!line.empty()) {
+                    std::lock_guard<std::mutex> g(cmd_mu);
+                    cmd_queue.push(line);
+                }
+            }
+        }
+        close(fd);
+    }
+    close(srv);
 }
 
 static void print_help() {
@@ -221,6 +278,8 @@ int main(int argc, char *argv[]) {
     print_help();
     std::thread reader(stdin_reader);
     reader.detach();
+    std::thread tcp(tcp_listener);
+    tcp.detach();
 
     uint32_t demo_idx = 0;
     uint32_t next_step_ms = SDL_GetTicks() + demo[0].delay_ms;
