@@ -75,35 +75,46 @@ STANDBY_TIMEOUT_S = 60.0
 SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
 IDLE_MESSAGE_INTERVAL = 45.0  # how often to flip the standby flap text
 
-# Short, mostly airport-board-style lines shown on the standby screen via
-# the split-flap label. Random pick every IDLE_MESSAGE_INTERVAL while idle.
-# Keep ≤ 22 characters so they fit at font_display_md without clipping the
-# round display's edges. Pure ASCII caps — Departure Mono's full glyph
-# range, no umlauts (font generator strips outside the basic Latin set).
+# Short German airport-board-style lines shown on the standby screen via the
+# split-flap label. Picked at random every IDLE_MESSAGE_INTERVAL while idle,
+# mixed with RSS headlines if an idle.rss_url is configured.
+#
+# Constraints baked in:
+#  - ≤ 22 chars so they fit at font_display_md without clipping the round
+#    display's edges
+#  - ASCII only (digraphs ae/oe/ue/ss instead of umlauts) — the split-flap
+#    animates byte-by-byte and would corrupt multi-byte UTF-8 mid-cycle
 IDLE_MESSAGES = [
-    "READY WHEN YOU ARE",
-    "AWAITING INSTRUCTIONS",
-    "ON STANDBY",
-    "BUFFERING SILENCE",
-    "DREAMING OF VINYL",
-    "ALL CHANNELS QUIET",
-    "TUNING THE SILENCE",
-    "404 GROOVE NOT FOUND",
-    "BIRD HAS LANDED",
-    "AT THE GATE",
-    "DEPARTURES EMPTY",
-    "QUEUE IS EMPTY",
+    "BEREIT WENN DU WILLST",
+    "AUF EMPFANG",
+    "WARTE AUFS SIGNAL",
+    "NIX LOS HIER",
+    "STILLE GENIESSEN",
+    "404 SOUND FEHLT",
+    "TAFEL LEER",
+    "STUMM UND GLUECKLICH",
+    "BIN GLEICH ZURUECK",
+    "DJ HAT PAUSE",
     "INSERT BEATS",
-    "WAITING ON THE DJ",
+    "TIEFE STILLE",
+    "AUSGEFLOGEN",
+    "GROOVE PUFFERT",
+    "GROSSE PAUSE",
+    "AUF DEM ABSPRUNG",
+    "BAHN FREI",
+    "VOGEL GELANDET",
+    "AM GATE",
+    "WARTESCHLEIFE AKTIV",
+    "MUSIK GESUCHT",
+    "VERSTAERKER KUEHLT AB",
+    "FREQUENZ FREI",
+    "AM HORIZONT NIX",
     "POWER NAP",
-    "LISTENING TO NOTHING",
-    "STAGE IS YOURS",
-    "WARMING UP",
-    "PASS THE AUX",
-    "SILENT MODE",
-    "LOW POWER GROOVE",
-    "DJ ON BREAK",
-    "STAY TUNED",
+    "PEGEL: NULL",
+    "ZEIG MIR DEN HIT",
+    "BUFFER LIEGT FRACH",
+    "STILLE PRODUKTION",
+    "TON AB MORGEN",
 ]
 
 

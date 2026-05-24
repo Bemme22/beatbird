@@ -673,11 +673,19 @@ void update() {
     if (in_standby) return;
 
     if (State::is_dirty(State::Dirty::TITLE)) {
-        const char *t = State::app.title.length() ? State::app.title.c_str() : "—";
-        // Set scroll anim_time first (measures the FINAL string), then
-        // kick off the split-flap which leaves the label on `t` once done.
-        set_scroll_speed_pxs(lbl_title, t, 30);
-        SplitFlap::set_text(lbl_title, t);
+        if (State::app.title.length()) {
+            const char *t = State::app.title.c_str();
+            // Set scroll anim_time first (measures the FINAL string), then
+            // kick off the split-flap which leaves the label on `t` once done.
+            set_scroll_speed_pxs(lbl_title, t, 30);
+            SplitFlap::set_text(lbl_title, t);
+        } else {
+            // No title → quiet placeholder "···" (three U+00B7 mid-dots,
+            // in Departure Mono's range). Skip SplitFlap here: the dots
+            // are multi-byte UTF-8 and the per-byte random cycle would
+            // briefly garble the sequence before settling.
+            lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
+        }
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {

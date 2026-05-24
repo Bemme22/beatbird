@@ -92,9 +92,11 @@ static TriggerResult evaluate_persistent_trigger()
     }
 
     // 3. SPOTIFY OFFLINE — Spotify is the active source but go-librespot
-    //    service is down. Distinct from "stuck" (still running but broken
-    //    cloud session) which gets a softer label in step 6.
-    if (app.source == SRC_SPOTIFY && !sys.svc_active) {
+    //    service is down AND we're not in the middle of a stuck-restart.
+    //    Excluding stuck_recent prevents this from firing during the ~2s
+    //    "activating" window after the bridge kicked off a restart — that
+    //    case is owned by step 6 (RECONNECTING).
+    if (app.source == SRC_SPOTIFY && !sys.svc_active && !sys.spotify_stuck) {
         return { "SPOTIFY OFFLINE", Theme::accent_alert };
     }
 

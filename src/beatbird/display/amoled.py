@@ -219,10 +219,27 @@ class AmoledDisplay(DisplayInterface):
         if line:
             self._send(line)
 
+    # Map German umlauts and other Latin-1 chars to ASCII digraphs.
+    # Departure Mono has the glyphs, but the firmware-side split-flap
+    # animates byte-by-byte and would corrupt multi-byte UTF-8 mid-cycle.
+    # Digraphs are the classic airport-board way to write German anyway.
+    _IDLE_TRANSLATE = str.maketrans({
+        "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+        "Ä": "AE", "Ö": "OE", "Ü": "UE",
+        "é": "e",  "è": "e",  "ê": "e",  "É": "E",
+        "á": "a",  "à": "a",  "â": "a",
+        "í": "i",  "ì": "i",  "î": "i",
+        "ó": "o",  "ò": "o",  "ô": "o",
+        "ú": "u",  "ù": "u",  "û": "u",
+        "ñ": "n",  "ç": "c",
+    })
+
     def push_idle_message(self, text: str) -> None:
-        # Sanitise — STBY: line is newline-terminated, must be ASCII for
-        # the firmware's Departure Mono glyph range. Strip everything else.
-        clean = "".join(c for c in text if 32 <= ord(c) < 127).strip()
+        # Translate accented chars to ASCII digraphs first, then strip any
+        # remaining non-ASCII. STBY: line is newline-terminated; the
+        # firmware also caps at MAX_LEN=48 on its side.
+        translated = text.translate(self._IDLE_TRANSLATE)
+        clean = "".join(c for c in translated if 32 <= ord(c) < 127).strip()
         if not clean:
             return
         self._send(f"STBY:{clean}")

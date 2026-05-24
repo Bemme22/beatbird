@@ -91,8 +91,13 @@ struct System {
     float cpu_temp_c   = 0.0f;
     String amp_stereo  = "---";
     String amp_sub     = "---";
-    bool   dsp_active  = false;
-    bool   svc_active  = false;        // go-librespot service running
+    // All health flags default to "ok" — the bridge sends a SYS: only every
+    // 5s, but state lines (with source=spotify etc.) arrive in <1s. Without
+    // optimistic defaults, the display flashes "SPOTIFY OFFLINE" for the
+    // first ~5s after every reboot because source flipped before sv= did.
+    // PI OFFLINE backstops a genuinely silent bridge (>12s of no SYS:).
+    bool   dsp_active  = true;
+    bool   svc_active  = true;         // go-librespot service running
     int    wifi_rssi   = 0;
     bool   gateway_ok  = true;         // bridge pings default gw — false = no route off Pi
     bool   spotify_stuck = false;      // bridge fired a go-librespot restart in last 60s
