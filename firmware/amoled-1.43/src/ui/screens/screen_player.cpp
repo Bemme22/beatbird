@@ -591,7 +591,12 @@ void create() {
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(lbl_title, 4, 0);
     lv_obj_set_width(lbl_title, 280);
-    lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    // SCROLL (back-and-forth) instead of SCROLL_CIRCULAR: the latter wraps
+    // the text via a duplicated copy, which in LVGL 9.5 resets the offset
+    // to 0 on every cycle boundary — the "snap" Steff caught after the
+    // flap completed. SCROLL slides left until the end is visible, then
+    // smoothly reverses back to the start. No abrupt jump.
+    lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_SCROLL);
     lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
     lv_obj_add_flag(lbl_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_title, LV_OBJ_FLAG_CLICKABLE);
@@ -604,7 +609,7 @@ void create() {
     lv_obj_set_style_text_letter_space(lbl_artist, Theme::LETTER_SPACE_DISPLAY, 0);
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_artist, 260);
-    lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL);   // see title comment
     lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, Theme::ARTIST_Y_OFFSET);
     lv_obj_add_flag(lbl_artist, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_artist, LV_OBJ_FLAG_CLICKABLE);
