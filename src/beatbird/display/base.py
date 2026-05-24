@@ -73,5 +73,11 @@ class DisplayInterface(ABC):
         weather poller) that don't fit the state/system schema. Default
         is a no-op for displays that don't support out-of-band pushes."""
 
+    def push_idle_message(self, text: str) -> None:
+        """Show a short text on the standby screen via the split-flap
+        animation. Bridge sends one every ~45s while idle, so the standby
+        screen has personality instead of staring back blankly. Default
+        is a no-op for displays without a standby screen."""
+
     @abstractmethod
     def close(self) -> None: ...

@@ -219,6 +219,14 @@ class AmoledDisplay(DisplayInterface):
         if line:
             self._send(line)
 
+    def push_idle_message(self, text: str) -> None:
+        # Sanitise — STBY: line is newline-terminated, must be ASCII for
+        # the firmware's Departure Mono glyph range. Strip everything else.
+        clean = "".join(c for c in text if 32 <= ord(c) < 127).strip()
+        if not clean:
+            return
+        self._send(f"STBY:{clean}")
+
     def push_system(self, status: DisplaySystemStatus) -> None:
         amp_fields = "|".join(
             f"h{k[0]}={v}" for k, v in (status.amp_statuses or {}).items()

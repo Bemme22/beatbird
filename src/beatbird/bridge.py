@@ -73,6 +73,38 @@ STANDBY_TIMEOUT_S = 60.0
 # Restart go-librespot if /status hangs for this many consecutive polls.
 # At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
 SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
+IDLE_MESSAGE_INTERVAL = 45.0  # how often to flip the standby flap text
+
+# Short, mostly airport-board-style lines shown on the standby screen via
+# the split-flap label. Random pick every IDLE_MESSAGE_INTERVAL while idle.
+# Keep ≤ 22 characters so they fit at font_display_md without clipping the
+# round display's edges. Pure ASCII caps — Departure Mono's full glyph
+# range, no umlauts (font generator strips outside the basic Latin set).
+IDLE_MESSAGES = [
+    "READY WHEN YOU ARE",
+    "AWAITING INSTRUCTIONS",
+    "ON STANDBY",
+    "BUFFERING SILENCE",
+    "DREAMING OF VINYL",
+    "ALL CHANNELS QUIET",
+    "TUNING THE SILENCE",
+    "404 GROOVE NOT FOUND",
+    "BIRD HAS LANDED",
+    "AT THE GATE",
+    "DEPARTURES EMPTY",
+    "QUEUE IS EMPTY",
+    "INSERT BEATS",
+    "WAITING ON THE DJ",
+    "POWER NAP",
+    "LISTENING TO NOTHING",
+    "STAGE IS YOURS",
+    "WARMING UP",
+    "PASS THE AUX",
+    "SILENT MODE",
+    "LOW POWER GROOVE",
+    "DJ ON BREAK",
+    "STAY TUNED",
+]
 
 
 # ─── Source enum ─────────────────────────────────────────────────────────────
@@ -262,6 +294,10 @@ class BeatBirdBridge:
         # silently take over the speaker at night.
         self.last_playback_time: float = time.monotonic()
         self.in_standby: bool = False
+        # Standby flap text rotation — pick a new random message every
+        # IDLE_MESSAGE_INTERVAL while idle, avoiding consecutive repeats.
+        self._last_idle_msg: str = ""
+        self._idle_msg_t: float = 0.0
 
         # ── librespot health watchdog ──
         # Counts consecutive get_state() failures (HTTP timeouts or refused).
@@ -952,6 +988,23 @@ class BeatBirdBridge:
         # likely walked away mid-song and will be back to resume.
         return STANDBY_TIMEOUT_S
 
+    def _send_idle_message(self) -> None:
+        """Pick a random message from IDLE_MESSAGES (avoiding the last one
+        we used) and push it to the display. The display side animates the
+        change via SplitFlap, so each rotation reads as the airport-board
+        flip we're going for."""
+        import random
+        if not self.display:
+            return
+        choices = [m for m in IDLE_MESSAGES if m != self._last_idle_msg] or IDLE_MESSAGES
+        msg = random.choice(choices)
+        self._last_idle_msg = msg
+        self._idle_msg_t = time.monotonic()
+        try:
+            self.display.push_idle_message(msg)
+        except Exception as e:
+            log.warning("push_idle_message failed: %s", e)
+
     def _enter_standby(self, reason: str = "idle timeout") -> None:
         log.info("entering standby (%s)", reason)
         self.in_standby = True
@@ -961,6 +1014,9 @@ class BeatBirdBridge:
             except Exception as e:
                 log.warning("close_session on standby failed: %s", e)
         self._push_state_now()
+        # Kick off the standby flap text immediately so the screen lands
+        # with content already on it, not "STANDBY" → flap-replace later.
+        self._send_idle_message()
 
     def _exit_standby(self, reason: str) -> None:
         log.info("exit standby (%s)", reason)
@@ -1106,6 +1162,15 @@ class BeatBirdBridge:
                             self._enter_standby()
                         except Exception as e:
                             log.error("standby enter: %s", e)
+
+                    # Rotate the standby flap text every IDLE_MESSAGE_INTERVAL
+                    # while idle. Keeps the screen from looking frozen — a
+                    # fresh airport-board line flips in every ~45s.
+                    if (
+                        self.in_standby
+                        and now - self._idle_msg_t >= IDLE_MESSAGE_INTERVAL
+                    ):
+                        self._send_idle_message()
 
                 # Signal level
                 level_interval = (

@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include "screens/screen_standby.h"
+#include "screens/split_flap.h"
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
@@ -46,12 +47,16 @@ static lv_obj_t *icon_obj      = nullptr;   // custom-draw container @ (233, 240
 static lv_obj_t *lbl_temp      = nullptr;
 static lv_obj_t *lbl_highlow   = nullptr;
 static lv_obj_t *lbl_condition = nullptr;
+static lv_obj_t *lbl_flap      = nullptr;   // airport-board-style idle text
 static lv_obj_t *heartbeat     = nullptr;
 
 static lv_anim_t anim_heartbeat;
 static bool      created                = false;
 static uint8_t   last_icon_rendered     = 255;   // force first paint
 static String    last_clock_rendered    = "";
+// Cached flap text — set by the Pi-side STBY: line. Cached so a message
+// arriving before create() runs gets applied on the next create() pass.
+static String    pending_flap_text      = "ON STANDBY";
 static bool      last_valid_rendered    = false;
 
 // ─── Dot drawing helper ─────────────────────────────────────────────────────
@@ -378,17 +383,42 @@ void create()
     lv_obj_set_style_text_opa         (lbl_condition, (lv_opa_t)128,            0);  // 50 % for darker tier
     lv_obj_set_style_text_font        (lbl_condition, Theme::font_display_md(), 0);
     lv_obj_set_style_text_letter_space(lbl_condition, Theme::LETTER_SPACE_LABEL,0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 365);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 355);   // bumped up 10 to make room for flap
 
-    // ── Heartbeat dot ───────────────────────────────────────────────────────
+    // ── Idle flap text (airport board, accent colour) ───────────────────────
+    // Rotates every ~45s via Pi's STBY: serial line. Replaces the old static
+    // heartbeat as the "I'm still alive" cue — the periodic flap animation
+    // is more expressive than a pulsing dot, and the messages give the
+    // standby screen personality.
+    lbl_flap = lv_label_create(scr);
+    lv_label_set_text(lbl_flap, pending_flap_text.c_str());
+    lv_obj_set_style_text_color       (lbl_flap, Theme::accent,                 0);
+    lv_obj_set_style_text_font        (lbl_flap, Theme::font_display_md(),      0);
+    lv_obj_set_style_text_letter_space(lbl_flap, Theme::LETTER_SPACE_LABEL,     0);
+    lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,          0);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 400);
+
+    // ── Heartbeat dot (smaller, near bottom edge) ───────────────────────────
     heartbeat = lv_obj_create(scr);
     lv_obj_remove_style_all(heartbeat);
-    lv_obj_set_size(heartbeat, 10, 10);
+    lv_obj_set_size(heartbeat, 6, 6);                          // shrunk from 10 — flap text is now the headliner
     lv_obj_set_style_bg_color(heartbeat, Theme::accent, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 420);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 445);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void set_flap_text(const char *text)
+{
+    if (!text || !text[0]) return;
+    pending_flap_text = String(text);
+    if (lbl_flap) {
+        SplitFlap::set_text(lbl_flap, text);
+    }
+    // If create() hasn't run yet, pending_flap_text is the seed used in
+    // lv_label_set_text at creation — no animation that first time, but
+    // the text is right.
 }
 
 void show()

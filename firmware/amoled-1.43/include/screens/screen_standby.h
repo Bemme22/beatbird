@@ -41,4 +41,10 @@ bool is_visible();
  *  Cheap when nothing has changed. Call from the main loop. */
 void update();
 
+/** Replace the rotating idle text with `text` using a split-flap animation.
+ *  Triggered by Pi's STBY: serial line every ~45s while idle. Safe to call
+ *  when the standby screen has not been built yet — caches the message and
+ *  applies it on next create(). */
+void set_flap_text(const char *text);
+
 }  // namespace ScreenStandby

@@ -4,6 +4,7 @@
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
+#include "screens/screen_standby.h"
 
 #include <Arduino.h>
 #include <string.h>
@@ -68,6 +69,7 @@ void handle_line(const char *line)
     if (!strncmp(line, "SYS:",  4))     { handle_system_line(line);      return; }
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
+    if (!strncmp(line, "STBY:", 5))     { ScreenStandby::set_flap_text(line + 5); return; }
     if (!strncmp(line, "TIME:", 5))     {
         State::set_clock(String(line + 5));
         return;
