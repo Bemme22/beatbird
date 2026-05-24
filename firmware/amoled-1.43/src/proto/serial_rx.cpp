@@ -191,16 +191,30 @@ void handle_system_line(const char *line)
 {
     char buf[32];
 
-    if (parse_field(line, "cp", buf, sizeof(buf)))      State::sys.cpu_temp_c = atof(buf);
-    if (parse_field(line, "ht", buf, sizeof(buf)))      State::sys.amp_stereo = String(buf);
-    if (parse_field(line, "hstereo", buf, sizeof(buf))) State::sys.amp_stereo = String(buf);
-    if (parse_field(line, "hs", buf, sizeof(buf)))      State::sys.amp_sub    = String(buf);
-    if (parse_field(line, "hsub", buf, sizeof(buf)))    State::sys.amp_sub    = String(buf);
-    if (parse_field(line, "ds", buf, sizeof(buf)))      State::sys.dsp_active = (buf[0] == '1');
-    if (parse_field(line, "sv", buf, sizeof(buf)))      State::sys.svc_active = (buf[0] == '1');
-    if (parse_field(line, "wi", buf, sizeof(buf)))      State::sys.wifi_rssi  = atoi(buf);
-    if (parse_field(line, "gw", buf, sizeof(buf)))      State::sys.gateway_ok = (buf[0] == '1');
-    if (parse_field(line, "ss", buf, sizeof(buf)))      State::sys.spotify_stuck = (buf[0] == '1');
+    // SYS: subfields are key=value pairs (cp=21.5|sv=1|wi=-67…), NOT
+    // key:value. The bridge has always sent them this way; the parser
+    // was historically calling parse_field (which expects ':') and
+    // silently returning false on every field — so every SYS field has
+    // been stuck at its compile-time default since this file was written.
+    // Symptom: WIFI WEAK never fired (rssi stayed 0), SPOTIFY OFFLINE
+    // permanently latched at boot once defaults changed. Same fix WX:
+    // already had.
+    //
+    // Also strip the "SYS:" prefix — parse_field_eq's boundary check needs
+    // each key to be at start-of-line or right after '|'. With the prefix
+    // kept, the first field is preceded by ':' and gets rejected.
+    if (!strncmp(line, "SYS:", 4)) line += 4;
+
+    if (parse_field_eq(line, "cp", buf, sizeof(buf)))      State::sys.cpu_temp_c = atof(buf);
+    if (parse_field_eq(line, "ht", buf, sizeof(buf)))      State::sys.amp_stereo = String(buf);
+    if (parse_field_eq(line, "hstereo", buf, sizeof(buf))) State::sys.amp_stereo = String(buf);
+    if (parse_field_eq(line, "hs", buf, sizeof(buf)))      State::sys.amp_sub    = String(buf);
+    if (parse_field_eq(line, "hsub", buf, sizeof(buf)))    State::sys.amp_sub    = String(buf);
+    if (parse_field_eq(line, "ds", buf, sizeof(buf)))      State::sys.dsp_active = (buf[0] == '1');
+    if (parse_field_eq(line, "sv", buf, sizeof(buf)))      State::sys.svc_active = (buf[0] == '1');
+    if (parse_field_eq(line, "wi", buf, sizeof(buf)))      State::sys.wifi_rssi  = atoi(buf);
+    if (parse_field_eq(line, "gw", buf, sizeof(buf)))      State::sys.gateway_ok = (buf[0] == '1');
+    if (parse_field_eq(line, "ss", buf, sizeof(buf)))      State::sys.spotify_stuck = (buf[0] == '1');
 
     State::app.last_status_rx = millis();
     State::mark_dirty(State::Dirty::SYSTEM);
