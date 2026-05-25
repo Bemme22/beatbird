@@ -27,6 +27,7 @@ from beatbird.audio.camilladsp import CamillaDSP, pct_to_db, db_to_pct
 from beatbird.audio.loudness import LoudnessController, LoudnessFilter
 from beatbird.audio.spectrum import SpectrumAnalyzer
 from beatbird.cover_processor import CoverProcessor
+from beatbird.rss_fetcher import RssFetcher
 from beatbird.config import Profile, load_profile
 from beatbird.display.base import (
     DisplayInterface, DisplayState, DisplaySystemStatus,
@@ -311,6 +312,20 @@ class BeatBirdBridge:
         )
         if not cover_enabled:
             log.info("cover background disabled (profile flag)")
+
+        # RSS feed for standby idle text. Optional — empty url means
+        # local IDLE_MESSAGES only. Runs in its own daemon thread, so
+        # the bridge main loop never blocks on a slow feed.
+        self.rss: RssFetcher | None = None
+        if profile.idle.rss_url:
+            self.rss = RssFetcher(
+                profile.idle.rss_url,
+                refresh_minutes=profile.idle.rss_refresh_minutes,
+                max_chars=profile.idle.max_chars,
+            )
+            self.rss.start()
+            log.info("rss idle source: %s", profile.idle.rss_url)
+        self._rss_weight = profile.idle.rss_weight
 
         # ── Standby ──
         # last_playback_time = monotonic timestamp of last PLAYING observation.
@@ -1041,14 +1056,26 @@ class BeatBirdBridge:
         return STANDBY_TIMEOUT_S
 
     def _send_idle_message(self) -> None:
-        """Pick a random message from IDLE_MESSAGES (avoiding the last one
-        we used) and push it to the display. The display side animates the
-        change via SplitFlap, so each rotation reads as the airport-board
-        flip we're going for."""
+        """Pick the next standby flap line and push it to the display.
+
+        Pool composition:
+          - IDLE_MESSAGES (hard-coded German airport-board style)
+          - RSS headlines, if a feed is configured AND has items
+
+        When RSS is populated, profile.idle.rss_weight (0..1) decides how
+        often we pick from the RSS pool vs the local one. Last-shown line
+        is never picked again immediately, so two consecutive rotations
+        are guaranteed different even with a tiny RSS pool.
+        """
         import random
         if not self.display:
             return
-        choices = [m for m in IDLE_MESSAGES if m != self._last_idle_msg] or IDLE_MESSAGES
+        rss_pool = self.rss.headlines if self.rss else []
+        # Weighted source choice — fall back to local pool if RSS is
+        # empty (boot, fetch failure) so the screen always has content.
+        use_rss = rss_pool and random.random() < self._rss_weight
+        pool = rss_pool if use_rss else IDLE_MESSAGES
+        choices = [m for m in pool if m != self._last_idle_msg] or pool
         msg = random.choice(choices)
         self._last_idle_msg = msg
         self._idle_msg_t = time.monotonic()

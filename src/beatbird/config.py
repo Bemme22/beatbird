@@ -229,6 +229,25 @@ class Web(BaseModel):
     port: int = 8080
 
 
+class Idle(BaseModel):
+    """Standby-screen flap text. Mix of a hard-coded German list and
+    optional RSS headlines so the speaker has a bit of "today's news"
+    flavour while idle. The local list always works (offline); RSS is
+    a soft enhancement that degrades silently on fetch failure."""
+    # Optional Atom/RSS feed URL — bridge polls every refresh_minutes,
+    # extracts <title> elements, sanitises + truncates each to fit the
+    # flap label width, mixes them into the pool the standby screen
+    # cycles through. Empty = local list only.
+    rss_url: str = ""
+    rss_refresh_minutes: int = 30
+    # Per-item character cap. Field-tested limit on the round display
+    # at font_display_md is ~17 chars before clipping.
+    max_chars: int = 17
+    # When both local + RSS are populated, fraction of picks that come
+    # from RSS (0.0 = always local, 1.0 = always RSS). 0.5 = balanced.
+    rss_weight: float = 0.5
+
+
 # ─── Top-level ───────────────────────────────────────────────────────────────
 
 class Profile(BaseModel):
@@ -243,6 +262,7 @@ class Profile(BaseModel):
     mqtt: MQTT = Field(default_factory=MQTT)
     sources: Sources = Field(default_factory=Sources)
     web: Web = Field(default_factory=Web)
+    idle: Idle = Field(default_factory=Idle)
 
     @property
     def mqtt_topic_base(self) -> str:

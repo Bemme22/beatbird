@@ -86,3 +86,11 @@ weather:
 web:
   enabled: true
   port: 8080
+
+# Standby idle-text source. Local list is always available; RSS headlines
+# mixed in if a feed is configured. Empty rss_url = local only.
+idle:
+  rss_url: "https://www.tagesschau.de/xml/rss2/"
+  rss_refresh_minutes: 30
+  max_chars: 17                  # round-display safe limit at font_display_md
+  rss_weight: 0.5                # 50/50 mix between RSS + local pool
