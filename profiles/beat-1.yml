@@ -118,5 +118,5 @@ web:
 idle:
   rss_url: "https://www.tagesschau.de/xml/rss2/"
   rss_refresh_minutes: 30
-  max_chars: 17
+  max_chars: 50                  # marquee scrolls anything over visible width
   rss_weight: 0.5

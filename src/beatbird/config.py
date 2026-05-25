@@ -240,9 +240,13 @@ class Idle(BaseModel):
     # cycles through. Empty = local list only.
     rss_url: str = ""
     rss_refresh_minutes: int = 30
-    # Per-item character cap. Field-tested limit on the round display
-    # at font_display_md is ~17 chars before clipping.
-    max_chars: int = 17
+    # Per-item character cap. The standby flap label is fixed-width with
+    # SCROLL_CIRCULAR long-mode, so anything that doesn't fit the visible
+    # width marquees instead of clipping. 50 is a good middle ground:
+    # full Tagesschau-class headlines fit, while pathological 200-char
+    # press-release titles still get truncated with "..." so the marquee
+    # cycle doesn't take a minute.
+    max_chars: int = 50
     # When both local + RSS are populated, fraction of picks that come
     # from RSS (0.0 = always local, 1.0 = always RSS). 0.5 = balanced.
     rss_weight: float = 0.5

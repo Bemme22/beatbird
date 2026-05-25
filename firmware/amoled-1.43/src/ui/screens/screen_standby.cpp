@@ -390,12 +390,20 @@ void create()
     // heartbeat as the "I'm still alive" cue — the periodic flap animation
     // is more expressive than a pulsing dot, and the messages give the
     // standby screen personality.
+    //
+    // Fixed width + SCROLL_CIRCULAR so long RSS headlines marquee instead
+    // of clipping at the round display's edge. Short local strings
+    // (≤ ~17 chars at font_display_md) fit without triggering the scroll.
+    // SplitFlap saves the long-mode at flap start and restores it on the
+    // final tick, so the marquee picks up cleanly once the flap settles.
     lbl_flap = lv_label_create(scr);
     lv_label_set_text(lbl_flap, pending_flap_text.c_str());
     lv_obj_set_style_text_color       (lbl_flap, Theme::accent,                 0);
     lv_obj_set_style_text_font        (lbl_flap, Theme::font_display_md(),      0);
     lv_obj_set_style_text_letter_space(lbl_flap, Theme::LETTER_SPACE_LABEL,     0);
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,          0);
+    lv_obj_set_width                  (lbl_flap, 380);
+    lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 400);
 
     // ── Heartbeat dot (smaller, near bottom edge) ───────────────────────────
@@ -414,7 +422,27 @@ void set_flap_text(const char *text)
     if (!text || !text[0]) return;
     pending_flap_text = String(text);
     if (lbl_flap) {
-        SplitFlap::set_text(lbl_flap, text);
+        // For text wider than the label's visible width, skip the flap
+        // and just set+scroll. The flap is fixed-width with long_mode
+        // forced to CLIP for the duration — only the leftmost characters
+        // would animate, then the marquee would restart abruptly on the
+        // final tick. Looks much worse than just rolling the headline in.
+        // (Player screen uses a two-phase disintegrate/assemble for this;
+        // standby rotates every 45 s so it's not worth the orchestration.)
+        const lv_font_t *font = lv_obj_get_style_text_font(lbl_flap, LV_PART_MAIN);
+        int32_t lsp = lv_obj_get_style_text_letter_space(lbl_flap, LV_PART_MAIN);
+        lv_point_t sz;
+        lv_text_get_size(&sz, text, font, lsp, 0, LV_COORD_MAX, 0);
+        if (sz.x > lv_obj_get_width(lbl_flap)) {
+            // Make sure long-mode is the marquee one (might have been
+            // forced to CLIP if a prior flap is still in flight; calling
+            // SplitFlap::set_text with a new target would have torn that
+            // flap down, but we're skipping SplitFlap, so do it manually).
+            lv_label_set_long_mode(lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_label_set_text(lbl_flap, text);
+        } else {
+            SplitFlap::set_text(lbl_flap, text);
+        }
     }
     // If create() hasn't run yet, pending_flap_text is the seed used in
     // lv_label_set_text at creation — no animation that first time, but

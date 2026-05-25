@@ -164,7 +164,7 @@ class AmoledDisplay(DisplayInterface):
             self.accent_color = _norm(slots["a"])
         for k in ("g", "d", "p", "s", "e"):
             if k in slots and slots[k]:
-                self.accent_extra[k] = _norm(slots[k])
+                self.palette[k] = _norm(slots[k])
         # Force re-send next poll cycle.
         self._palette_sent = False
         self._send_palette()
