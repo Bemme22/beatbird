@@ -25,4 +25,9 @@ namespace SplitFlap {
  *  if all animation slots are in use, or if old + new texts are identical. */
 void set_text(lv_obj_t *label, const char *new_text);
 
+/** True iff a flap animation is currently active on `label`. Used by
+ *  callers chaining two-phase transitions (disintegrate → assemble)
+ *  to poll for phase-A completion before kicking phase B. */
+bool is_running(lv_obj_t *label);
+
 }  // namespace SplitFlap

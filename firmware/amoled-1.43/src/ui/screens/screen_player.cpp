@@ -57,6 +57,19 @@ static lv_obj_t *scr           = nullptr;
 static lv_obj_t *cover_img     = nullptr;   // album-art background, z-bottom
 static lv_image_dsc_t cover_dsc = {};
 
+// Two-phase transition state for title/artist. For long text that needs
+// to scroll, a single-phase flap looks like a 1 s freeze of the rolling
+// motion. Instead: phase 1 flaps current chars → spaces ("disintegrate"),
+// phase 2 flaps spaces → new chars ("assemble"). Net effect: continuous
+// visible motion across the transition with no static pause.
+//
+// Phase values: 0 = idle / single-phase done, 1 = disintegrating,
+//               2 = assembling
+static uint8_t title_phase   = 0;
+static uint8_t artist_phase  = 0;
+static String  title_pending;
+static String  artist_pending;
+
 // Custom-draw layers (back→front)
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
@@ -735,27 +748,87 @@ void update() {
     // below would just thrash hidden widgets. Bail early.
     if (in_standby) return;
 
+    // ── Helper: does this text overflow the label width (i.e. would scroll)?
+    auto needs_scroll = [](lv_obj_t *lbl, const char *txt) -> bool {
+        if (!txt || !*txt) return false;
+        lv_coord_t w = lv_obj_get_width(lbl);
+        const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
+        int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
+        lv_point_t sz = {0, 0};
+        lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        return sz.x > w;
+    };
+
     if (State::is_dirty(State::Dirty::TITLE)) {
         if (State::app.title.length()) {
-            const char *t = State::app.title.c_str();
-            // Set scroll anim_time first (measures the FINAL string), then
-            // kick off the split-flap which leaves the label on `t` once done.
+            const char *t   = State::app.title.c_str();
+            const char *old = lv_label_get_text(lbl_title);
             set_scroll_speed_pxs(lbl_title, t, 30);
-            SplitFlap::set_text(lbl_title, t);
+
+            // Two-phase only when both the outgoing text needed to scroll
+            // AND the incoming will scroll — that's the case where a
+            // single-phase flap visibly freezes the marquee. For short-
+            // to-short / short-to-long / long-to-short, a single flap is
+            // smooth enough and faster.
+            bool old_scrolls = needs_scroll(lbl_title, old);
+            bool new_scrolls = needs_scroll(lbl_title, t);
+            if (old_scrolls && new_scrolls && strcmp(old, t) != 0) {
+                title_pending = t;
+                SplitFlap::set_text(lbl_title, " ");   // disintegrate
+                title_phase = 1;
+            } else {
+                SplitFlap::set_text(lbl_title, t);
+                title_phase = 0;
+                title_pending = "";
+            }
         } else {
             // No title → quiet placeholder "···" (three U+00B7 mid-dots,
-            // in Departure Mono's range). Skip SplitFlap here: the dots
-            // are multi-byte UTF-8 and the per-byte random cycle would
-            // briefly garble the sequence before settling.
+            // in Departure Mono's range). Skip SplitFlap — the dots are
+            // multi-byte UTF-8 and the per-byte random cycle would briefly
+            // garble the sequence before settling.
             lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
+            title_phase = 0;
+            title_pending = "";
         }
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
-        const char *a = State::app.artist.c_str();
+        const char *a   = State::app.artist.c_str();
+        const char *old = lv_label_get_text(lbl_artist);
         set_scroll_speed_pxs(lbl_artist, a, 25);
-        SplitFlap::set_text(lbl_artist, a);
+
+        bool old_scrolls = needs_scroll(lbl_artist, old);
+        bool new_scrolls = needs_scroll(lbl_artist, a);
+        if (old_scrolls && new_scrolls && strcmp(old, a) != 0 && *a) {
+            artist_pending = a;
+            SplitFlap::set_text(lbl_artist, " ");
+            artist_phase = 1;
+        } else {
+            SplitFlap::set_text(lbl_artist, a);
+            artist_phase = 0;
+            artist_pending = "";
+        }
         State::clear_dirty(State::Dirty::ARTIST);
+    }
+
+    // ── Drive the two-phase transitions ──────────────────────────────────
+    // Once the disintegrate flap finishes (label now shows " "), kick the
+    // assemble flap pointing at the saved new text. After the second
+    // flap finishes there's nothing more to do — the saved long_mode
+    // (SCROLL_CIRCULAR) gets restored inside SplitFlap on the final tick.
+    if (title_phase == 1 && !SplitFlap::is_running(lbl_title)) {
+        SplitFlap::set_text(lbl_title, title_pending.c_str());
+        title_phase = 2;
+    } else if (title_phase == 2 && !SplitFlap::is_running(lbl_title)) {
+        title_phase = 0;
+        title_pending = "";
+    }
+    if (artist_phase == 1 && !SplitFlap::is_running(lbl_artist)) {
+        SplitFlap::set_text(lbl_artist, artist_pending.c_str());
+        artist_phase = 2;
+    } else if (artist_phase == 2 && !SplitFlap::is_running(lbl_artist)) {
+        artist_phase = 0;
+        artist_pending = "";
     }
     if (State::is_dirty(State::Dirty::STATE)) {
         lv_obj_invalidate(state_icon);

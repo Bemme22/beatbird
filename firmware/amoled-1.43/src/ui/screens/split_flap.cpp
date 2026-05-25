@@ -134,6 +134,10 @@ static void tick_cb(lv_timer_t *t) {
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
+bool is_running(lv_obj_t *label) {
+    return find_existing(label) != nullptr;
+}
+
 void set_text(lv_obj_t *label, const char *new_text) {
     if (!label || !new_text) return;
 
@@ -163,43 +167,10 @@ void set_text(lv_obj_t *label, const char *new_text) {
         return;
     }
 
-    // Length-adaptive: only run the flap animation when both texts FIT the
-    // label width. If either needs scroll, skip the flap and just set the
-    // text — LVGL's SCROLL takes over immediately. Why: with scroll active,
-    // the flap's CLIP-during-cycle freezes horizontal motion for ~1 s,
-    // which the user reads as a jarring "hang". Short texts have no scroll
-    // competing, so the flap is the only motion and reads clean.
-    {
-        lv_coord_t label_w = lv_obj_get_width(label);
-        const lv_font_t *font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
-        int32_t letter_space = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
-        lv_point_t new_size = {0, 0};
-        lv_text_get_size(&new_size, new_text, font, letter_space, 0,
-                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        bool new_needs_scroll = (new_size.x > label_w);
-        bool old_needs_scroll = false;
-        if (old_text && *old_text) {
-            lv_point_t old_size = {0, 0};
-            lv_text_get_size(&old_size, old_text, font, letter_space, 0,
-                             LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-            old_needs_scroll = (old_size.x > label_w);
-        }
-        if (new_needs_scroll || old_needs_scroll) {
-            // If a previous flap is mid-flight on this label, tear it down
-            // cleanly first — restore the saved long-mode so LVGL doesn't
-            // stay in CLIP and silently kill scroll.
-            if (running) {
-                lv_label_set_long_mode(label, running->saved_long_mode);
-                if (running->timer) {
-                    lv_timer_del(running->timer);
-                    running->timer = nullptr;
-                }
-                free_slot(running);
-            }
-            lv_label_set_text(label, new_text);
-            return;
-        }
-    }
+    // (Previously skipped the flap when either text needed scroll, because
+    // the single-phase CLIP-during-flap froze the marquee. The caller now
+    // handles that case with a two-phase orchestration — disintegrate to
+    // space then assemble new text — so we always flap here.)
 
     // Get or allocate a slot. If we run out (shouldn't happen with
     // MAX_ANIMS=4), just set the text directly.
