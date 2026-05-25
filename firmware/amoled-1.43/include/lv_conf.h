@@ -50,7 +50,14 @@
 // TJpgDec (tinyjpgdec) — small JPEG decoder used by the album-cover
 // background. Pi pre-processes covers to ~5-30 KB JPEGs; firmware
 // decodes them on the fly when the IMG: stream completes.
+//
+// LV_USE_FS_MEMFS is the required companion: tjpgd reads via LVGL's FS
+// abstraction even when the source is an in-memory buffer. Without it
+// the decoder logs "needs FS_MEMFS to decode from data" and falls back
+// to drawing nothing.
 #define LV_USE_TJPGD 1
+#define LV_USE_FS_MEMFS 1
+#define LV_FS_MEMFS_LETTER 'M'
 
 // === Font ===
 #define LV_FONT_MONTSERRAT_14 1
