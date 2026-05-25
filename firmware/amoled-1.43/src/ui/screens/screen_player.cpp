@@ -693,25 +693,22 @@ void update() {
     State::clear_dirty(State::Dirty::SYSTEM);
 
     // ── Album cover background swap ─────────────────────────────────────────
+    // tjpgd's decoder_info for VARIABLE source copies w/h straight from the
+    // dsc instead of parsing the JPEG SOF marker — so we MUST pre-fill
+    // dimensions. The Pi resizes every cover to 466×466, so hard-coding
+    // is fine; push width/height via IMG:start if that ever changes.
     if (State::is_dirty(State::Dirty::COVER) && cover_img) {
         const uint8_t *data = Proto::cover_data();
         size_t sz = Proto::cover_size();
-        printf("[player] cover dirty: data=%p sz=%u img_obj=%p\n",
-               (const void*)data, (unsigned)sz, (void*)cover_img);
         if (data && sz > 4) {
-            cover_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            cover_dsc.header.cf    = LV_COLOR_FORMAT_RAW;
-            // tjpgd's decoder_info for VARIABLE source copies w/h straight
-            // from this dsc instead of parsing the SOF marker — so we MUST
-            // pre-fill the dimensions. The Pi side always resizes to 466,
-            // so hard-coding is fine; if that ever changes, push w/h via
-            // the IMG:start header field and feed them in here.
-            cover_dsc.header.w     = 466;
-            cover_dsc.header.h     = 466;
+            cover_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+            cover_dsc.header.cf     = LV_COLOR_FORMAT_RAW;
+            cover_dsc.header.w      = 466;
+            cover_dsc.header.h      = 466;
             cover_dsc.header.stride = 466 * 3;
-            cover_dsc.data_size    = (uint32_t)sz;
-            cover_dsc.data         = data;
-            lv_image_set_src(cover_img, NULL);             // drop cache entry
+            cover_dsc.data_size     = (uint32_t)sz;
+            cover_dsc.data          = data;
+            lv_image_set_src(cover_img, NULL);     // drop cache entry
             lv_image_set_src(cover_img, &cover_dsc);
             lv_obj_invalidate(cover_img);
         }

@@ -21,9 +21,7 @@
 
 // === Logging ===
 #define LV_USE_LOG 1
-// Temporarily INFO instead of WARN to surface tjpgd/decoder failures while
-// debugging the cover pipeline. Revert to WARN once stable.
-#define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
+#define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 #define LV_LOG_PRINTF 1
 
 // === Input devices ===

@@ -43,8 +43,13 @@ class CoverProcessor:
         self,
         output_size: int = 466,
         blur_radius: float = 12.0,
-        darken: float = 0.45,
-        vignette_strength: float = 0.4,
+        # Tuned on the sim with the actual UI in front of a real Spotify
+        # cover (Modestep). Darken 0.35 keeps brand colours visible but
+        # cream-yellow UI stays high-contrast; vignette 1.0 fades the
+        # edges to almost-black which pulls focus to the centre track
+        # text. Lower vignette = more cover visible at the corners.
+        darken: float = 0.35,
+        vignette_strength: float = 1.0,
         jpeg_quality: int = 75,
         cache_max: int = 20,
     ) -> None:
