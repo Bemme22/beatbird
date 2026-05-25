@@ -30,6 +30,7 @@ class SpotifyState:
     duration_ms: int = 1
     volume: int = 0
     volume_steps: int = 65535
+    album_cover_url: str = ""    # go-librespot puts it under track.album_cover_url
 
 
 class SpotifyClient:
@@ -99,6 +100,7 @@ class SpotifyClient:
             duration_ms=max(1, track.get("duration") or 0),
             volume=status.get("volume", 0) or 0,
             volume_steps=status.get("volume_steps", 65535) or 65535,
+            album_cover_url=track.get("album_cover_url") or "",
         )
 
     # ─── Playback control ───────────────────────────────────────────────────
