@@ -347,11 +347,12 @@ static void cover_buf_ensure(size_t needed)
 {
     if (g_cover_buf_cap >= needed) return;
     if (g_cover_buf) free(g_cover_buf);
-    g_cover_buf = nullptr;
-#ifdef ARDUINO
-    g_cover_buf = (uint8_t *)ps_malloc(needed);  // PSRAM preferred
-#endif
-    if (!g_cover_buf) g_cover_buf = (uint8_t *)malloc(needed);
+    // Plain malloc — internal SRAM. The processed JPEG is only a few KB,
+    // and LVGL's tjpgd → FS_MEMFS path is known to misbehave with
+    // PSRAM-located buffers on Arduino-ESP32 3.x (decoder gets garbage
+    // back from the memfs file wrapper). ESP32-S3 has 512 KB internal
+    // SRAM, plenty for a 5-30 KB cover.
+    g_cover_buf = (uint8_t *)malloc(needed);
     g_cover_buf_cap = g_cover_buf ? needed : 0;
 }
 
