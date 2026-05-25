@@ -699,22 +699,21 @@ void update() {
         printf("[player] cover dirty: data=%p sz=%u img_obj=%p\n",
                (const void*)data, (unsigned)sz, (void*)cover_img);
         if (data && sz > 4) {
-            // Quick JPEG-magic sanity: data should start FFD8FFE0 / FFD8FFE1.
-            printf("[player] cover header: %02X %02X %02X %02X\n",
-                   data[0], data[1], data[2], data[3]);
             cover_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            cover_dsc.header.cf    = LV_COLOR_FORMAT_RAW;  // tjpgd identifies JPEG by magic bytes
-            cover_dsc.header.w     = 0;
-            cover_dsc.header.h     = 0;
+            cover_dsc.header.cf    = LV_COLOR_FORMAT_RAW;
+            // tjpgd's decoder_info for VARIABLE source copies w/h straight
+            // from this dsc instead of parsing the SOF marker — so we MUST
+            // pre-fill the dimensions. The Pi side always resizes to 466,
+            // so hard-coding is fine; if that ever changes, push w/h via
+            // the IMG:start header field and feed them in here.
+            cover_dsc.header.w     = 466;
+            cover_dsc.header.h     = 466;
+            cover_dsc.header.stride = 466 * 3;
             cover_dsc.data_size    = (uint32_t)sz;
             cover_dsc.data         = data;
             lv_image_set_src(cover_img, NULL);             // drop cache entry
             lv_image_set_src(cover_img, &cover_dsc);
             lv_obj_invalidate(cover_img);
-            // Diagnostic — what does LVGL think this image is now?
-            int32_t w = lv_image_get_src_width(cover_img);
-            int32_t h = lv_image_get_src_height(cover_img);
-            printf("[player] after set_src: lv reports w=%d h=%d\n", (int)w, (int)h);
         }
         State::clear_dirty(State::Dirty::COVER);
     }
