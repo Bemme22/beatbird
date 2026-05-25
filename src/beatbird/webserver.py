@@ -31,7 +31,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from beatbird import system
+from beatbird import settings_overrides, system
 from beatbird.audio.camilladsp import CamillaDSP, db_to_pct, pct_to_db
 from beatbird.config import load_profile
 from beatbird.hardware import louder_hat
@@ -90,6 +90,11 @@ class ServiceReq(BaseModel):
 
 class SystemReq(BaseModel):
     action: str   # "reboot" | "shutdown"
+
+
+class SettingsReq(BaseModel):
+    palette: dict | None = None   # {"a": "#rrggbb", "g": "...", ...} — slots a/g/d/p/s/e
+    idle: dict | None = None      # {"rss_url": "...", "rss_refresh_minutes": 30, "rss_weight": 0.5}
 
 
 # ─── Read API ────────────────────────────────────────────────────────────────
@@ -272,6 +277,105 @@ def system_action(req: SystemReq):
     return {"ok": True, "action": req.action}
 
 
+# ─── Settings (web UI live tunables) ─────────────────────────────────────────
+# Layered model: profile YAML is the immutable git-tracked base config; the
+# overrides JSON sits in /var/lib/beatbird/ and holds per-installation tweaks
+# (palette, RSS URL, …) the user makes through this page. The bridge polls
+# the file's mtime once every status tick and re-applies on change.
+
+_PALETTE_SLOTS = ("a", "g", "d", "p", "s", "e")
+
+
+def _hex6(s: str) -> str | None:
+    """Normalise a #rrggbb string. Returns None for anything that isn't
+    six hex digits — keeps malformed colour input out of the override JSON."""
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) != 6:
+        return None
+    try:
+        int(s, 16)
+    except ValueError:
+        return None
+    return "#" + s.lower()
+
+
+@app.get("/api/settings")
+def get_settings():
+    """Effective settings: profile defaults merged with any overrides on
+    disk. The UI uses this to pre-fill the form with whatever the bridge
+    is currently running."""
+    p = _get_profile()
+    ov = settings_overrides.load()
+
+    base_palette = {
+        "a": p.display.accent_color,
+        "g": p.display.accent_glow,
+        "d": p.display.accent_dim,
+        "p": p.display.text_primary,
+        "s": p.display.text_secondary,
+        "e": p.display.accent_alert,
+    }
+    ov_palette = ov.get("palette") if isinstance(ov.get("palette"), dict) else {}
+    palette = {k: ov_palette.get(k) or base_palette.get(k) for k in _PALETTE_SLOTS}
+
+    base_idle = {
+        "rss_url":             p.idle.rss_url,
+        "rss_refresh_minutes": p.idle.rss_refresh_minutes,
+        "rss_weight":          p.idle.rss_weight,
+    }
+    ov_idle = ov.get("idle") if isinstance(ov.get("idle"), dict) else {}
+    idle = {**base_idle, **{k: v for k, v in ov_idle.items() if v is not None}}
+
+    return {"palette": palette, "idle": idle, "overrides": ov}
+
+
+@app.post("/api/settings")
+def set_settings(req: SettingsReq):
+    """Persist overrides to disk. The bridge picks the change up on its
+    next mtime poll (≤ 5 s) — no restart, no signal.
+
+    Empty / missing slots fall back to profile defaults on read, so the
+    UI can blank out a value to "use profile default" by sending an
+    empty string. We don't merge with the existing override; the request
+    is the new full set of overrides (UI always POSTs everything)."""
+    out: dict = {"palette": None, "idle": None}
+
+    if req.palette is not None:
+        clean: dict[str, str] = {}
+        for k in _PALETTE_SLOTS:
+            v = _hex6(req.palette.get(k, ""))
+            if v:
+                clean[k] = v
+        if clean:
+            out["palette"] = clean
+
+    if req.idle is not None:
+        url = (req.idle.get("rss_url") or "").strip()
+        try:
+            refresh = max(1, min(1440, int(req.idle.get("rss_refresh_minutes", 30))))
+        except (TypeError, ValueError):
+            refresh = 30
+        try:
+            weight = max(0.0, min(1.0, float(req.idle.get("rss_weight", 0.5))))
+        except (TypeError, ValueError):
+            weight = 0.5
+        out["idle"] = {
+            "rss_url":             url,
+            "rss_refresh_minutes": refresh,
+            "rss_weight":          weight,
+        }
+
+    try:
+        settings_overrides.save(out)
+    except Exception as e:
+        raise HTTPException(500, f"settings save failed: {e}")
+    return {"ok": True, "overrides": out}
+
+
 # ─── Log streaming ───────────────────────────────────────────────────────────
 
 @app.get("/api/logs")
@@ -376,6 +480,8 @@ _HTML = """<!doctype html>
  </div>
  <div style="margin-top:.6em">
   <a href="/health" style="color:var(--accent,#888);text-decoration:none">→ Health check</a>
+  &nbsp;·&nbsp;
+  <a href="/settings" style="color:var(--accent,#888);text-decoration:none">→ Settings (palette, RSS)</a>
  </div>
 </div>
 
@@ -579,6 +685,198 @@ _HEALTH_HTML = """<!doctype html>
 def health_page():
     p = _get_profile()
     return _HEALTH_HTML.format(name=p.identity.friendly_name)
+
+
+# ─── /settings page — live editor for palette + idle/RSS ─────────────────────
+
+_SETTINGS_HTML = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BeatBird Settings — {name}</title>
+<style>
+ body{{font:14px/1.45 system-ui,sans-serif;background:#111;color:#eee;max-width:640px;margin:1.2em auto;padding:0 1em 2em}}
+ h1{{font-weight:400;letter-spacing:.05em;margin:0 0 .2em}}
+ h1 a{{color:#888;font-size:13px;text-decoration:none;float:right}}
+ h2{{font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#777;margin:1.4em 0 .4em}}
+ .card{{background:#1c1c1c;border-radius:6px;padding:.9em 1.1em;margin:.4em 0}}
+ .pal{{display:grid;grid-template-columns:90px 50px 110px 1fr;gap:.5em;align-items:center;margin:.35em 0}}
+ .pal label{{color:#888;font-size:12px}}
+ .pal .swatch{{width:36px;height:24px;border-radius:4px;border:1px solid #444}}
+ .pal input[type=color]{{width:50px;height:30px;background:none;border:0;padding:0;cursor:pointer}}
+ .pal input[type=text]{{background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.3em .5em;font-family:ui-monospace,monospace;font-size:12px;width:90px}}
+ .pal .hint{{color:#666;font-size:11px}}
+ .field{{display:grid;grid-template-columns:160px 1fr;gap:.6em;align-items:center;margin:.4em 0}}
+ .field label{{color:#888;font-size:12px}}
+ input[type=text].url{{width:100%;background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.4em .6em;font-family:ui-monospace,monospace;font-size:12px;box-sizing:border-box}}
+ input[type=number]{{background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.3em .5em;font-size:13px;width:80px}}
+ input[type=range]{{flex:1;accent-color:#888}}
+ .slider-row{{display:flex;align-items:center;gap:.5em}}
+ button{{background:#2a2a2a;color:#eee;border:0;border-radius:4px;padding:.5em 1em;margin:.2em .15em .2em 0;cursor:pointer;font-size:13px}}
+ button:hover{{background:#3a3a3a}}
+ button.primary{{background:#284028;color:#cfc}}
+ button.primary:hover{{background:#385038}}
+ #status{{font-size:12px;color:#888;margin-left:.6em}}
+ .legend{{color:#666;font-size:11px;margin:.3em 0 .8em}}
+</style></head>
+<body>
+<h1>{name} — Settings <a href="/">← Dashboard</a></h1>
+<div class="legend">Live editor. Änderungen werden in /var/lib/beatbird/settings-overrides.json gespeichert und vom Bridge-Daemon innerhalb von ~5 s übernommen — kein Neustart nötig.</div>
+
+<h2>Palette</h2>
+<div class="card">
+ <div class="legend">Slots: <code>a</code>=accent, <code>g</code>=glow, <code>d</code>=dim, <code>p</code>=text primary, <code>s</code>=text secondary, <code>e</code>=alert. Leerlassen = Profile-Default.</div>
+ <div id="palette"></div>
+ <div style="margin-top:.6em">
+  <button onclick="deriveFromAccent()">Aus Accent ableiten</button>
+  <button onclick="clearPalette()">Auf Profile-Default zurücksetzen</button>
+ </div>
+</div>
+
+<h2>Standby — RSS feed</h2>
+<div class="card">
+ <div class="field">
+  <label>RSS URL</label>
+  <input id="rss_url" type="text" class="url" placeholder="https://www.tagesschau.de/xml/rss2/">
+ </div>
+ <div class="field">
+  <label>Refresh (min)</label>
+  <input id="rss_refresh" type="number" min="1" max="1440" step="1" value="30">
+ </div>
+ <div class="field">
+  <label>RSS-Anteil</label>
+  <div class="slider-row">
+   <input id="rss_weight" type="range" min="0" max="100" step="5" value="50">
+   <span id="rss_weight_v" style="font-family:ui-monospace,monospace;width:3em;text-align:right">50%</span>
+  </div>
+ </div>
+ <div class="legend">0% = nur lokale Airport-Board-Sprüche, 100% = nur RSS-Headlines. URL leerlassen schaltet RSS komplett aus.</div>
+</div>
+
+<div class="card" style="text-align:right">
+ <button class="primary" onclick="save()">Speichern</button>
+ <span id="status"></span>
+</div>
+
+<script>
+ const SLOTS = ['a','g','d','p','s','e'];
+ const SLOT_LABEL = {{a:'accent',g:'glow',d:'dim',p:'text primary',s:'text secondary',e:'alert'}};
+ let current = {{palette:{{}}, idle:{{}}, overrides:{{}}}};
+
+ function isHex6(s) {{ return typeof s==='string' && /^#[0-9a-f]{{6}}$/i.test(s); }}
+
+ function renderPalette() {{
+  const wrap = document.getElementById('palette');
+  wrap.innerHTML = '';
+  const ovPal = current.overrides && current.overrides.palette || {{}};
+  for (const k of SLOTS) {{
+   const eff = current.palette[k] || '#000000';
+   const overridden = !!ovPal[k];
+   const row = document.createElement('div');
+   row.className = 'pal';
+   row.innerHTML = `
+    <label>${{k}} <span style="color:#555">${{SLOT_LABEL[k]}}</span></label>
+    <input type="color" data-slot="${{k}}" value="${{eff}}">
+    <input type="text" data-slot-hex="${{k}}" value="${{eff}}" maxlength="7">
+    <span class="hint">${{overridden ? 'override' : 'profile default'}}</span>`;
+   wrap.appendChild(row);
+   const c = row.querySelector('input[type=color]');
+   const t = row.querySelector('input[type=text]');
+   c.addEventListener('input', () => {{ t.value = c.value; }});
+   t.addEventListener('input', () => {{ if (isHex6(t.value)) c.value = t.value; }});
+  }}
+ }}
+
+ function readPalette() {{
+  const out = {{}};
+  for (const k of SLOTS) {{
+   const t = document.querySelector(`input[data-slot-hex="${{k}}"]`);
+   const v = (t && t.value || '').trim().toLowerCase();
+   if (isHex6(v)) out[k] = v;
+  }}
+  return out;
+ }}
+
+ function shade(hex, pct) {{
+  // pct in [-1, +1]; -1 → black, +1 → white. Used by deriveFromAccent.
+  const c = hex.startsWith('#') ? hex.slice(1) : hex;
+  let r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
+  if (pct >= 0) {{ r += (255-r)*pct; g += (255-g)*pct; b += (255-b)*pct; }}
+  else          {{ r *= (1+pct);     g *= (1+pct);     b *= (1+pct); }}
+  const h = v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0');
+  return '#'+h(r)+h(g)+h(b);
+ }}
+
+ function deriveFromAccent() {{
+  const t = document.querySelector('input[data-slot-hex="a"]');
+  if (!t || !isHex6(t.value)) {{ alert('Accent (a) muss ein gültiger #rrggbb-Wert sein.'); return; }}
+  const a = t.value.toLowerCase();
+  const derived = {{
+    a: a,
+    g: shade(a, +0.35),    // glow — brighter
+    d: shade(a, -0.55),    // dim  — darker
+    p: '#ffffff',
+    s: '#888888',
+    e: '#e85050',
+  }};
+  current.palette = derived;
+  current.overrides.palette = derived;
+  renderPalette();
+ }}
+
+ function clearPalette() {{
+  current.overrides.palette = {{}};
+  // Re-fetch so we display profile defaults
+  load().then(()=>{{}});
+ }}
+
+ async function load() {{
+  const r = await fetch('/api/settings');
+  current = await r.json();
+  renderPalette();
+  document.getElementById('rss_url').value = current.idle.rss_url || '';
+  document.getElementById('rss_refresh').value = current.idle.rss_refresh_minutes || 30;
+  const w = Math.round((current.idle.rss_weight ?? 0.5) * 100);
+  document.getElementById('rss_weight').value = w;
+  document.getElementById('rss_weight_v').textContent = w + '%';
+ }}
+
+ document.getElementById('rss_weight').addEventListener('input', e => {{
+  document.getElementById('rss_weight_v').textContent = e.target.value + '%';
+ }});
+
+ async function save() {{
+  const body = {{
+    palette: readPalette(),
+    idle: {{
+      rss_url: document.getElementById('rss_url').value.trim(),
+      rss_refresh_minutes: parseInt(document.getElementById('rss_refresh').value, 10),
+      rss_weight: parseInt(document.getElementById('rss_weight').value, 10) / 100,
+    }},
+  }};
+  const st = document.getElementById('status');
+  st.textContent = 'speichere…';
+  try {{
+   const r = await fetch('/api/settings', {{method:'POST',
+     headers:{{'content-type':'application/json'}},
+     body: JSON.stringify(body)}});
+   if (!r.ok) throw new Error('HTTP ' + r.status);
+   st.textContent = 'gespeichert ✓ (Bridge übernimmt innerhalb 5 s)';
+   setTimeout(load, 6000);   // reload after bridge has applied
+  }} catch (e) {{
+   st.textContent = 'Fehler: ' + e;
+  }}
+ }}
+
+ load();
+</script>
+</body></html>
+"""
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page():
+    p = _get_profile()
+    return _SETTINGS_HTML.format(name=p.identity.friendly_name)
 
 
 def main():

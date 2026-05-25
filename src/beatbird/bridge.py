@@ -28,6 +28,7 @@ from beatbird.audio.loudness import LoudnessController, LoudnessFilter
 from beatbird.audio.spectrum import SpectrumAnalyzer
 from beatbird.cover_processor import CoverProcessor
 from beatbird.rss_fetcher import RssFetcher
+from beatbird import settings_overrides
 from beatbird.config import Profile, load_profile
 from beatbird.display.base import (
     DisplayInterface, DisplayState, DisplaySystemStatus,
@@ -317,15 +318,19 @@ class BeatBirdBridge:
         # local IDLE_MESSAGES only. Runs in its own daemon thread, so
         # the bridge main loop never blocks on a slow feed.
         self.rss: RssFetcher | None = None
-        if profile.idle.rss_url:
-            self.rss = RssFetcher(
-                profile.idle.rss_url,
-                refresh_minutes=profile.idle.rss_refresh_minutes,
-                max_chars=profile.idle.max_chars,
-            )
-            self.rss.start()
-            log.info("rss idle source: %s", profile.idle.rss_url)
+        self._idle_max_chars = profile.idle.max_chars
         self._rss_weight = profile.idle.rss_weight
+        self._apply_idle_settings(
+            profile.idle.rss_url,
+            profile.idle.rss_refresh_minutes,
+            self._rss_weight,
+        )
+
+        # Runtime overrides from the web UI settings page. We poll the
+        # file's mtime once per status tick (every 5 s) and re-apply on
+        # change — no signal handling, no service restart needed.
+        self._overrides_mtime: float | None = settings_overrides.mtime()
+        self._apply_overrides(settings_overrides.load(), initial=True)
 
         # ── Standby ──
         # last_playback_time = monotonic timestamp of last PLAYING observation.
@@ -820,6 +825,55 @@ class BeatBirdBridge:
                 self.song_artist = ""
                 self.bt_device_alias = ""
 
+    # ─── Runtime tunables (web UI settings page) ────────────────────────────
+
+    def _apply_idle_settings(self, rss_url: str, rss_refresh_minutes: int,
+                              rss_weight: float) -> None:
+        """Reconfigure the standby idle source. Safe to call repeatedly —
+        stops the previous fetcher (if any) before starting a new one."""
+        if self.rss is not None:
+            self.rss.stop()
+            self.rss = None
+        if rss_url:
+            self.rss = RssFetcher(
+                rss_url, refresh_minutes=rss_refresh_minutes,
+                max_chars=self._idle_max_chars,
+            )
+            self.rss.start()
+            log.info("rss idle source: %s", rss_url)
+        self._rss_weight = rss_weight
+
+    def _apply_overrides(self, data: dict, initial: bool = False) -> None:
+        """Layer web-UI overrides on top of profile defaults. Called once
+        at startup (initial=True) and again whenever the overrides file
+        mtime changes."""
+        palette = data.get("palette")
+        if palette and isinstance(palette, dict) and self.display:
+            try:
+                self.display.set_palette(palette)
+                if not initial:
+                    log.info("overrides: palette updated %s", palette)
+            except Exception as e:
+                log.warning("overrides palette apply failed: %s", e)
+        idle = data.get("idle")
+        if idle and isinstance(idle, dict):
+            self._apply_idle_settings(
+                idle.get("rss_url", ""),
+                int(idle.get("rss_refresh_minutes", 30)),
+                float(idle.get("rss_weight", 0.5)),
+            )
+            if not initial:
+                log.info("overrides: idle updated %s", idle)
+
+    def _poll_overrides(self) -> None:
+        """File-mtime check, applies if changed. Called from main loop
+        once per status tick — no syscall storm, no signal plumbing."""
+        m = settings_overrides.mtime()
+        if m is None or m == self._overrides_mtime:
+            return
+        self._overrides_mtime = m
+        self._apply_overrides(settings_overrides.load())
+
     def _kick_cover_fetch(self, uri: str, url: str) -> None:
         """Daemon-thread cover processor + display.push_cover. Returns
         immediately so the poll loop doesn't wait on URL download (~100-
@@ -1204,6 +1258,13 @@ class BeatBirdBridge:
                         self._push_system_now()
                     except Exception as e:
                         log.error("status refresh: %s", e)
+                    # Piggyback on the 5s tick to check whether the web UI
+                    # has written new settings — stat() is cheap and we
+                    # only reload the JSON when mtime changes.
+                    try:
+                        self._poll_overrides()
+                    except Exception as e:
+                        log.error("overrides poll: %s", e)
 
                 # Source polling (every 2s)
                 if now - self.t_last_spotify >= SPOTIFY_POLL_INTERVAL:

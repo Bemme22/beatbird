@@ -150,6 +150,25 @@ class AmoledDisplay(DisplayInterface):
 
     # ─── Palette ────────────────────────────────────────────────────────────
 
+    def set_palette(self, slots: dict[str, str]) -> None:
+        """Replace one or more palette slots at runtime and re-send to the
+        firmware. `slots` keys are a/g/d/p/s/e per the PAL: protocol;
+        values are hex strings (with or without leading '#'). Missing
+        keys keep their current value. Used by the web UI settings page
+        for live palette swap without a bridge restart."""
+        def _norm(c: str | None) -> str | None:
+            if not c: return None
+            return c.lstrip("#").upper()
+
+        if "a" in slots and slots["a"]:
+            self.accent_color = _norm(slots["a"])
+        for k in ("g", "d", "p", "s", "e"):
+            if k in slots and slots[k]:
+                self.accent_extra[k] = _norm(slots[k])
+        # Force re-send next poll cycle.
+        self._palette_sent = False
+        self._send_palette()
+
     def _send_palette(self) -> None:
         """Push the speaker palette to the ESP32 once per (re)connect. If any
         extended-palette slot is configured, emit the new key=value form so
