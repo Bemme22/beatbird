@@ -25,6 +25,13 @@ static size_t line_pos = 0;
 
 void begin()
 {
+#ifdef ARDUINO
+    // Default Arduino-ESP32 USB-CDC RX buffer is 256 B, smaller than one
+    // IMG: chunk (~810 B base64). When LVGL render takes a few frames the
+    // CDC FIFO overflows and chunks vanish silently. 8 KB gives 10 chunks
+    // of slack — plenty for any realistic cover transfer burst.
+    Serial.setRxBufferSize(8192);
+#endif
     Serial.begin(115200);
     line_pos = 0;
 }
@@ -391,6 +398,11 @@ void handle_cover_line(const char *body)
         return;
     }
     if (!strncmp(body, "end", 3)) {
+        // Echo back the receive result so the bridge journal shows whether
+        // the chunks made it across the wire (or got truncated by an
+        // overflowing CDC buffer). Format: cover_rx: got <recv>/<expected>.
+        Serial.printf("cover_rx: got %u/%u\n",
+                      (unsigned)g_cover_buf_len, (unsigned)g_cover_expected);
         if (g_cover_collecting && g_cover_buf_len > 0) {
             State::mark_dirty(State::Dirty::COVER);
         }
