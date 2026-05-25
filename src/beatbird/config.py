@@ -90,11 +90,19 @@ class Audio(BaseModel):
     loudness: Loudness = Field(default_factory=Loudness)
 
 
+class CoverBackground(BaseModel):
+    enabled: bool = False    # parked by default — ESP32-S3 stutters under the
+                             # full-screen JPEG composite. Set true only when a
+                             # future firmware drops the render cost (e.g. smaller
+                             # cover, pre-decoded RGB565, or partial-redraw work).
+
+
 class Display(BaseModel):
     type: Literal["amoled", "led-button", "none"] = "none"
     variant: Optional[str] = None
     serial_device: str = "auto"
     spectrum_bands: int = 16
+    cover_background: CoverBackground = Field(default_factory=CoverBackground)
 
     # ── Single accent colour (current PAL: protocol) ──
     # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; firmware derives

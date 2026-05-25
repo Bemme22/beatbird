@@ -300,11 +300,17 @@ class BeatBirdBridge:
         self._prev_track_uri = ""
         self._stopped_since: float | None = None
 
-        # Album cover background. Pipeline lives in cover_processor.py;
-        # bridge just triggers it on track-URI change and pushes the
-        # resulting JPEG to the display in a daemon thread (network +
-        # PIL work, 100-300 ms, shouldn't block the main poll loop).
-        self.cover_proc: CoverProcessor = CoverProcessor()
+        # Album cover background. Profile-gated because the 466×466 JPEG
+        # composite is too heavy for ESP32-S3 — display stutters during
+        # cover swap. Disabled by default; flip display.cover_background.
+        # enabled=true once the firmware side gets faster (smaller cover,
+        # pre-decoded RGB565, partial-redraw, etc.).
+        cover_enabled = profile.display.cover_background.enabled
+        self.cover_proc: CoverProcessor | None = (
+            CoverProcessor() if cover_enabled else None
+        )
+        if not cover_enabled:
+            log.info("cover background disabled (profile flag)")
 
         # ── Standby ──
         # last_playback_time = monotonic timestamp of last PLAYING observation.
@@ -803,8 +809,12 @@ class BeatBirdBridge:
         """Daemon-thread cover processor + display.push_cover. Returns
         immediately so the poll loop doesn't wait on URL download (~100-
         500 ms) + Pillow processing (~100-200 ms). Multiple in-flight
-        requests are fine — the processor's URI cache dedupes."""
-        if not self.display or not url:
+        requests are fine — the processor's URI cache dedupes.
+
+        No-op when profile.display.cover_background.enabled is false —
+        the current ESP32-S3 firmware stutters under the full-screen
+        JPEG composite, so we keep the feature off-by-default."""
+        if not self.display or not url or self.cover_proc is None:
             return
 
         def _worker():
