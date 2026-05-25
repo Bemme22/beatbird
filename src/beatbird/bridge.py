@@ -26,6 +26,7 @@ from enum import Enum
 from beatbird.audio.camilladsp import CamillaDSP, pct_to_db, db_to_pct
 from beatbird.audio.loudness import LoudnessController, LoudnessFilter
 from beatbird.audio.spectrum import SpectrumAnalyzer
+from beatbird.cover_processor import CoverProcessor
 from beatbird.config import Profile, load_profile
 from beatbird.display.base import (
     DisplayInterface, DisplayState, DisplaySystemStatus,
@@ -298,6 +299,12 @@ class BeatBirdBridge:
         self._sp_volume_steps = 65535
         self._prev_track_uri = ""
         self._stopped_since: float | None = None
+
+        # Album cover background. Pipeline lives in cover_processor.py;
+        # bridge just triggers it on track-URI change and pushes the
+        # resulting JPEG to the display in a daemon thread (network +
+        # PIL work, 100-300 ms, shouldn't block the main poll loop).
+        self.cover_proc: CoverProcessor = CoverProcessor()
 
         # ── Standby ──
         # last_playback_time = monotonic timestamp of last PLAYING observation.
@@ -756,6 +763,10 @@ class BeatBirdBridge:
             self._prev_track_uri = state.track_uri
             if state.title:
                 log.info("Now playing: %s — %s", state.title, state.artist)
+            # Background-thread cover fetch + push. If the URL is missing
+            # (some librespot builds don't expose it), this is a no-op
+            # and the firmware keeps whatever cover was last shown.
+            self._kick_cover_fetch(state.track_uri, state.album_cover_url)
 
         # Stuck-state watchdog. When state.paused is FALSE (i.e. Spotify
         # thinks playback is running) but position_ms doesn't advance
@@ -787,6 +798,25 @@ class BeatBirdBridge:
                 self.song_title = ""
                 self.song_artist = ""
                 self.bt_device_alias = ""
+
+    def _kick_cover_fetch(self, uri: str, url: str) -> None:
+        """Daemon-thread cover processor + display.push_cover. Returns
+        immediately so the poll loop doesn't wait on URL download (~100-
+        500 ms) + Pillow processing (~100-200 ms). Multiple in-flight
+        requests are fine — the processor's URI cache dedupes."""
+        if not self.display or not url:
+            return
+
+        def _worker():
+            try:
+                jpeg = self.cover_proc.get(uri, url)
+                if jpeg:
+                    self.display.push_cover(jpeg)
+            except Exception as e:
+                log.warning("cover fetch/push for %s failed: %s", uri, e)
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="cover-fetch").start()
 
     def _log_wifi_snapshot(self, reason: str) -> None:
         """Dump current WiFi state to the journal when we detect trouble.

@@ -56,7 +56,13 @@ void handle_system_line(const char *line);        // SYS:...
 void handle_palette_line(const char *line);       // PAL:rrggbb
 void handle_boot_line(const char *line);          // BOOT:stage|progress
 void handle_weather_line(const char *line);       // WX:t=...|c=...|h=...|l=...
+void handle_cover_line(const char *body);         // IMG:start / IMG:N:base64 / IMG:end
 void handle_legacy_line(const char *line);        // VOL: / STATE: / SOURCE:
+
+// Album-cover RX state — exposed for screen_player.cpp to wire as the
+// background lv_image source on Dirty::COVER.
+const uint8_t *cover_data();
+size_t         cover_size();
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 

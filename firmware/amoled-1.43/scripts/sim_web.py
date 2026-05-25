@@ -244,6 +244,58 @@ row([
     ]),
 ])
 
+# ─── Album cover test ──────────────────────────────────────────────────────
+# Pulls in the same CoverProcessor the bridge uses on the Pi, runs the
+# blur/darken/vignette pipeline against an arbitrary URL or local file,
+# then splits the resulting JPEG into IMG: chunks and pushes them over
+# the same TCP control link. Lets you tune blur/darken/vignette params
+# and see the result on the sim immediately — no firmware flash, no
+# bridge restart.
+
+st.subheader("Album cover (push test)")
+import base64 as _b64
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "src"))
+
+try:
+    from beatbird.cover_processor import CoverProcessor as _CP
+    _cp_ok = True
+except Exception as _e:
+    _cp_ok = False
+    st.warning(f"CoverProcessor not importable: {_e}")
+
+if _cp_ok:
+    cc1, cc2, cc3 = st.columns(3)
+    blur     = cc1.slider("Blur radius",      0.0, 30.0, 12.0, step=1.0)
+    darken   = cc2.slider("Darken (×)",       0.1,  1.0,  0.45, step=0.05)
+    vignette = cc3.slider("Vignette strength", 0.0, 1.0,  0.4,  step=0.05)
+    cover_src = st.text_input(
+        "Cover source", placeholder="URL or local path",
+        value="https://i.scdn.co/image/ab67616d00001e024cc8b342bdd89d2f9050b64c",
+    )
+    if st.button("Process + push cover", use_container_width=True, type="primary"):
+        cp = _CP(blur_radius=blur, darken=darken, vignette_strength=vignette)
+        cp._check_imports()
+        if cover_src.startswith(("http://", "https://")):
+            raw = cp._download(cover_src)
+        else:
+            try:
+                raw = _Path(cover_src).read_bytes()
+            except Exception as _e:
+                raw = None
+                st.error(f"could not read file: {_e}")
+        if raw:
+            jpeg = cp._process(raw)
+            # Same chunking as DisplayAMOLED.push_cover
+            chunk = 600
+            lines = [f"IMG:start|size={len(jpeg)}"]
+            for i, off in enumerate(range(0, len(jpeg), chunk)):
+                b = _b64.b64encode(jpeg[off:off + chunk]).decode("ascii")
+                lines.append(f"IMG:{i}:{b}")
+            lines.append("IMG:end")
+            fire(f"cover ({len(jpeg)//1024} KB / {len(lines)-2} chunks)", lines)
+
 
 # ─── Raw protocol line ──────────────────────────────────────────────────────
 

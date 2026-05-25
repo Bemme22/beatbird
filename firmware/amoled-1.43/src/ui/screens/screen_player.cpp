@@ -54,6 +54,8 @@ namespace ScreenPlayer {
 // ─── LVGL objects ───────────────────────────────────────────────────────────
 
 static lv_obj_t *scr           = nullptr;
+static lv_obj_t *cover_img     = nullptr;   // album-art background, z-bottom
+static lv_image_dsc_t cover_dsc = {};
 
 // Custom-draw layers (back→front)
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
@@ -538,6 +540,21 @@ void create() {
     lv_obj_add_event_cb(scr, on_pressing, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(scr, on_released, LV_EVENT_RELEASED, NULL);
 
+    // ── Album-cover background (z-bottom) ───────────────────────────────────
+    // Pi pre-processes the cover (blur + darken + vignette) and pushes the
+    // JPEG bytes via the IMG: serial protocol. We hold a pointer into the
+    // RX buffer + length; LVGL's tjpgd decoder takes care of the rest.
+    // No source set yet — first IMG:end will populate it via Dirty::COVER.
+    cover_img = lv_image_create(scr);
+    lv_obj_set_size(cover_img, Theme::CENTER * 2, Theme::CENTER * 2);
+    lv_obj_set_pos(cover_img, 0, 0);
+    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    // Move to back so subsequent layers (vol arc, source dot, title, …) draw
+    // on top. lv_obj_move_to_index(0) keeps it behind everything else.
+    lv_obj_move_to_index(cover_img, 0);
+
     // ── Full-screen custom-draw layers (back→front) ─────────────────────────
     auto make_layer = [&](void (*cb)(lv_event_t *)) -> lv_obj_t * {
         lv_obj_t *o = lv_obj_create(scr);
@@ -674,6 +691,27 @@ void update() {
     // SYS line still carries wifi_rssi — CenterStage's WIFI WEAK trigger reads
     // State::sys.wifi_rssi directly, so we just clear the dirty bit here.
     State::clear_dirty(State::Dirty::SYSTEM);
+
+    // ── Album cover background swap ─────────────────────────────────────────
+    // A complete cover arrived over the IMG: protocol. Repoint the lv_image
+    // at the receive buffer, force the decoder to drop the cached copy of
+    // the previous cover by clearing the source first.
+    if (State::is_dirty(State::Dirty::COVER) && cover_img) {
+        const uint8_t *data = Proto::cover_data();
+        size_t sz = Proto::cover_size();
+        if (data && sz > 0) {
+            cover_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+            cover_dsc.header.cf    = LV_COLOR_FORMAT_RAW;  // tjpgd identifies JPEG by magic bytes
+            cover_dsc.header.w     = 0;
+            cover_dsc.header.h     = 0;
+            cover_dsc.data_size    = (uint32_t)sz;
+            cover_dsc.data         = data;
+            lv_image_set_src(cover_img, NULL);             // drop cache entry
+            lv_image_set_src(cover_img, &cover_dsc);
+            lv_obj_invalidate(cover_img);
+        }
+        State::clear_dirty(State::Dirty::COVER);
+    }
 
     // Standby branch: the dedicated ScreenStandby owns its own render path
     // (clock + weather + heartbeat), so all the player-side dirty handlers

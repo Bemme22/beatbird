@@ -79,5 +79,11 @@ class DisplayInterface(ABC):
         screen has personality instead of staring back blankly. Default
         is a no-op for displays without a standby screen."""
 
+    def push_cover(self, jpeg_bytes: bytes) -> None:
+        """Push a pre-processed (blurred + darkened + vignetted) JPEG to
+        the display, which renders it as the full-screen player-screen
+        background. Empty bytes clear the cover. Default is a no-op for
+        displays that don't have a graphic background layer."""
+
     @abstractmethod
     def close(self) -> None: ...

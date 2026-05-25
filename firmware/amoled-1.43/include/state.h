@@ -56,6 +56,7 @@ namespace Dirty {
     constexpr uint32_t CLOCK     = 1u << 8;
     constexpr uint32_t SYSTEM    = 1u << 9;
     constexpr uint32_t ACCENT    = 1u << 10;
+    constexpr uint32_t COVER     = 1u << 11;  // album-art background ready to render
     constexpr uint32_t ALL       = 0xFFFFFFFFu;
 }
 

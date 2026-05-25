@@ -17,7 +17,10 @@ namespace Proto {
 
 // ─── Inbound dispatcher ─────────────────────────────────────────────────────
 
-static char line_buf[640];   // generous — FX can carry 16 comma-separated values
+// 1024 instead of 640: IMG: cover chunks carry base64-encoded JPEG slices
+// ~800 chars long ("IMG:NNN:<800-char-base64>"). Bridge ships 600 raw
+// bytes per chunk → 800 base64 chars; rest is the header overhead.
+static char line_buf[1024];
 static size_t line_pos = 0;
 
 void begin()
@@ -74,6 +77,7 @@ void handle_line(const char *line)
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
     if (!strncmp(line, "STBY:", 5))     { ScreenStandby::set_flap_text(line + 5); return; }
+    if (!strncmp(line, "IMG:",  4))     { handle_cover_line(line + 4);   return; }
     if (!strncmp(line, "TIME:", 5))     {
         State::set_clock(String(line + 5));
         return;
@@ -314,6 +318,99 @@ void handle_boot_line(const char *body)
     State::app.boot_progress = progress;
     State::mark_dirty(State::Dirty::SYSTEM);
 }
+
+// ─── IMG: album-cover chunked binary transport ──────────────────────────────
+// Pi sends one cover as:
+//     IMG:start|size=NNNN
+//     IMG:0:<base64 of first ~600 bytes>
+//     IMG:1:<base64 of next 600 bytes>
+//     ...
+//     IMG:end
+// Chunks decode straight into a heap buffer (PSRAM on ESP32, plain heap on
+// sim). On `end` we mark Dirty::COVER so screen_player.cpp can swap the
+// background image source. The JPEG itself is decoded by LVGL's tjpgd.
+
+static uint8_t *g_cover_buf      = nullptr;
+static size_t   g_cover_buf_cap  = 0;
+static size_t   g_cover_buf_len  = 0;
+static size_t   g_cover_expected = 0;
+static bool     g_cover_collecting = false;
+
+static void cover_buf_ensure(size_t needed)
+{
+    if (g_cover_buf_cap >= needed) return;
+    if (g_cover_buf) free(g_cover_buf);
+    g_cover_buf = nullptr;
+#ifdef ARDUINO
+    g_cover_buf = (uint8_t *)ps_malloc(needed);  // PSRAM preferred
+#endif
+    if (!g_cover_buf) g_cover_buf = (uint8_t *)malloc(needed);
+    g_cover_buf_cap = g_cover_buf ? needed : 0;
+}
+
+static int b64_val(int c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static size_t b64_decode(const char *src, size_t src_len, uint8_t *dst, size_t dst_max)
+{
+    size_t out = 0;
+    int bits = 0, hold = 0;
+    for (size_t i = 0; i < src_len; i++) {
+        int v = b64_val(src[i]);
+        if (v < 0) continue;  // skip whitespace + padding
+        hold = (hold << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (out < dst_max) dst[out++] = (uint8_t)((hold >> bits) & 0xFF);
+        }
+    }
+    return out;
+}
+
+void handle_cover_line(const char *body)
+{
+    if (!strncmp(body, "start", 5)) {
+        const char *sz = strstr(body, "size=");
+        g_cover_expected = sz ? (size_t)atoi(sz + 5) : 0;
+        if (g_cover_expected == 0 || g_cover_expected > 256 * 1024) {
+            // Defensive cap — a 256 KB cover would already be huge for our use.
+            g_cover_collecting = false;
+            return;
+        }
+        cover_buf_ensure(g_cover_expected + 256);  // small margin
+        g_cover_buf_len    = 0;
+        g_cover_collecting = (g_cover_buf != nullptr);
+        return;
+    }
+    if (!strncmp(body, "end", 3)) {
+        if (g_cover_collecting && g_cover_buf_len > 0) {
+            State::mark_dirty(State::Dirty::COVER);
+        }
+        g_cover_collecting = false;
+        return;
+    }
+    if (!g_cover_collecting || !g_cover_buf) return;
+    // Chunk: "<seq>:<base64>"
+    const char *colon = strchr(body, ':');
+    if (!colon) return;
+    const char *b64 = colon + 1;
+    size_t b64_len = strlen(b64);
+    size_t remaining = g_cover_buf_cap - g_cover_buf_len;
+    g_cover_buf_len += b64_decode(b64, b64_len, g_cover_buf + g_cover_buf_len, remaining);
+}
+
+// ─── Cover accessors for screen_player.cpp ──────────────────────────────────
+
+const uint8_t *cover_data() { return g_cover_buf; }
+size_t         cover_size() { return g_cover_buf_len; }
 
 // ─── Legacy single-shot lines ───────────────────────────────────────────────
 

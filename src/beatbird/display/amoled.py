@@ -234,6 +234,33 @@ class AmoledDisplay(DisplayInterface):
         "ñ": "n",  "ç": "c",
     })
 
+    # ─── Album cover background ─────────────────────────────────────────────
+    # Chunk size 600 raw bytes → ~800 base64 chars per line. Stays comfortably
+    # below the firmware's per-line read buffer (256+grow path in serial_rx)
+    # and the USB-CDC default TX FIFO. With 600 B/chunk a typical 5-30 KB
+    # processed cover lands in 10-50 lines, taking well under a second over
+    # USB-CDC. The firmware accumulates chunks into a PSRAM buffer and
+    # decodes the JPEG on `IMG:end`.
+    _COVER_CHUNK_BYTES = 600
+
+    def push_cover(self, jpeg_bytes: bytes) -> None:
+        if not jpeg_bytes:
+            return
+        import base64
+        size = len(jpeg_bytes)
+        self._send(f"IMG:start|size={size}")
+        # Iterate raw bytes in fixed chunks and base64-encode each — easier
+        # than encoding the whole thing then splitting (base64 output is
+        # 4/3 the size of input; the math is cleaner from the input side).
+        seq = 0
+        for off in range(0, size, self._COVER_CHUNK_BYTES):
+            chunk = jpeg_bytes[off:off + self._COVER_CHUNK_BYTES]
+            b64 = base64.b64encode(chunk).decode("ascii")
+            self._send(f"IMG:{seq}:{b64}")
+            seq += 1
+        self._send("IMG:end")
+        log.info("cover pushed: %d bytes in %d chunks", size, seq)
+
     def push_idle_message(self, text: str) -> None:
         # Translate accented chars to ASCII digraphs first, then strip any
         # remaining non-ASCII. STBY: line is newline-terminated; the

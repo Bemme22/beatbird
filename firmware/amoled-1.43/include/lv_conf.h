@@ -47,6 +47,10 @@
 #define LV_USE_PNG 1
 #define LV_USE_GIF 0
 #define LV_USE_SJPG 0
+// TJpgDec (tinyjpgdec) — small JPEG decoder used by the album-cover
+// background. Pi pre-processes covers to ~5-30 KB JPEGs; firmware
+// decodes them on the fly when the IMG: stream completes.
+#define LV_USE_TJPGD 1
 
 // === Font ===
 #define LV_FONT_MONTSERRAT_14 1
