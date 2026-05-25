@@ -286,9 +286,11 @@ def system_action(req: SystemReq):
 _PALETTE_SLOTS = ("a", "g", "d", "p", "s", "e")
 
 
-def _hex6(s: str) -> str | None:
+def _hex6(s) -> str | None:
     """Normalise a #rrggbb string. Returns None for anything that isn't
-    six hex digits — keeps malformed colour input out of the override JSON."""
+    six hex digits — keeps malformed colour input out of the override JSON.
+    Also used by GET /api/settings to normalise profile values (which are
+    stored bare like "F0CB7B" without the leading hash)."""
     if not isinstance(s, str):
         return None
     s = s.strip()
@@ -312,15 +314,15 @@ def get_settings():
     ov = settings_overrides.load()
 
     base_palette = {
-        "a": p.display.accent_color,
-        "g": p.display.accent_glow,
-        "d": p.display.accent_dim,
-        "p": p.display.text_primary,
-        "s": p.display.text_secondary,
-        "e": p.display.accent_alert,
+        "a": _hex6(p.display.accent_color),
+        "g": _hex6(p.display.accent_glow),
+        "d": _hex6(p.display.accent_dim),
+        "p": _hex6(p.display.text_primary),
+        "s": _hex6(p.display.text_secondary),
+        "e": _hex6(p.display.accent_alert),
     }
     ov_palette = ov.get("palette") if isinstance(ov.get("palette"), dict) else {}
-    palette = {k: ov_palette.get(k) or base_palette.get(k) for k in _PALETTE_SLOTS}
+    palette = {k: _hex6(ov_palette.get(k)) or base_palette.get(k) for k in _PALETTE_SLOTS}
 
     base_idle = {
         "rss_url":             p.idle.rss_url,
