@@ -167,53 +167,90 @@ static void lvgl_rounder_cb(lv_event_t *e)
 // actually signalling RELEASED. At ~16 ms LVGL refresh, 2 frames = ~32 ms
 // of grace, well below human reaction time but ample to absorb single-frame
 // sensor / I²C glitches.
+// Shared state between the touch poll task (writer) and LVGL's
+// input callback (reader). Critical section guards a coherent snapshot
+// — pressed + x/y change together, so we don't want LVGL to read a
+// pressed=true with stale coordinates from before the latest event.
+static portMUX_TYPE touch_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool     touch_state_pressed = false;
+static volatile uint16_t touch_state_x       = 0;
+static volatile uint16_t touch_state_y       = 0;
+
+// Dedicated FreeRTOS task hammers the touch chip's I²C every 4 ms
+// (250 Hz) — well above the LVGL 60 Hz refresh — so even a 10 ms soft
+// tap that lived entirely between two LVGL polls now lands in at least
+// two consecutive task ticks and gets latched into the press state.
+//
+// Filter logic is the same release-streak hysteresis the original
+// in-callback code used, just scaled to the 4 ms tick: 4 streak ticks
+// ≈ 16 ms of "still pressed" grace after the chip drops the touch.
+// Catches I²C glitches and end-of-tap micro-bounces without making
+// PLAYPAUSE fire twice.
+static void touch_poll_task(void * /*arg*/)
+{
+    constexpr uint8_t RELEASE_STREAK_THRESHOLD = 4;
+    uint16_t lx = 0, ly = 0;
+    bool     was_pressed    = false;
+    uint8_t  release_streak = 0;
+
+    for (;;) {
+        if (!touch_dev) {
+            // No touch chip — task still runs but never reports a press.
+            // Sleep longer to save CPU.
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
+        uint8_t buf[5] = {0};
+        bool touch_present = false;
+        Wire.beginTransmission(TOUCH_I2C_ADDR);
+        Wire.write(0x02);
+        if (Wire.endTransmission(false) == 0 &&
+            Wire.requestFrom(TOUCH_I2C_ADDR, 5) == 5) {
+            for (uint8_t i = 0; i < 5; i++) if (Wire.available()) buf[i] = Wire.read();
+            touch_present = (buf[0] != 0);
+        }
+
+        if (touch_present) {
+            lx = (((uint16_t)buf[1] & 0x0F) << 8) | buf[2];
+            ly = (((uint16_t)buf[3] & 0x0F) << 8) | buf[4];
+            was_pressed    = true;
+            release_streak = 0;
+        } else if (was_pressed && release_streak < RELEASE_STREAK_THRESHOLD) {
+            release_streak++;
+        } else {
+            was_pressed    = false;
+            release_streak = 0;
+        }
+
+        portENTER_CRITICAL(&touch_mux);
+        touch_state_pressed = was_pressed;
+        if (was_pressed) {
+            touch_state_x = lx;
+            touch_state_y = ly;
+        }
+        portEXIT_CRITICAL(&touch_mux);
+
+        vTaskDelay(pdMS_TO_TICKS(4));
+    }
+}
+
 static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
-    constexpr uint8_t RELEASE_STREAK_THRESHOLD = 2;
-
-    static uint16_t lx = 0, ly = 0;
-    static bool     was_pressed    = false;
-    static uint8_t  release_streak = 0;
-
     if (!touch_dev) { data->state = LV_INDEV_STATE_RELEASED; return; }
 
-    uint8_t buf[5] = {0};
-    bool touch_present = false;
+    bool pressed;
+    uint16_t lx, ly;
+    portENTER_CRITICAL(&touch_mux);
+    pressed = touch_state_pressed;
+    lx      = touch_state_x;
+    ly      = touch_state_y;
+    portEXIT_CRITICAL(&touch_mux);
 
-    Wire.beginTransmission(TOUCH_I2C_ADDR);
-    Wire.write(0x02);
-    if (Wire.endTransmission(false) == 0 &&
-        Wire.requestFrom(TOUCH_I2C_ADDR, 5) == 5) {
-        for (uint8_t i = 0; i < 5; i++) if (Wire.available()) buf[i] = Wire.read();
-        touch_present = (buf[0] != 0);
-    }
-    // else: I²C transaction failed — treated as "no touch reading this frame"
-    //       and absorbed by the release-streak filter below.
-
-    if (touch_present) {
-        uint16_t tx = (((uint16_t)buf[1] & 0x0F) << 8) | buf[2];
-        uint16_t ty = (((uint16_t)buf[3] & 0x0F) << 8) | buf[4];
-        if (abs((int)tx - (int)lx) > 1 || abs((int)ty - (int)ly) > 1) {
-            lx = tx; ly = ty;
-        }
-        was_pressed    = true;
-        release_streak = 0;
-    } else if (was_pressed && release_streak < RELEASE_STREAK_THRESHOLD) {
-        // Brief drop-out — still report pressed at last known position
-        release_streak++;
-    } else {
-        was_pressed    = false;
-        release_streak = 0;
-        lx = ly = 0;
-    }
-
-    if (was_pressed) {
+    if (pressed) {
         uint16_t raw_x = lx < LCD_WIDTH  ? lx : LCD_WIDTH  - 1;
         uint16_t raw_y = ly < LCD_HEIGHT ? ly : LCD_HEIGHT - 1;
-        // Match panel orientation above so taps map to rendered pixels
 #ifdef DISPLAY_ROTATE_NATIVE
-        // Panel default — same identity that the original (init-commit)
-        // firmware shipped with; verified working on Beat #1.
         data->point.x = raw_x;
         data->point.y = raw_y;
 #elif DISPLAY_ROTATE_DEG ==   0
@@ -291,6 +328,10 @@ void setup()
     Wire.beginTransmission(TOUCH_I2C_ADDR);
     touch_dev = (Wire.endTransmission() == 0);
     Serial.printf("Touch: %s\n", touch_dev ? "OK" : "NOT FOUND");
+    // 250 Hz dedicated touch poller — see touch_poll_task above.
+    // 4 KB stack is generous for the loop's small locals + Wire calls.
+    xTaskCreatePinnedToCore(touch_poll_task, "touch_poll", 4096, NULL,
+                            5 /*prio*/, NULL, 1 /*core*/);
 
     // SPI bus (QSPI)
     spi_bus_config_t buscfg = {};

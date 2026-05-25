@@ -449,8 +449,17 @@ static void on_released(lv_event_t *e) {
         return;
     }
 
-    // PLAYPAUSE: no toast — CenterStage already shows PAUSE persistently when
-    // the state flips to paused, and the vol-wobble resuming says "playing".
+    // PLAYPAUSE — flip the local play_state immediately so CenterStage's
+    // "PAUSE" overlay appears/disappears in the same frame as the tap.
+    // The bridge round-trip (Pi → go-librespot → state push) is ~150-
+    // 300 ms; without the optimistic flip the display feels laggy even
+    // when the tap was registered. The bridge's next state push will
+    // either confirm our guess (no-op) or correct it.
+    if (State::app.state == State::PLAY_PLAYING) {
+        State::set_play_state(State::PLAY_PAUSED);
+    } else if (State::app.state == State::PLAY_PAUSED) {
+        State::set_play_state(State::PLAY_PLAYING);
+    }
     Proto::send_command("PLAYPAUSE");
 }
 
