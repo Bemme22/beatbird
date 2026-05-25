@@ -432,7 +432,7 @@ void set_flap_text(const char *text)
         const lv_font_t *font = lv_obj_get_style_text_font(lbl_flap, LV_PART_MAIN);
         int32_t lsp = lv_obj_get_style_text_letter_space(lbl_flap, LV_PART_MAIN);
         lv_point_t sz;
-        lv_text_get_size(&sz, text, font, lsp, 0, LV_COORD_MAX, 0);
+        lv_text_get_size(&sz, text, font, lsp, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         if (sz.x > lv_obj_get_width(lbl_flap)) {
             // Make sure long-mode is the marquee one (might have been
             // forced to CLIP if a prior flap is still in flight; calling
