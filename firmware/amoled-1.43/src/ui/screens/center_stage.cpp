@@ -83,8 +83,12 @@ static TriggerResult evaluate_persistent_trigger()
     }
 
     // 1. PI OFFLINE — alert color (runtime configurable via PAL: e=…).
+    //    Bumped from 12 s to 30 s after cover-art transfers were measured
+    //    at ~6 s on real hardware: ESP32 stops servicing serial RX while
+    //    LVGL decodes the JPEG, SYS heartbeats pile up in the CDC buffer
+    //    and the old 12 s threshold tripped during every cover swap.
     if (app.connected_to_pi && app.last_status_rx > 0 &&
-        (now - app.last_status_rx) > 12000) {
+        (now - app.last_status_rx) > 30000) {
         return { "PI OFFLINE", Theme::accent_alert };
     }
 
