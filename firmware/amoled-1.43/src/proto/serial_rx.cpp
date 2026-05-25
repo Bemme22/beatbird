@@ -387,14 +387,17 @@ void handle_cover_line(const char *body)
     if (!strncmp(body, "start", 5)) {
         const char *sz = strstr(body, "size=");
         g_cover_expected = sz ? (size_t)atoi(sz + 5) : 0;
+        Serial.printf("cover_rx: start size=%u buf_cap=%u\n",
+                      (unsigned)g_cover_expected, (unsigned)g_cover_buf_cap);
         if (g_cover_expected == 0 || g_cover_expected > 256 * 1024) {
-            // Defensive cap — a 256 KB cover would already be huge for our use.
             g_cover_collecting = false;
             return;
         }
-        cover_buf_ensure(g_cover_expected + 256);  // small margin
+        cover_buf_ensure(g_cover_expected + 256);
         g_cover_buf_len    = 0;
         g_cover_collecting = (g_cover_buf != nullptr);
+        Serial.printf("cover_rx: alloc ok=%d collecting=%d\n",
+                      g_cover_buf != nullptr, g_cover_collecting);
         return;
     }
     if (!strncmp(body, "end", 3)) {
