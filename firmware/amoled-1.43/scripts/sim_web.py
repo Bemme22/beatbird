@@ -268,8 +268,8 @@ except Exception as _e:
 if _cp_ok:
     cc1, cc2, cc3 = st.columns(3)
     blur     = cc1.slider("Blur radius",      0.0, 30.0, 12.0, step=1.0)
-    darken   = cc2.slider("Darken (×)",       0.1,  1.0,  0.45, step=0.05)
-    vignette = cc3.slider("Vignette strength", 0.0, 1.0,  0.4,  step=0.05)
+    darken   = cc2.slider("Darken (×)",       0.1,  1.0,  0.35, step=0.05)
+    vignette = cc3.slider("Vignette strength", 0.0, 1.0,  1.0,  step=0.05)
     cover_src = st.text_input(
         "Cover source", placeholder="URL or local path",
         value="https://i.scdn.co/image/ab67616d00001e024cc8b342bdd89d2f9050b64c",
