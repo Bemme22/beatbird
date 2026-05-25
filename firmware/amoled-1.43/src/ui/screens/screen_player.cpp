@@ -551,8 +551,11 @@ void create() {
     lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(cover_img, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    // Move to back so subsequent layers (vol arc, source dot, title, …) draw
-    // on top. lv_obj_move_to_index(0) keeps it behind everything else.
+    // Hidden until a cover actually lands via Dirty::COVER. Even with no
+    // source set, an empty full-screen lv_image makes LVGL trace draw
+    // areas for it every frame — visible as background stutter on the
+    // ESP32 when the feature is profile-disabled but the widget exists.
+    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_to_index(cover_img, 0);
 
     // ── Full-screen custom-draw layers (back→front) ─────────────────────────
@@ -710,6 +713,9 @@ void update() {
             cover_dsc.data          = data;
             lv_image_set_src(cover_img, NULL);     // drop cache entry
             lv_image_set_src(cover_img, &cover_dsc);
+            // First real cover — unhide the widget. Stays visible after,
+            // every subsequent set_src just swaps the image.
+            lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
             lv_obj_invalidate(cover_img);
         }
         State::clear_dirty(State::Dirty::COVER);
