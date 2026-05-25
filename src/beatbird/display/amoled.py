@@ -346,6 +346,11 @@ class AmoledDisplay(DisplayInterface):
             log.info("ESP32 boot marker received, re-sending palette")
             self._palette_sent = False
             self._send_palette()
+        elif raw.startswith("cover_rx:"):
+            # Diagnostic echo from firmware's IMG: parser. Format:
+            # "cover_rx: got <received>/<expected>". INFO so it surfaces
+            # in journalctl alongside the matching "cover pushed:" line.
+            log.info("display %s", raw)
         elif raw.startswith("FW:"):
             # Firmware version self-report on boot. Stored so the updater can
             # skip flashing if the running version already matches the latest
