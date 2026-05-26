@@ -18,7 +18,11 @@ if [[ "$BT_DISABLED_IN_KERNEL" == "true" ]]; then
   exit 0
 fi
 
-ensure_pkg bluez bluealsa
+# Package naming bit us once: on Debian Bookworm the BlueALSA utilities
+# live in `bluez-alsa-utils`, not the historical `bluealsa` (which is
+# what the Buster/Bullseye-era docs called it). The systemd unit is
+# still called bluealsa.service, but the binary is /usr/bin/bluealsad.
+ensure_pkg bluez bluez-alsa-utils
 
 # Discoverable mode is now opt-in via /bluetooth in the web UI (which
 # calls `discoverable on` with an explicit per-session timeout). The
@@ -39,11 +43,16 @@ FastConnectable = true
 AutoEnable=true
 EOF
 
-# Enable A2DP sink
+# Enable A2DP sink. Bookworm's binary is `bluealsad` (daemon suffix), not
+# the historical `bluealsa` — they kept the unit name but renamed the
+# binary it ExecStart's. Without this override, the unit launches with
+# default args (no a2dp-sink profile) and a connecting phone fails the
+# transport negotiation with no useful error.
+mkdir -p /etc/systemd/system/bluealsa.service.d
 cat > /etc/systemd/system/bluealsa.service.d/override.conf <<'EOF'
 [Service]
 ExecStart=
-ExecStart=/usr/bin/bluealsa -p a2dp-sink --xrun-boost=1
+ExecStart=/usr/bin/bluealsad -p a2dp-sink --xrun-boost=1
 EOF
 
 systemctl daemon-reload
