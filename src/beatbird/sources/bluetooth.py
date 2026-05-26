@@ -379,31 +379,41 @@ def set_trusted(mac: str, trusted: bool = True) -> bool:
     """Set the Trusted flag on a paired device. Trusted devices can
     auto-reconnect to the Pi without a user prompt — the install's
     main.conf already has [Policy] AutoEnable=true, so as soon as a
-    paired phone enters BT range it'll connect on its own."""
+    paired phone enters BT range it'll connect on its own.
+
+    Verify by re-reading the property after the command rather than
+    parsing the command's noisy ANSI-escape output."""
     verb = "trust" if trusted else "untrust"
-    out = _btctl(f"{verb} {mac}")
-    ok = ("succeeded" in out.lower()) or ("trust succeeded" in out.lower())
+    _btctl(f"{verb} {mac}")
+    info = _btctl_info(mac)
+    ok = (info.get("Trusted", "no") == "yes") == trusted
     log.info("BT: set_trusted(%s, %s) → %s", mac, trusted,
-             "ok" if ok else "see debug")
+             "ok" if ok else "verify-failed")
     return ok
 
 
 def disconnect_device(mac: str) -> bool:
     """Drop a single connected device. Paired + trusted state survive,
     so the phone can reconnect on its own as soon as it's in range
-    again (unless it was also untrusted)."""
-    out = _btctl(f"disconnect {mac}")
-    ok = "Successful disconnected" in out or "not connected" in out.lower()
-    log.info("BT: disconnect(%s) → %s", mac, "ok" if ok else "see debug")
+    again (unless it was also untrusted). Verified by re-reading the
+    Connected property instead of parsing bluetoothctl's output."""
+    _btctl(f"disconnect {mac}")
+    info = _btctl_info(mac)
+    ok = info.get("Connected", "no") == "no"
+    log.info("BT: disconnect(%s) → %s", mac, "ok" if ok else "verify-failed")
     return ok
 
 
 def forget_device(mac: str) -> bool:
     """Unpair + remove a device. Both ends are dropped from each other's
-    pairing tables, so the device must re-pair to reconnect."""
-    out = _btctl(f"remove {mac}")
-    ok = "Device has been removed" in out or "not available" in out
-    log.info("BT: forget(%s) → %s", mac, "ok" if ok else "see debug")
+    pairing tables, so the device must re-pair to reconnect. Success is
+    'the device no longer appears in bluetoothctl info' (Device not
+    available), which is the same thing bluetoothctl returns from
+    `remove` when the device was already gone — idempotent."""
+    _btctl(f"remove {mac}")
+    info = _btctl_info(mac)
+    ok = not info   # empty dict = device no longer known
+    log.info("BT: forget(%s) → %s", mac, "ok" if ok else "verify-failed")
     return ok
 
 
@@ -424,20 +434,25 @@ def set_discoverable(on: bool, timeout_s: int = 60) -> bool:
     the Pi isn't a permanently-visible pairing target — the install
     formerly set DiscoverableTimeout=0 (always on) but that's a soft
     attack surface. The web UI is the legit entry point for pairing
-    sessions now."""
+    sessions now.
+
+    Verifies by reading `bluetoothctl show` after the command instead
+    of parsing the noisy interactive output (ANSI escapes, async
+    new_settings notifications); the simple `'succeeded' in out` check
+    we had before missed the actual confirmation pattern."""
     if on:
         # discoverable-timeout takes effect before `discoverable on` — set
         # the inactivity window first so the adapter auto-stops advertising.
-        out = _btctl(
+        _btctl(
             f"discoverable-timeout {timeout_s}",
             "pairable on",
             "discoverable on",
         )
     else:
-        out = _btctl("discoverable off")
-    ok = "succeeded" in out.lower() or "yes" in out.lower()
+        _btctl("discoverable off")
+    ok = is_discoverable() == on
     log.info("BT: discoverable=%s (timeout %ds) → %s", on, timeout_s,
-             "ok" if ok else "see debug")
+             "ok" if ok else "verify-failed")
     return ok
 
 
