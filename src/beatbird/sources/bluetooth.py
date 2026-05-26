@@ -429,7 +429,12 @@ def set_adapter_alias(alias: str) -> bool:
     copies of 'BeatPi'."""
     if not alias:
         return False
-    _btctl(f"system-alias {alias}")
+    # Quote the alias — bluetoothctl tokenises on whitespace inside the
+    # interactive shell, so `system-alias Zipp Mini 2` gets read as four
+    # arguments and the command silently does nothing. Belt-and-braces
+    # the embedded quote case by replacing " with ' first.
+    quoted = '"' + alias.replace('"', "'") + '"'
+    _btctl(f"system-alias {quoted}")
     # Verify by re-reading. `show` output has 'Alias: <name>' field.
     out = _btctl("show")
     for line in out.splitlines():
