@@ -106,6 +106,7 @@ struct System {
     int    wifi_rssi   = 0;
     bool   gateway_ok  = true;         // bridge pings default gw — false = no route off Pi
     bool   spotify_stuck = false;      // bridge fired a go-librespot restart in last 60s
+    bool   bt_pairing    = false;      // BlueZ adapter is in discoverable mode (web-UI session)
 };
 
 // ─── Weather (pushed by bridge every ~30 min via WX: serial line) ───────────

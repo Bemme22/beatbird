@@ -108,7 +108,15 @@ static TriggerResult evaluate_persistent_trigger()
         return { "SPOTIFY OFFLINE", Theme::accent_alert };
     }
 
-    // 4. MUTE — primary text colour (cream), it's a state announcement
+    // 4. PAIRING — user just opened the BT pairing window from the web UI.
+    //    Bridge polls bluetoothctl's Discoverable flag and pushes SYS:bt=1
+    //    while it's on. Shown in accent so it reads as "we're doing
+    //    something on purpose" rather than the alert-red of broken states.
+    if (sys.bt_pairing) {
+        return { "PAIRING", Theme::accent };
+    }
+
+    // 5. MUTE — primary text colour (cream), it's a state announcement
     if (app.volume == 0) {
         return { "MUTE", Theme::text_primary };
     }

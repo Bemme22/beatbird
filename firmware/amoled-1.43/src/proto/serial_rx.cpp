@@ -230,6 +230,7 @@ void handle_system_line(const char *line)
     if (parse_field_eq(line, "wi", buf, sizeof(buf)))      State::sys.wifi_rssi  = atoi(buf);
     if (parse_field_eq(line, "gw", buf, sizeof(buf)))      State::sys.gateway_ok = (buf[0] == '1');
     if (parse_field_eq(line, "ss", buf, sizeof(buf)))      State::sys.spotify_stuck = (buf[0] == '1');
+    if (parse_field_eq(line, "bt", buf, sizeof(buf)))      State::sys.bt_pairing    = (buf[0] == '1');
 
     State::app.last_status_rx = millis();
     State::mark_dirty(State::Dirty::SYSTEM);

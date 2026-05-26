@@ -380,6 +380,8 @@ class BeatBirdBridge:
         self.sys_dsp = False
         self.sys_spotify = False
         self.sys_gateway = True             # gateway ping ok? (default optimistic)
+        self.sys_bt_pairing = False         # adapter currently discoverable (web-UI session)
+        self._last_bt_pairing = False       # edge-detect — flips so we override standby flap once
         self._sp_stuck_recent_t = 0.0       # monotonic of last stuck-restart fire
 
         # ── Timing ──
@@ -1084,6 +1086,41 @@ class BeatBirdBridge:
         # 5s _refresh_system cadence. Source of the SYS:gw= flag the
         # display turns into a "NO NETWORK" overlay.
         self.sys_gateway = system.gateway_reachable()
+        # BT discoverable mode is a transient user action (web UI opens
+        # a 60 s window via bluetoothctl). Polled at the same cadence as
+        # the other system stats so the firmware learns about it within
+        # ~5 s of the user pressing the pair button.
+        if self.bt is not None:
+            try:
+                from beatbird.sources.bluetooth import is_discoverable
+                self.sys_bt_pairing = is_discoverable()
+            except Exception as e:
+                log.debug("bt discoverable check: %s", e)
+                self.sys_bt_pairing = False
+        else:
+            self.sys_bt_pairing = False
+
+        # Edge-triggered standby flap override. Player screen handles the
+        # PAIRING badge via CenterStage; the standby screen hijacks its
+        # idle-text label for the duration so the indicator is visible
+        # without forcing a screen switch. On falling edge we push a
+        # fresh idle message so the screen doesn't stay frozen on
+        # "PAIRING MODE" until the next 45 s rotation.
+        if self.sys_bt_pairing != self._last_bt_pairing:
+            if self.sys_bt_pairing and self.in_standby and self.display:
+                try:
+                    self.display.push_idle_message("PAIRING MODE")
+                    self._idle_msg_t = time.monotonic()
+                except Exception as e:
+                    log.debug("push pairing idle msg: %s", e)
+            elif not self.sys_bt_pairing and self.in_standby:
+                # Pairing window closed — kick a normal idle rotation so
+                # the screen doesn't sit on the stale PAIRING text.
+                try:
+                    self._send_idle_message()
+                except Exception as e:
+                    log.debug("post-pairing idle rotate: %s", e)
+            self._last_bt_pairing = self.sys_bt_pairing
 
         db = self.dsp.get_volume_db()
         if db is not None:
@@ -1159,6 +1196,17 @@ class BeatBirdBridge:
         """
         import random
         if not self.display:
+            return
+        # During a pairing window, the flap label is owned by the
+        # PAIRING-MODE override. Skip the regular rotation so a 45 s tick
+        # doesn't replace it with a random airport-board line mid-window.
+        if self.sys_bt_pairing:
+            try:
+                self.display.push_idle_message("PAIRING MODE")
+                self._last_idle_msg = "PAIRING MODE"
+                self._idle_msg_t = time.monotonic()
+            except Exception as e:
+                log.warning("push_idle_message (pairing) failed: %s", e)
             return
         rss_pool = self.rss.headlines if self.rss else []
         # Weighted source choice — fall back to local pool if RSS is
@@ -1250,6 +1298,7 @@ class BeatBirdBridge:
                 spotify_active=self.sys_spotify,
                 gateway_reachable=self.sys_gateway,
                 spotify_stuck_recent=stuck_recent,
+                bt_pairing=self.sys_bt_pairing,
             ))
         self.mqtt.publish_status({
             "cpu_temp":    round(self.sys_cpu, 1),

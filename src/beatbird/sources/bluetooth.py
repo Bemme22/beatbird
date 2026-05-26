@@ -407,6 +407,18 @@ def forget_device(mac: str) -> bool:
     return ok
 
 
+def is_discoverable() -> bool:
+    """Snapshot of the adapter's Discoverable property. Cheap (one
+    bluetoothctl invocation) — the bridge polls this on its 5 s status
+    tick to drive the firmware's PAIRING overlay."""
+    out = _btctl("show")
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("Discoverable:"):
+            return line.split(":", 1)[1].strip() == "yes"
+    return False
+
+
 def set_discoverable(on: bool, timeout_s: int = 60) -> bool:
     """Toggle the adapter's Discoverable state. Use a short timeout so
     the Pi isn't a permanently-visible pairing target — the install

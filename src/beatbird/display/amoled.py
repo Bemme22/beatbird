@@ -302,6 +302,7 @@ class AmoledDisplay(DisplayInterface):
             + f"|wi={status.wifi_rssi}"
             + f"|gw={1 if status.gateway_reachable else 0}"
             + f"|ss={1 if status.spotify_stuck_recent else 0}"
+            + f"|bt={1 if status.bt_pairing else 0}"
         )
         self._send(line)
 
