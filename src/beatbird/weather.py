@@ -86,9 +86,19 @@ class WeatherPoller:
         self.http_timeout_s = http_timeout_s
         self._last_line: Optional[str] = None
 
+    # Fast-retry backoff while we still have no data. If the provider
+    # is down at bridge startup, the long interval_s (30 min default)
+    # leaves the firmware showing a blank weather block for the whole
+    # window even after the API recovers. Drop to short polls while
+    # _last_line is None so we catch the recovery within a minute or
+    # two, then revert to the configured interval once we've got data.
+    COLD_RETRY_S = 60.0
+
     async def run(self) -> None:
         """Run forever. Single failure does not crash the loop — just logs
-        and waits for the next tick."""
+        and waits for the next tick. Uses a short retry interval while we
+        haven't yet received a successful response, then settles into the
+        configured interval_s for steady-state polling."""
         log.info("starting weather poller at (%.4f, %.4f), interval %ds",
                  self.lat, self.lon, self.interval_s)
         while True:
@@ -99,7 +109,9 @@ class WeatherPoller:
                     self._last_line = line
             except Exception:
                 log.exception("weather poll failed; will retry next tick")
-            await asyncio.sleep(self.interval_s)
+            await asyncio.sleep(
+                self.interval_s if self._last_line else self.COLD_RETRY_S,
+            )
 
     async def _poll_once(self) -> Optional[str]:
         # Use httpx if available (async), otherwise fall back to requests in a thread.
