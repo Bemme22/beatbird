@@ -20,12 +20,18 @@ fi
 
 ensure_pkg bluez bluealsa
 
-# Make the Pi discoverable and auto-accept pairings — simple approach for now.
-# For production: pair explicitly in UI and persist with bluetoothctl.
+# Discoverable mode is now opt-in via /bluetooth in the web UI (which
+# calls `discoverable on` with an explicit per-session timeout). The
+# DiscoverableTimeout=60 here is just a safety net so a manual `bluetoothctl
+# discoverable on` over SSH doesn't leave the adapter permanently visible
+# on the network.
+#
+# Pairable always-on is fine: pairing only succeeds while discoverable
+# is also on, so this isn't an attack surface on its own.
 cat > /etc/bluetooth/main.conf.d/beatbird.conf <<EOF
 [General]
 Class = 0x200414
-DiscoverableTimeout = 0
+DiscoverableTimeout = 60
 PairableTimeout = 0
 FastConnectable = true
 
@@ -44,4 +50,4 @@ systemctl daemon-reload
 systemctl enable --now bluetooth bluealsa 2>/dev/null || true
 
 log_ok "Bluetooth A2DP sink enabled"
-log_warn "First pairing requires 'bluetoothctl' interactive setup."
+log_ok "Pair new devices at http://<host>:8080/bluetooth"

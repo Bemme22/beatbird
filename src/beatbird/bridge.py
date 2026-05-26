@@ -219,7 +219,7 @@ def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | N
     return LoudnessController(dsp, filters, curve=profile.audio.loudness.curve)
 
 
-def _build_bluetooth(profile: Profile, on_active, on_volume):
+def _build_bluetooth(profile: Profile, on_active, on_volume, get_bridge_volume):
     """Build BT source tracker if bluetooth source is configured."""
     if not profile.sources.bluetooth.enabled:
         return None
@@ -228,6 +228,7 @@ def _build_bluetooth(profile: Profile, on_active, on_volume):
         return BluetoothSource(
             on_became_active=on_active,
             on_volume_from_phone=on_volume,
+            get_bridge_volume=get_bridge_volume,
         )
     except ImportError:
         log.warning("bluetooth module not available")
@@ -271,6 +272,7 @@ class BeatBirdBridge:
             profile,
             on_active=self._on_bt_active,
             on_volume=self._on_bt_volume,
+            get_bridge_volume=lambda: self.current_volume,
         )
 
         # FFT spectrum
@@ -810,11 +812,24 @@ class BeatBirdBridge:
             if self.source != Source.BLUETOOTH:
                 # _on_bt_active already called by the BluetoothSource hook
                 pass
-            self.playback = Playback.PLAYING
-            self.song_title = active.alias
-            self.song_artist = ""
-            self.song_pos_ms = 0
-            self.song_dur_ms = 1
+            # AVRCP status, if the phone publishes it, beats our heuristic
+            # "transport is active => playing" — some sender apps keep the
+            # transport open while paused, and bluez exposes the player's
+            # own pause/play state. Fall back to PLAYING when Status is
+            # missing.
+            if active.status == "paused":
+                self.playback = Playback.PAUSED
+            elif active.status == "stopped":
+                self.playback = Playback.STOPPED
+            else:
+                self.playback = Playback.PLAYING
+            # Title/Artist from AVRCP if the phone publishes them, else
+            # the device alias so the slot isn't empty (e.g. Audible /
+            # some podcast apps don't expose Track metadata at all).
+            self.song_title  = active.title or active.alias
+            self.song_artist = active.artist
+            self.song_pos_ms = active.position_ms
+            self.song_dur_ms = max(1, active.duration_ms)
         else:
             if self.source == Source.BLUETOOTH:
                 self.source = Source.NONE

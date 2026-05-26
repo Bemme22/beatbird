@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import subprocess
 
 from fastapi import FastAPI, HTTPException
@@ -32,6 +33,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from beatbird import settings_overrides, system
+from beatbird.sources import bluetooth as bt
 from beatbird.audio.camilladsp import CamillaDSP, db_to_pct, pct_to_db
 from beatbird.config import load_profile
 from beatbird.hardware import louder_hat
@@ -95,6 +97,15 @@ class SystemReq(BaseModel):
 class SettingsReq(BaseModel):
     palette: dict | None = None   # {"a": "#rrggbb", "g": "...", ...} — slots a/g/d/p/s/e
     idle: dict | None = None      # {"rss_url": "...", "rss_refresh_minutes": 30, "rss_weight": 0.5}
+
+
+class BtDiscoverableReq(BaseModel):
+    seconds: int = 60             # 5..600 server-side clamped
+
+
+class BtDeviceReq(BaseModel):
+    mac: str
+    action: str                   # "trust" | "untrust" | "disconnect" | "forget"
 
 
 # ─── Read API ────────────────────────────────────────────────────────────────
@@ -386,6 +397,74 @@ def set_settings(req: SettingsReq):
     return {"ok": True, "overrides": out}
 
 
+# ─── Bluetooth pairing & device management ──────────────────────────────────
+# The bridge owns the BluetoothSource runtime; this controller just talks
+# to bluez via the same bluetoothctl helpers so the web UI and bridge see
+# a consistent device list. The bridge's poll loop will pick up trust
+# state changes on its next BT tick (~1.5 s).
+
+_MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
+
+
+def _validate_mac(mac: str) -> str:
+    if not _MAC_RE.match(mac or ""):
+        raise HTTPException(400, f"invalid MAC: {mac!r}")
+    return mac.upper()
+
+
+@app.get("/api/bluetooth")
+def get_bluetooth():
+    """Snapshot of paired devices plus adapter state. Cheap enough to
+    poll from the web UI every few seconds during a pairing session."""
+    devices = bt.list_paired_devices()
+    return {
+        "devices": [
+            {
+                "mac":       d.mac,
+                "alias":     d.alias,
+                "paired":    d.paired,
+                "trusted":   d.trusted,
+                "connected": d.connected,
+            }
+            for d in devices
+        ],
+    }
+
+
+@app.post("/api/bluetooth/discoverable")
+def bt_discoverable(req: BtDiscoverableReq):
+    """Put the adapter in pairing mode for N seconds. The phone has to
+    initiate the pair from its side; we just open the window. After the
+    window closes (bluez handles the timer internally), the adapter
+    silently stops advertising — no further action needed here."""
+    seconds = max(5, min(600, req.seconds))
+    if not bt.set_discoverable(True, timeout_s=seconds):
+        raise HTTPException(500, "set discoverable failed")
+    return {"ok": True, "seconds": seconds}
+
+
+@app.post("/api/bluetooth/device")
+def bt_device_action(req: BtDeviceReq):
+    """Per-device action. trust/untrust gate auto-reconnect, disconnect
+    drops the active link without forgetting, forget removes pairing
+    entirely."""
+    mac = _validate_mac(req.mac)
+    action = req.action.lower()
+    if action == "trust":
+        ok = bt.set_trusted(mac, True)
+    elif action == "untrust":
+        ok = bt.set_trusted(mac, False)
+    elif action == "disconnect":
+        ok = bt.disconnect_device(mac)
+    elif action == "forget":
+        ok = bt.forget_device(mac)
+    else:
+        raise HTTPException(400, f"unknown action: {action!r}")
+    if not ok:
+        raise HTTPException(500, f"{action} failed for {mac}")
+    return {"ok": True, "mac": mac, "action": action}
+
+
 # ─── Log streaming ───────────────────────────────────────────────────────────
 
 @app.get("/api/logs")
@@ -492,6 +571,8 @@ _HTML = """<!doctype html>
   <a href="/health" style="color:var(--accent,#888);text-decoration:none">→ Health check</a>
   &nbsp;·&nbsp;
   <a href="/settings" style="color:var(--accent,#888);text-decoration:none">→ Settings (palette, RSS)</a>
+  &nbsp;·&nbsp;
+  <a href="/bluetooth" style="color:var(--accent,#888);text-decoration:none">→ Bluetooth</a>
  </div>
 </div>
 
@@ -887,6 +968,151 @@ _SETTINGS_HTML = """<!doctype html>
 def settings_page():
     p = _get_profile()
     return _SETTINGS_HTML.format(name=p.identity.friendly_name)
+
+
+# ─── /bluetooth page — pairing + trusted-device management ──────────────────
+
+_BLUETOOTH_HTML = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BeatBird Bluetooth — {name}</title>
+<style>
+ body{{font:14px/1.45 system-ui,sans-serif;background:#111;color:#eee;max-width:640px;margin:1.2em auto;padding:0 1em 2em}}
+ h1{{font-weight:400;letter-spacing:.05em;margin:0 0 .2em}}
+ h1 a{{color:#888;font-size:13px;text-decoration:none;float:right}}
+ h2{{font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#777;margin:1.4em 0 .4em}}
+ .card{{background:#1c1c1c;border-radius:6px;padding:.9em 1.1em;margin:.4em 0}}
+ .dev{{display:grid;grid-template-columns:1fr auto;gap:.6em;padding:.6em .2em;border-top:1px solid #2a2a2a;align-items:center}}
+ .dev:first-child{{border-top:0}}
+ .dev .name{{font-weight:500}}
+ .dev .meta{{color:#777;font-size:11px;font-family:ui-monospace,monospace;margin-top:.15em}}
+ .badge{{display:inline-block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:.15em .5em;border-radius:3px;margin-right:.3em}}
+ .badge.on{{background:#1f3a1f;color:#9d9}} .badge.off{{background:#2a2a2a;color:#777}}
+ .actions{{white-space:nowrap}}
+ button{{background:#2a2a2a;color:#eee;border:0;border-radius:4px;padding:.4em .8em;margin:.1em;cursor:pointer;font-size:12px}}
+ button:hover{{background:#3a3a3a}}
+ button.primary{{background:#284028;color:#cfc}}
+ button.primary:hover{{background:#385038}}
+ button.warn{{background:#3a1e1e;color:#e88}}
+ button.warn:hover{{background:#4a2a2a}}
+ #pair-bar{{display:flex;align-items:center;gap:.8em}}
+ #pair-status{{color:#888;font-size:12px}}
+ .legend{{color:#666;font-size:11px;margin:.3em 0 .8em}}
+ .empty{{color:#666;padding:.6em 0;text-align:center;font-size:12px}}
+</style></head>
+<body>
+<h1>{name} — Bluetooth <a href="/">← Dashboard</a></h1>
+<div class="legend">Paired devices auto-reconnect when in range as long as they're <strong>trusted</strong>. Forget removes the pairing entirely on both sides.</div>
+
+<h2>Pairing-Modus</h2>
+<div class="card">
+ <div id="pair-bar">
+  <button class="primary" id="pair-btn" onclick="startPair()">Pairing starten (60 s)</button>
+  <span id="pair-status">Adapter offline — klick auf Pairing starten, dann am Handy nach &quot;{name}&quot; suchen.</span>
+ </div>
+</div>
+
+<h2>Gekoppelte Geräte</h2>
+<div class="card" id="device-list">
+ <div class="empty">(lade…)</div>
+</div>
+
+<script>
+ let pairCountdown = 0;
+ let pairTimer = null;
+
+ async function load() {{
+  const r = await fetch('/api/bluetooth');
+  const j = await r.json();
+  const wrap = document.getElementById('device-list');
+  wrap.innerHTML = '';
+  if (!j.devices.length) {{
+   wrap.innerHTML = '<div class="empty">Noch keine gekoppelten Geräte.</div>';
+   return;
+  }}
+  for (const d of j.devices) {{
+   const row = document.createElement('div');
+   row.className = 'dev';
+   row.innerHTML = `
+    <div>
+     <div class="name">${{d.alias || '(unbenannt)'}}</div>
+     <div class="meta">
+      ${{d.connected ? '<span class="badge on">connected</span>' : '<span class="badge off">offline</span>'}}
+      ${{d.trusted   ? '<span class="badge on">trusted</span>'   : '<span class="badge off">untrusted</span>'}}
+      <span style="margin-left:.5em">${{d.mac}}</span>
+     </div>
+    </div>
+    <div class="actions">
+     <button onclick="act('${{d.mac}}','${{d.trusted ? 'untrust' : 'trust'}}')">${{d.trusted ? 'Untrust' : 'Trust'}}</button>
+     ${{d.connected ? `<button onclick="act('${{d.mac}}','disconnect')">Trennen</button>` : ''}}
+     <button class="warn" onclick="forget('${{d.mac}}','${{d.alias}}')">Vergessen</button>
+    </div>`;
+   wrap.appendChild(row);
+  }}
+ }}
+
+ async function startPair() {{
+  const btn = document.getElementById('pair-btn');
+  btn.disabled = true;
+  btn.textContent = 'Pairing aktiv…';
+  try {{
+   const r = await fetch('/api/bluetooth/discoverable', {{
+     method:'POST',headers:{{'content-type':'application/json'}},
+     body: JSON.stringify({{seconds:60}})
+   }});
+   if (!r.ok) throw new Error('HTTP ' + r.status);
+   pairCountdown = 60;
+   const status = document.getElementById('pair-status');
+   const tick = () => {{
+     if (pairCountdown <= 0) {{
+       status.textContent = 'Pairing-Fenster geschlossen.';
+       btn.disabled = false;
+       btn.textContent = 'Pairing starten (60 s)';
+       clearInterval(pairTimer);
+       load();
+       return;
+     }}
+     status.textContent = `Adapter sichtbar für ${{pairCountdown}} s — am Handy nach &quot;{name}&quot; suchen.`;
+     pairCountdown--;
+   }};
+   tick();
+   pairTimer = setInterval(() => {{ tick(); load(); }}, 1000);
+  }} catch (e) {{
+   document.getElementById('pair-status').textContent = 'Fehler: ' + e;
+   btn.disabled = false;
+   btn.textContent = 'Pairing starten (60 s)';
+  }}
+ }}
+
+ async function act(mac, action) {{
+  try {{
+   const r = await fetch('/api/bluetooth/device', {{
+     method:'POST',headers:{{'content-type':'application/json'}},
+     body: JSON.stringify({{mac, action}})
+   }});
+   if (!r.ok) throw new Error('HTTP ' + r.status);
+   load();
+  }} catch (e) {{
+   alert(action + ' fehlgeschlagen: ' + e);
+  }}
+ }}
+
+ async function forget(mac, alias) {{
+  if (!confirm(`&quot;${{alias || mac}}&quot; vergessen? Muss dann neu gekoppelt werden.`)) return;
+  await act(mac, 'forget');
+ }}
+
+ load();
+ setInterval(load, 5000);
+</script>
+</body></html>
+"""
+
+
+@app.get("/bluetooth", response_class=HTMLResponse)
+def bluetooth_page():
+    p = _get_profile()
+    return _BLUETOOTH_HTML.format(name=p.identity.friendly_name)
 
 
 def main():
