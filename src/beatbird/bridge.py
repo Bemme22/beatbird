@@ -316,15 +316,13 @@ class BeatBirdBridge:
 
         # RSS feed for standby idle text. Optional — empty url means
         # local IDLE_MESSAGES only. Runs in its own daemon thread, so
-        # the bridge main loop never blocks on a slow feed.
+        # the bridge main loop never blocks on a slow feed. The actual
+        # fetcher gets started inside _apply_overrides below so the
+        # override (if any) wins over profile defaults from the first
+        # tick — no double start, no transient profile-default state.
         self.rss: RssFetcher | None = None
         self._idle_max_chars = profile.idle.max_chars
         self._rss_weight = profile.idle.rss_weight
-        self._apply_idle_settings(
-            profile.idle.rss_url,
-            profile.idle.rss_refresh_minutes,
-            self._rss_weight,
-        )
 
         # Runtime overrides from the web UI settings page. We poll the
         # file's mtime once per status tick (every 5 s) and re-apply on
@@ -829,8 +827,14 @@ class BeatBirdBridge:
 
     def _apply_idle_settings(self, rss_url: str, rss_refresh_minutes: int,
                               rss_weight: float) -> None:
-        """Reconfigure the standby idle source. Safe to call repeatedly —
-        stops the previous fetcher (if any) before starting a new one."""
+        """Reconfigure the standby idle source. No-op if the parameters
+        match the running fetcher so a palette-only override-poll doesn't
+        thrash the RSS thread every 5 seconds."""
+        cur_url = self.rss.url if self.rss else ""
+        cur_refresh = (self.rss.refresh_s // 60) if self.rss else 0
+        if cur_url == rss_url and cur_refresh == rss_refresh_minutes:
+            self._rss_weight = rss_weight
+            return
         if self.rss is not None:
             self.rss.stop()
             self.rss = None
@@ -846,24 +850,41 @@ class BeatBirdBridge:
     def _apply_overrides(self, data: dict, initial: bool = False) -> None:
         """Layer web-UI overrides on top of profile defaults. Called once
         at startup (initial=True) and again whenever the overrides file
-        mtime changes."""
-        palette = data.get("palette")
-        if palette and isinstance(palette, dict) and self.display:
+        mtime changes.
+
+        Palette is computed as profile-defaults overlaid with override
+        slots and pushed as a complete set — clearing the override slot
+        (POST {"palette": {}}) reverts to profile colours without a
+        bridge restart. The display layer dedupes the resulting PAL:
+        line via _palette_sent only if nothing actually changed."""
+        d = self.profile.display
+        profile_palette: dict[str, str | None] = {
+            "a": d.accent_color,
+            "g": d.accent_glow,
+            "d": d.accent_dim,
+            "p": d.text_primary,
+            "s": d.text_secondary,
+            "e": d.accent_alert,
+        }
+        ov_palette = data.get("palette") if isinstance(data.get("palette"), dict) else {}
+        effective_palette = {k: ov_palette.get(k) or profile_palette.get(k)
+                             for k in profile_palette}
+        if self.display:
             try:
-                self.display.set_palette(palette)
+                self.display.set_palette(effective_palette)
                 if not initial:
-                    log.info("overrides: palette updated %s", palette)
+                    log.info("overrides: palette effective %s", effective_palette)
             except Exception as e:
                 log.warning("overrides palette apply failed: %s", e)
-        idle = data.get("idle")
-        if idle and isinstance(idle, dict):
-            self._apply_idle_settings(
-                idle.get("rss_url", ""),
-                int(idle.get("rss_refresh_minutes", 30)),
-                float(idle.get("rss_weight", 0.5)),
-            )
-            if not initial:
-                log.info("overrides: idle updated %s", idle)
+
+        # Idle: override wins, else profile defaults.
+        idle = data.get("idle") if isinstance(data.get("idle"), dict) else {}
+        rss_url = idle.get("rss_url", self.profile.idle.rss_url)
+        rss_refresh = int(idle.get("rss_refresh_minutes", self.profile.idle.rss_refresh_minutes))
+        rss_weight = float(idle.get("rss_weight", self.profile.idle.rss_weight))
+        self._apply_idle_settings(rss_url, rss_refresh, rss_weight)
+        if idle and not initial:
+            log.info("overrides: idle updated %s", idle)
 
     def _poll_overrides(self) -> None:
         """File-mtime check, applies if changed. Called from main loop

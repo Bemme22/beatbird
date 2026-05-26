@@ -337,39 +337,47 @@ def get_settings():
 
 @app.post("/api/settings")
 def set_settings(req: SettingsReq):
-    """Persist overrides to disk. The bridge picks the change up on its
-    next mtime poll (≤ 5 s) — no restart, no signal.
+    """Persist overrides to disk. PATCH semantics — only the keys present
+    in the request are touched; everything else stays. To remove the
+    palette override (revert to profile), POST {"palette": {}}; same for
+    idle. The bridge picks changes up on its next mtime poll (≤ 5 s) —
+    no restart, no signal.
 
-    Empty / missing slots fall back to profile defaults on read, so the
-    UI can blank out a value to "use profile default" by sending an
-    empty string. We don't merge with the existing override; the request
-    is the new full set of overrides (UI always POSTs everything)."""
-    out: dict = {"palette": None, "idle": None}
+    Was a footgun before: a curl-style POST that only carried `idle`
+    silently wiped the user's palette override because the handler
+    rebuilt the file from scratch."""
+    out = settings_overrides.load()
 
     if req.palette is not None:
-        clean: dict[str, str] = {}
-        for k in _PALETTE_SLOTS:
-            v = _hex6(req.palette.get(k, ""))
-            if v:
-                clean[k] = v
-        if clean:
-            out["palette"] = clean
+        # Empty dict = "clear the palette override".
+        if not req.palette:
+            out["palette"] = None
+        else:
+            clean: dict[str, str] = {}
+            for k in _PALETTE_SLOTS:
+                v = _hex6(req.palette.get(k, ""))
+                if v:
+                    clean[k] = v
+            out["palette"] = clean or None
 
     if req.idle is not None:
-        url = (req.idle.get("rss_url") or "").strip()
-        try:
-            refresh = max(1, min(1440, int(req.idle.get("rss_refresh_minutes", 30))))
-        except (TypeError, ValueError):
-            refresh = 30
-        try:
-            weight = max(0.0, min(1.0, float(req.idle.get("rss_weight", 0.5))))
-        except (TypeError, ValueError):
-            weight = 0.5
-        out["idle"] = {
-            "rss_url":             url,
-            "rss_refresh_minutes": refresh,
-            "rss_weight":          weight,
-        }
+        if not req.idle:
+            out["idle"] = None
+        else:
+            url = (req.idle.get("rss_url") or "").strip()
+            try:
+                refresh = max(1, min(1440, int(req.idle.get("rss_refresh_minutes", 30))))
+            except (TypeError, ValueError):
+                refresh = 30
+            try:
+                weight = max(0.0, min(1.0, float(req.idle.get("rss_weight", 0.5))))
+            except (TypeError, ValueError):
+                weight = 0.5
+            out["idle"] = {
+                "rss_url":             url,
+                "rss_refresh_minutes": refresh,
+                "rss_weight":          weight,
+            }
 
     try:
         settings_overrides.save(out)
