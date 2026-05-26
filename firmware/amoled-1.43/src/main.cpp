@@ -258,8 +258,15 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
         data->point.x = raw_x;
         data->point.y = raw_y;
 #elif DISPLAY_ROTATE_DEG ==  90
+        // Zipp Mini 2 (and any other DEG=90 mount) reports y mirrored
+        // relative to the visual frame: a touch on the visual TOP of the
+        // panel comes in at raw_x ≈ LCD_WIDTH (so the previous
+        // (LCD_WIDTH-1) - raw_x gave y_data ≈ 464 = visual BOTTOM in
+        // LVGL's coord system). Plain transpose (no second flip) lines
+        // up. Verified with on-device DEBUG:dx/dy logging: SY≈464 at
+        // visual top, SY≈5 at visual bottom under the old map.
         data->point.x = raw_y;
-        data->point.y = (LCD_WIDTH - 1) - raw_x;
+        data->point.y = raw_x;
 #elif DISPLAY_ROTATE_DEG == 180
         data->point.x = (LCD_WIDTH  - 1) - raw_x;
         data->point.y = (LCD_HEIGHT - 1) - raw_y;
