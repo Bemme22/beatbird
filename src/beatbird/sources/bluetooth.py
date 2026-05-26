@@ -417,6 +417,31 @@ def forget_device(mac: str) -> bool:
     return ok
 
 
+def set_adapter_alias(alias: str) -> bool:
+    """Set the BlueZ adapter Alias (what nearby phones see in their BT
+    scan list). Persistent across boots — bluez stores it in
+    /var/lib/bluetooth/<adapter>/settings. Called by the bridge at
+    startup so the speaker advertises its profile.identity.friendly_name
+    instead of the kernel-default hostname.
+
+    Important for multi-room setups: a household with three speakers
+    wants three distinct names in the phone's BT picker, not three
+    copies of 'BeatPi'."""
+    if not alias:
+        return False
+    _btctl(f"system-alias {alias}")
+    # Verify by re-reading. `show` output has 'Alias: <name>' field.
+    out = _btctl("show")
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("Alias:"):
+            ok = line.split(":", 1)[1].strip() == alias
+            log.info("BT: alias=%r → %s", alias, "ok" if ok else "verify-failed")
+            return ok
+    log.info("BT: alias=%r → verify-failed (no Alias line)", alias)
+    return False
+
+
 def is_discoverable() -> bool:
     """Snapshot of the adapter's Discoverable property. Cheap (one
     bluetoothctl invocation) — the bridge polls this on its 5 s status

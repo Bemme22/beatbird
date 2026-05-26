@@ -489,6 +489,17 @@ class BeatBirdBridge:
         self._start_weather_poller()
         self.mqtt.start()
 
+        # Push the friendly_name into the BlueZ adapter Alias so the
+        # phone's BT picker shows e.g. "Zipp Mini 2" instead of the
+        # kernel-default hostname. Matters in multi-room households —
+        # three speakers all showing as "BeatPi" is unusable.
+        if self.bt is not None:
+            try:
+                from beatbird.sources.bluetooth import set_adapter_alias
+                set_adapter_alias(self.profile.identity.friendly_name)
+            except Exception as e:
+                log.debug("set bt alias failed: %s", e)
+
         # Initial sync. Order of preference:
         # 1) CamillaDSP's persistent volume if it's within the profile's
         #    sane range (i.e. someone has used the speaker before).
@@ -1109,7 +1120,7 @@ class BeatBirdBridge:
         if self.sys_bt_pairing != self._last_bt_pairing:
             if self.sys_bt_pairing and self.in_standby and self.display:
                 try:
-                    self.display.push_idle_message("PAIRING MODE")
+                    self.display.push_idle_message(self._pairing_idle_text())
                     self._idle_msg_t = time.monotonic()
                 except Exception as e:
                     log.debug("push pairing idle msg: %s", e)
@@ -1182,6 +1193,17 @@ class BeatBirdBridge:
         # likely walked away mid-song and will be back to resume.
         return STANDBY_TIMEOUT_S
 
+    def _pairing_idle_text(self) -> str:
+        """Standby flap text shown during a pairing window. Includes the
+        speaker's friendly_name so a household with three speakers can
+        tell at a glance which one accepted the pair-mode click. ASCII-
+        sanitised + uppercase to match the airport-board styling and the
+        split-flap byte-cycle constraints. The label is fixed-width with
+        SCROLL_CIRCULAR, so a long name just marquees."""
+        from beatbird.rss_fetcher import _sanitise   # same sanitiser as RSS
+        name = _sanitise(self.profile.identity.friendly_name)
+        return f"PAIRING {name}" if name else "PAIRING MODE"
+
     def _send_idle_message(self) -> None:
         """Pick the next standby flap line and push it to the display.
 
@@ -1201,9 +1223,10 @@ class BeatBirdBridge:
         # PAIRING-MODE override. Skip the regular rotation so a 45 s tick
         # doesn't replace it with a random airport-board line mid-window.
         if self.sys_bt_pairing:
+            msg = self._pairing_idle_text()
             try:
-                self.display.push_idle_message("PAIRING MODE")
-                self._last_idle_msg = "PAIRING MODE"
+                self.display.push_idle_message(msg)
+                self._last_idle_msg = msg
                 self._idle_msg_t = time.monotonic()
             except Exception as e:
                 log.warning("push_idle_message (pairing) failed: %s", e)
