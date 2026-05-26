@@ -41,6 +41,19 @@ log_step "Installing BeatBird package (editable)"
 log_step "Creating /var/lib/beatbird"
 install -d -m 755 -o "$BEATBIRD_USER" -g "$BEATBIRD_GROUP" /var/lib/beatbird
 
+# ─── UI sound effects ────────────────────────────────────────────────────────
+# Pre-generated WAVs from assets/sounds/ get copied to /usr/share — the
+# sfx module looks there first, falls back to the dev-repo path if
+# missing. We copy at install time (and let it run again on subsequent
+# `make install` to refresh, e.g. after gen_sounds.py was re-run).
+if [[ -d "$REPO_DIR/assets/sounds" ]]; then
+  log_step "Installing UI sound effects to /usr/share/beatbird/sounds"
+  install -d -m 755 /usr/share/beatbird/sounds
+  install -m 644 "$REPO_DIR"/assets/sounds/*.wav /usr/share/beatbird/sounds/
+else
+  log_warn "assets/sounds not in repo — UI SFX will fall back to dev path or disable"
+fi
+
 # ─── Bridge service ──────────────────────────────────────────────────────────
 render_template \
   "$REPO_DIR/config/systemd/beatbird-bridge.service.tpl" \

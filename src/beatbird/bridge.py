@@ -25,6 +25,7 @@ from enum import Enum
 
 from beatbird.audio.camilladsp import CamillaDSP, pct_to_db, db_to_pct
 from beatbird.audio.loudness import LoudnessController, LoudnessFilter
+from beatbird.audio.sfx import SoundEffects
 from beatbird.audio.spectrum import SpectrumAnalyzer
 from beatbird.cover_processor import CoverProcessor
 from beatbird.rss_fetcher import RssFetcher
@@ -267,6 +268,15 @@ class BeatBirdBridge:
         self.display = _build_display(profile)
         self.loudness = _build_loudness(profile, self.dsp)
 
+        # UI sound effects — short blips for boot, volume, play/pause,
+        # skip, BT-connect, standby. Routes through CamillaDSP via the
+        # Loopback dmix so SFX inherit master volume + EQ. Lazy: failures
+        # to find aplay or the sounds dir auto-disable without crashing.
+        self.sfx = SoundEffects(
+            enabled=profile.audio.sfx.enabled,
+            device=profile.audio.sfx.device,
+        )
+
         # BT source (wired up after init so callbacks can reference self)
         self.bt = _build_bluetooth(
             profile,
@@ -462,6 +472,9 @@ class BeatBirdBridge:
         log.info("BT source active: %s", alias)
         self._transition_source(Source.BLUETOOTH)
         self.bt_device_alias = alias
+        # Confirmation jingle so the user hears the pairing took
+        # without having to look at the display.
+        self.sfx.play("bt_connected")
 
     def _on_bt_volume(self, pct: int) -> None:
         """Phone slider moved → sync to CamillaDSP."""
@@ -558,6 +571,11 @@ class BeatBirdBridge:
         if self.loudness:
             self.loudness.apply(self.current_volume)
 
+        # Welcome jingle. Plays through CamillaDSP at the restored
+        # master volume so a quiet startup stays quiet — the signature
+        # is 'ready', not 'announce yourself'.
+        self.sfx.play("boot")
+
     def stop(self) -> None:
         log.info("shutting down")
         if self.spectrum:
@@ -620,6 +638,10 @@ class BeatBirdBridge:
         log.info("Volume → %d%% (%.1f dB)", pct, db)
         if self.loudness:
             self.loudness.apply(pct)
+        # Volume tick — throttled inside the sfx module so a rotary
+        # gesture (which fires many set_volume calls per second) plays
+        # at most ~10 ticks/sec instead of buzzing.
+        self.sfx.play("volume")
         # Mirror to the active source so their slider stays in sync
         if self.source == Source.SPOTIFY and self.spotify:
             val = round(pct / 100.0 * self._sp_volume_steps)
@@ -662,6 +684,24 @@ class BeatBirdBridge:
             except Exception as e:
                 log.error("BT_PAIR failed: %s", e)
             return
+
+        # SFX feedback. Driven by the logical command, not the backend,
+        # so BT and Spotify both feel the same. PLAYPAUSE resolves to
+        # play/pause based on the current view of state — the actual
+        # backend round-trip can correct us later if we guessed wrong.
+        if cmd == "NEXT":
+            self.sfx.play("skip_next")
+        elif cmd == "PREV":
+            self.sfx.play("skip_prev")
+        elif cmd == "PLAY":
+            self.sfx.play("play")
+        elif cmd == "PAUSE":
+            self.sfx.play("pause")
+        elif cmd == "PLAYPAUSE":
+            if self.playback == Playback.PLAYING:
+                self.sfx.play("pause")
+            else:
+                self.sfx.play("play")
 
         if self.source == Source.BLUETOOTH and self.bt:
             from beatbird.sources.bluetooth import send_avrcp
@@ -1264,6 +1304,11 @@ class BeatBirdBridge:
 
     def _enter_standby(self, reason: str = "idle timeout") -> None:
         log.info("entering standby (%s)", reason)
+        # Goodnight sound *before* the close_session, while audio is
+        # still flowing through CamillaDSP. close_session is what
+        # silences Spotify, so playing the SFX after would route into
+        # the void on the next bridge tick.
+        self.sfx.play("standby")
         self.in_standby = True
         if self.spotify:
             try:

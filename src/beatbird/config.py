@@ -82,12 +82,24 @@ class VolumeConfig(BaseModel):
     curve_gamma: float = 1.0
 
 
+class Sfx(BaseModel):
+    """UI sound-effect feedback (boot jingle, volume tick, play/pause,
+    skip, BT connect, standby). Routes through CamillaDSP so the
+    perceived loudness scales with master volume — the volume tick
+    plays at exactly the same level the user just set."""
+    enabled: bool = True
+    # ALSA device name. dmix:CARD=Loopback,DEV=0 is the multi-writer
+    # mix point that lands on the same Loopback CamillaDSP captures.
+    device:  str  = "dmix:CARD=Loopback,DEV=0"
+
+
 class Audio(BaseModel):
     camilladsp_config: str = "_stub"
     sample_rate: int = 48000
     format: str = "S32LE"
     volume: VolumeConfig = Field(default_factory=VolumeConfig)
     loudness: Loudness = Field(default_factory=Loudness)
+    sfx: Sfx = Field(default_factory=Sfx)
 
 
 class CoverBackground(BaseModel):
