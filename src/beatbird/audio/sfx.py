@@ -44,8 +44,10 @@ DEFAULT_DEVICE = "beatbird_mix"
 
 # Minimum interval between successive volume ticks. set_volume fires
 # many times per second during a rotary gesture; without this guard the
-# ring sounds like a buzzer.
-VOLUME_THROTTLE_S = 0.10
+# ring sounds like a buzzer. Tuned to be just under the volume.wav file
+# duration so a fast rotation gets at most ~1 overlap rather than the
+# 4-5 overlap a 100 ms throttle produced with a 480 ms sample.
+VOLUME_THROTTLE_S = 0.30
 
 
 class SoundEffects:
