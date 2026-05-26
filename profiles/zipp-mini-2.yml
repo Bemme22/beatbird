@@ -53,7 +53,10 @@ wifi:
   country: DE
   use_usb_dongle: true
   disable_onboard_radio: true
-  disable_bluetooth: true
+  # Zipp Mini 2 is in a plastic case, so onboard BT comes through fine —
+  # no Faraday cage like on the metal Beat. Keep the onboard chip live
+  # so /bluetooth in the web UI can drive pairing.
+  disable_bluetooth: false
 
 mqtt:
   enabled: true
@@ -69,7 +72,7 @@ sources:
     device_name: "Zipp Mini 2"
     bitrate: 320
     normalisation: true
-  bluetooth: {enabled: false, a2dp: true}
+  bluetooth: {enabled: true, a2dp: true}
   toslink:   {enabled: false}
   snapcast:
     # See beat-1.yml for the bridge's source-indicator behaviour. Real
