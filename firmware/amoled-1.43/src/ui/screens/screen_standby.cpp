@@ -550,6 +550,16 @@ void set_flap_text(const char *text)
             lv_label_set_long_mode(lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_label_set_text(lbl_flap, text);
         } else {
+            // Pre-clear the label so SplitFlap sees old_len = 0 and
+            // doesn't pad the target with trailing spaces. With
+            // CENTER alignment those trailing spaces drift the visible
+            // text off to the left for the entire flap duration —
+            // particularly visible on first-time standby transitions
+            // and after a PAIRING/scrolling text being replaced with
+            // a short IDLE_MESSAGE. Cost: short flap chars 'appear
+            // from nothing' instead of 'transform from old chars', but
+            // for 45 s message rotations the difference is invisible.
+            lv_label_set_text(lbl_flap, "");
             SplitFlap::set_text(lbl_flap, text);
         }
     }

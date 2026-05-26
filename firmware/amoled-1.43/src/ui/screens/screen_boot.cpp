@@ -2,6 +2,7 @@
 // ui/screens/screen_boot.cpp — Boot / connection-waiting screen
 // =============================================================================
 #include "screens/screen_boot.h"
+#include "screens/split_flap.h"
 #include "theme.h"
 #include "state.h"
 
@@ -92,11 +93,19 @@ void create()
     lv_obj_clear_flag(outer_arc, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Wordmark — top ──────────────────────────────────────────────────────
+    // Start empty; show() kicks a SplitFlap fill so each letter cycles
+    // in from random characters. Departure Mono glyphs are already
+    // dot-matrix at the pixel level, so a per-character reveal reads
+    // as 'station-board flips in' — the closest Departure-Mono-based
+    // proxy for Nothing's per-dot wordmark fill without dragging in a
+    // separate pixel-mask renderer.
     lbl_wordmark = lv_label_create(scr);
-    lv_label_set_text(lbl_wordmark, "BEATBIRD");
+    lv_label_set_text(lbl_wordmark, "");
     lv_obj_set_style_text_color       (lbl_wordmark, Theme::accent_dim,             0);
     lv_obj_set_style_text_font        (lbl_wordmark, Theme::font_display_lg(),      0);
     lv_obj_set_style_text_letter_space(lbl_wordmark, Theme::LETTER_SPACE_DISPLAY,   0);
+    lv_obj_set_style_text_align       (lbl_wordmark, LV_TEXT_ALIGN_CENTER,          0);
+    lv_obj_set_width                  (lbl_wordmark, 340);
     lv_obj_align(lbl_wordmark, LV_ALIGN_CENTER, 0, -125);
 
     // ── Status — centre, breathing opacity ──────────────────────────────────
@@ -149,6 +158,11 @@ void show()
     last_progress_shown = UINT32_MAX;
     lv_screen_load(scr);
     State::app.active_screen = State::SCR_BOOT;
+    // Reset to empty in case the screen is being re-shown after a
+    // disconnect — SplitFlap with old="" gives the full 8-position
+    // reveal every time, not a partial diff against whatever was left.
+    lv_label_set_text(lbl_wordmark, "");
+    SplitFlap::set_text(lbl_wordmark, "BEATBIRD");
 }
 
 void update()
