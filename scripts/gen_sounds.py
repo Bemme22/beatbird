@@ -116,7 +116,7 @@ def boot(outdir: str) -> None:
         (NOTE["G4"], 0.16, 0.18),
         (NOTE["C5"], 0.28, 0.27),   # top note held a touch longer
     ]
-    save_wav(f"{outdir}/boot.wav", sequence(notes), gain=0.30)
+    save_wav(f"{outdir}/boot.wav", sequence(notes), gain=0.15)
 
 
 def play(outdir: str) -> None:
@@ -125,7 +125,7 @@ def play(outdir: str) -> None:
         (NOTE["G3"], 0.14, 0.00),
         (NOTE["B3"], 0.14, 0.00),
     ]
-    save_wav(f"{outdir}/play.wav", sequence(notes), gain=0.26)
+    save_wav(f"{outdir}/play.wav", sequence(notes), gain=0.13)
 
 
 def pause(outdir: str) -> None:
@@ -135,19 +135,19 @@ def pause(outdir: str) -> None:
         (NOTE["G3"], 0.12, 0.00),
         (233.08,     0.12, 0.00),  # Bb3
     ]
-    save_wav(f"{outdir}/pause.wav", sequence(notes), gain=0.26)
+    save_wav(f"{outdir}/pause.wav", sequence(notes), gain=0.13)
 
 
 def skip_next(outdir: str) -> None:
     """NEXT — single bright pop at G4."""
     s = pop(NOTE["G4"], 0.10)
-    save_wav(f"{outdir}/skip_next.wav", s, gain=0.28)
+    save_wav(f"{outdir}/skip_next.wav", s, gain=0.14)
 
 
 def skip_prev(outdir: str) -> None:
     """PREV — single pop at D4 (fifth below NEXT)."""
     s = pop(NOTE["D4"], 0.10)
-    save_wav(f"{outdir}/skip_prev.wav", s, gain=0.28)
+    save_wav(f"{outdir}/skip_prev.wav", s, gain=0.14)
 
 
 def bt_connected(outdir: str) -> None:
@@ -158,7 +158,7 @@ def bt_connected(outdir: str) -> None:
         (NOTE["E4"], 0.14, 0.10),
         (NOTE["G4"], 0.22, 0.20),
     ]
-    save_wav(f"{outdir}/bt_connected.wav", sequence(notes), gain=0.28)
+    save_wav(f"{outdir}/bt_connected.wav", sequence(notes), gain=0.14)
 
 
 def standby(outdir: str) -> None:
@@ -168,7 +168,7 @@ def standby(outdir: str) -> None:
         (NOTE["E3"], 0.18, 0.00),
         (NOTE["C3"], 0.32, 0.14),
     ]
-    save_wav(f"{outdir}/standby.wav", sequence(notes), gain=0.28)
+    save_wav(f"{outdir}/standby.wav", sequence(notes), gain=0.14)
 
 
 # ─── Driver ─────────────────────────────────────────────────────────────────

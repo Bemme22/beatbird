@@ -20,15 +20,11 @@
 // =============================================================================
 #pragma once
 
-#ifdef DISPLAY_ROTATE_NATIVE
-    // Beat case: empirically only the X axis reads opposite to Zipp
-    // (skip-right vs swipe-left). Y matches Zipp's convention (swipe-
-    // down opens settings on both). Earlier guess that both axes were
-    // mirrored was wrong — user reported swipe-up and -down were
-    // reversed on Beat after a both-axes flip.
-    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = -1;
-    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
-#else
-    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
-    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
-#endif
+// Empirically both Beat and Zipp report touch coords in the same
+// convention (right = +dx, down = +dy) once the touch_cb's rotation
+// logic in main.cpp has run. Earlier per-build flips here were based
+// on misinterpreted user feedback; the actual answer was "they're
+// the same". Kept as constants so they're easy to flip per build
+// again if a future case mounts the panel differently.
+constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
+constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
