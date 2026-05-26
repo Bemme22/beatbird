@@ -478,13 +478,14 @@ static void on_pressing(lv_event_t *e) {
 
     rotary_accumulated_deg += delta * (180.0f / (float)M_PI);
 
-    // Subtract rather than add: empirically the only way to make the
-    // user-facing rotation direction (clockwise = volume up) match the
-    // intuitive expectation given the panel's mounting + the LVGL +y
-    // axis convention. Was add-ticks before the touch-Y mirror was
-    // unflipped; that combination produced the same final effect.
+    // Add ticks: with the touch-Y axis fix in place, CW visual rotation
+    // produces positive angular delta in atan2's coord system. start +
+    // positive = louder, which is the natural 'turn the knob clockwise
+    // to make it louder' direction. (Earlier subtraction patch was based
+    // on a misread of the prior state and ended up inverting Beat after
+    // it had been working.)
     int ticks   = (int)(rotary_accumulated_deg / ROTARY_DEG_PER_TICK);
-    int new_vol = rotary_start_vol - ticks;
+    int new_vol = rotary_start_vol + ticks;
     if (new_vol < 0)   new_vol = 0;
     if (new_vol > 100) new_vol = 100;
 

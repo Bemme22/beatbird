@@ -36,11 +36,13 @@ DEV_SOUNDS_DIR = os.path.abspath(
     os.path.join(_HERE, "..", "..", "..", "assets", "sounds")
 )
 
-# ALSA target. dmix:CARD=Loopback,DEV=0 is the multi-writer mix point
-# that lands on the same Loopback playback side go-librespot and
-# snapclient use; CamillaDSP captures from the other side and mixes our
-# SFX with whatever music is currently streaming.
-DEFAULT_DEVICE = "dmix:CARD=Loopback,DEV=0"
+# ALSA target. plughw wraps hw:Loopback,0 with the plug plugin which
+# handles format + rate conversion — our WAVs are 16-bit mono 44.1 kHz
+# but the Loopback playback side accepts only S32_LE at the configured
+# sample rate. Raw hw:Loopback or dmix:Loopback wouldn't convert.
+# Loopback supports multiple substreams so this can co-exist with the
+# music sources writing to the same card.
+DEFAULT_DEVICE = "plughw:CARD=Loopback,DEV=0"
 
 # Minimum interval between successive volume ticks. set_volume fires
 # many times per second during a rotary gesture; without this guard the
