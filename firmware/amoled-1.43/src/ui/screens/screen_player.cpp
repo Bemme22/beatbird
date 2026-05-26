@@ -419,8 +419,13 @@ static void on_pressing(lv_event_t *e) {
 
     rotary_accumulated_deg += delta * (180.0f / (float)M_PI);
 
+    // Subtract rather than add: empirically the only way to make the
+    // user-facing rotation direction (clockwise = volume up) match the
+    // intuitive expectation given the panel's mounting + the LVGL +y
+    // axis convention. Was add-ticks before the touch-Y mirror was
+    // unflipped; that combination produced the same final effect.
     int ticks   = (int)(rotary_accumulated_deg / ROTARY_DEG_PER_TICK);
-    int new_vol = rotary_start_vol + ticks;
+    int new_vol = rotary_start_vol - ticks;
     if (new_vol < 0)   new_vol = 0;
     if (new_vol > 100) new_vol = 100;
 
@@ -467,7 +472,13 @@ static void on_released(lv_event_t *e) {
     if (rotary_consumed) return;
 
     if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
-        if (dx < 0) {
+        // Swipe-right (dx > 0) → NEXT, swipe-left (dx < 0) → PREV.
+        // Direction was reversed for years because nobody noticed the
+        // touch-Y axis was mirrored; once Y was fixed the user reported
+        // the X mapping felt unnatural too. Swiping the title rightward
+        // ("away to the right, give me the next one") matches the
+        // "SKIP >" arrow direction.
+        if (dx > 0) {
             Proto::send_command("NEXT");
             CenterStage::show_toast("SKIP >", 1200);
         } else {

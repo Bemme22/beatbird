@@ -24,6 +24,10 @@ static lv_obj_t *lbl_pair      = nullptr;
 static lv_obj_t *lbl_hint      = nullptr;   // small "swipe up to close" line
 static bool      created       = false;
 static uint32_t  opened_at_ms  = 0;
+// Press-start tracker for the swipe-up-to-close gesture. Same pattern
+// as screen_standby; single-finger capacitive touch so file-scope is fine.
+static int       press_sx      = 0;
+static int       press_sy      = 0;
 
 // Inactivity timeout. Long enough to read the screen, short enough that
 // a forgotten-open panel doesn't sit there for hours blocking the
@@ -44,19 +48,25 @@ static void on_pair_clicked(lv_event_t * /*e*/) {
     close();
 }
 
-static void on_panel_released(lv_event_t *e) {
-    // Swipe-up to dismiss. Same gesture math as the player screen's
-    // skip-swipe but vertical and reversed direction.
+static void on_panel_pressed(lv_event_t * /*e*/) {
     lv_indev_t *indev = lv_indev_active();
     if (!indev) return;
-    lv_point_t start, cur;
-    lv_indev_get_vect(indev, &start);   // delta since press start
-    cur = start;
-    // LVGL doesn't easily expose press-start coords here, but the
-    // released-vector cur is exactly press_end - press_start — what we want.
-    int dx = cur.x;
-    int dy = cur.y;
-    if (dy < -40 && abs(dy) > abs(dx) * 13 / 10) {
+    lv_point_t p; lv_indev_get_point(indev, &p);
+    press_sx = p.x; press_sy = p.y;
+}
+
+static void on_panel_released(lv_event_t * /*e*/) {
+    // Swipe-up to dismiss. The previous lv_indev_get_vect approach
+    // returned the delta between the last two input samples (not
+    // press-to-release), which made the gesture all but impossible
+    // to trigger. Track press start in our own state, same way
+    // ScreenStandby does.
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t p; lv_indev_get_point(indev, &p);
+    int dx = p.x - press_sx, dy = p.y - press_sy;
+    int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
+    if (ady > 30 && ady > adx && dy < 0) {
         close();
     }
 }
@@ -71,6 +81,8 @@ static void build() {
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, on_panel_pressed,  LV_EVENT_PRESSED,  NULL);
     lv_obj_add_event_cb(scr, on_panel_released, LV_EVENT_RELEASED, NULL);
 
     // ── Title ──────────────────────────────────────────────────────────────
