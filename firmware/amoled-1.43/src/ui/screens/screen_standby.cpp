@@ -348,8 +348,11 @@ void create()
         lv_point_t p; lv_indev_get_point(indev, &p);
         int dx = p.x - press_sx, dy = p.y - press_sy;
         int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
-        // Swipe-down — vertical dominant + downward + non-trivial distance.
-        if (ady > 40 && ady * 10 > adx * 13 && dy > 0) {
+        // Swipe-down — looser threshold than horizontal swipes elsewhere.
+        // A real "swipe down" with finger drag has wobble; ady > adx (no
+        // 1.3:1 ratio) gives the gesture room. Min 30 px so a static tap
+        // with millimetre-jitter still resolves to WAKE.
+        if (ady > 30 && ady > adx && dy > 0) {
             ScreenSettings::show();
             return;
         }

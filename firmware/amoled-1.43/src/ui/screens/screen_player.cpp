@@ -446,8 +446,14 @@ static void on_released(lv_event_t *e) {
     // Swipe-down → quick-settings panel. Works from both the player and
     // the (legacy) compact-standby sub-state so the user can reach the
     // pair-bluetooth button without first waking to the player screen.
-    if (ady > SWIPE_MIN_PX && ady * SWIPE_RATIO_D > adx * SWIPE_RATIO_N
-            && dy > 0) {
+    //
+    // Threshold is looser than the horizontal NEXT/PREV check: ady > adx
+    // is enough (no 1.3:1 ratio) because a downward finger drag on a
+    // round display naturally has some horizontal wobble, and the only
+    // competing intent (vertical) is "scroll upward" which we don't act
+    // on. Min 30 px so a static tap doesn't trip it.
+    if (ady > 30 && ady > adx && dy > 0) {
+        CenterStage::show_toast("SWIPE DOWN", 600);   // debug: confirms gesture
         ScreenSettings::show();
         return;
     }
