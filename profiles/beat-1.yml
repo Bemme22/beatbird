@@ -116,7 +116,7 @@ web:
 # Standby idle-text source. Local list is always available; RSS headlines
 # mixed in if a feed is configured. Empty rss_url = local only.
 idle:
-  rss_url: "https://www.tagesschau.de/xml/rss2/"
+  rss_url: ""
   rss_refresh_minutes: 30
-  max_chars: 50                  # marquee scrolls anything over visible width
+  max_chars: 50
   rss_weight: 0.5

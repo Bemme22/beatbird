@@ -433,7 +433,15 @@ void set_flap_text(const char *text)
         int32_t lsp = lv_obj_get_style_text_letter_space(lbl_flap, LV_PART_MAIN);
         lv_point_t sz;
         lv_text_get_size(&sz, text, font, lsp, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x > lv_obj_get_width(lbl_flap)) {
+        bool will_scroll = sz.x > lv_obj_get_width(lbl_flap);
+        // SCROLL_CIRCULAR anchors text at the left edge of the label;
+        // CENTER alignment keeps short messages pretty on the round
+        // display. Switching the alignment in lockstep with the scroll
+        // decision avoids the hand-off snap from centered-while-CLIP'd
+        // to left-anchored marquee.
+        lv_obj_set_style_text_align(lbl_flap,
+            will_scroll ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+        if (will_scroll) {
             // Make sure long-mode is the marquee one (might have been
             // forced to CLIP if a prior flap is still in flight; calling
             // SplitFlap::set_text with a new target would have torn that

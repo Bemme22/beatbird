@@ -772,6 +772,14 @@ void update() {
             // smooth enough and faster.
             bool old_scrolls = needs_scroll(lbl_title, old);
             bool new_scrolls = needs_scroll(lbl_title, t);
+            // Align LEFT when the new text will marquee (SCROLL_CIRCULAR
+            // starts the text at the label's left edge), else CENTER so
+            // short titles still sit pretty on the round display. Without
+            // this, the flap renders the new text centered while CLIP'd,
+            // then SCROLL_CIRCULAR re-anchors to the left edge on the
+            // final tick — visible as a hard snap during the hand-off.
+            lv_obj_set_style_text_align(lbl_title,
+                new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
             if (old_scrolls && new_scrolls && strcmp(old, t) != 0) {
                 title_pending = t;
                 SplitFlap::set_text(lbl_title, " ");   // disintegrate
@@ -799,6 +807,8 @@ void update() {
 
         bool old_scrolls = needs_scroll(lbl_artist, old);
         bool new_scrolls = needs_scroll(lbl_artist, a);
+        lv_obj_set_style_text_align(lbl_artist,
+            new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
         if (old_scrolls && new_scrolls && strcmp(old, a) != 0 && *a) {
             artist_pending = a;
             SplitFlap::set_text(lbl_artist, " ");

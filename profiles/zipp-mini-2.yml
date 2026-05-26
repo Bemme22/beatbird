@@ -88,9 +88,13 @@ web:
   port: 8080
 
 # Standby idle-text source. Local list is always available; RSS headlines
-# mixed in if a feed is configured. Empty rss_url = local only.
+# mixed in if a feed is configured. Empty rss_url = local only. The local
+# airport-board lines are the eye-catcher the standby screen is built
+# around — actual news headlines competed with the weather block for the
+# "informative" slot and lost. RSS stays off by default; the /settings
+# web UI is the place to opt back in if you want it.
 idle:
-  rss_url: "https://www.tagesschau.de/xml/rss2/"
+  rss_url: ""
   rss_refresh_minutes: 30
   max_chars: 50                  # marquee scrolls anything over visible width
-  rss_weight: 0.5                # 50/50 mix between RSS + local pool
+  rss_weight: 0.5                # 50/50 mix between RSS + local pool (when RSS on)
