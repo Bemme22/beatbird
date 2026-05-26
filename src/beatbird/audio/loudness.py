@@ -73,13 +73,30 @@ class LoudnessController:
         if not self.filters:
             return
 
+        # Defensive clamp. set_volume in the bridge already clamps but
+        # apply() is also called directly from MQTT / Spotify-sync paths
+        # and a stray out-of-range value would feed offset_curve a
+        # negative volume and yield offset > 1.0 → bass spikes well
+        # past max_boost.
+        if not 0 <= volume_pct <= 100:
+            log.warning("loudness apply: out-of-range vol=%s, clamping", volume_pct)
+            volume_pct = max(0, min(100, int(volume_pct)))
+
         offset = offset_curve(volume_pct, self.curve)
+        # Belt-and-braces — offset_curve should never return outside
+        # [0, 1] given a clamped vol_pct, but log if it ever does.
+        if not 0.0 <= offset <= 1.0:
+            log.error("loudness apply: offset=%.3f out of [0,1] at vol=%d; clamping",
+                      offset, volume_pct)
+            offset = max(0.0, min(1.0, offset))
+
         # Only patch if offset actually changed meaningfully
         if self._last_offset is not None and abs(offset - self._last_offset) < 0.02:
             return
         self._last_offset = offset
 
         patch: dict[str, dict] = {}
+        gains_log: list[str] = []
         for f in self.filters:
             gain = round(f.base_gain + (f.max_boost * offset), 1)
             patch[f.name] = {
@@ -87,5 +104,10 @@ class LoudnessController:
                     "type": f.type, "freq": f.freq, "gain": gain, "q": f.q,
                 }
             }
+            gains_log.append(f"{f.name}={gain}dB")
         self.dsp.patch_filters(patch)
-        log.debug("loudness vol=%d%% offset=%.2f", volume_pct, offset)
+        # INFO so the bridge journal carries a record every time bass
+        # gain moves — lets us correlate "bass jumped to max" reports
+        # with a specific volume value or restart event.
+        log.info("loudness vol=%d%% offset=%.2f  %s",
+                 volume_pct, offset, " ".join(gains_log))

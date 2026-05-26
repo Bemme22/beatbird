@@ -77,7 +77,7 @@ class WeatherPoller:
         lon: float,
         serial_writer: Callable[[str], None],
         interval_s: int = 30 * 60,
-        http_timeout_s: float = 10.0,
+        http_timeout_s: float = 20.0,
     ) -> None:
         self.lat = lat
         self.lon = lon

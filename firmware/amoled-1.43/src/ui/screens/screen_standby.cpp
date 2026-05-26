@@ -669,11 +669,18 @@ void update()
             lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(icon_obj,      LV_OBJ_FLAG_HIDDEN);
         } else {
-            // Graceful degrade — no WX: received yet
-            lv_obj_add_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(icon_obj,      LV_OBJ_FLAG_HIDDEN);
+            // Weather data unavailable — provider down or first poll
+            // pending. Surface the state instead of silently hiding the
+            // whole block so the user knows it's a known condition, not
+            // a render glitch. Temp slot stays empty (its 44 px font is
+            // distracting if used for a dash), highlow is hidden, the
+            // condition line carries the message in the same secondary
+            // text style normally used for "PARTLY CLOUDY" etc.
+            lv_obj_add_flag  (lbl_temp,      LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag  (icon_obj,      LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(lbl_condition, "WETTER NICHT VERFUEGBAR");
+            lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
         }
         lv_obj_invalidate(icon_obj);
         last_icon_rendered  = State::weather.icon;
