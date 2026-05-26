@@ -21,12 +21,14 @@
 #pragma once
 
 #ifdef DISPLAY_ROTATE_NATIVE
-    // Beat case: panel mount inverts both swipe axes.
+    // Beat case: empirically only the X axis reads opposite to Zipp
+    // (skip-right vs swipe-left). Y matches Zipp's convention (swipe-
+    // down opens settings on both). Earlier guess that both axes were
+    // mirrored was wrong — user reported swipe-up and -down were
+    // reversed on Beat after a both-axes flip.
     constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = -1;
-    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = -1;
+    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
 #else
-    // Zipp / default: LVGL's +x is rightward, +y is downward (after
-    // the DEG=90 touch transpose in main.cpp).
     constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
     constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
 #endif

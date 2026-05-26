@@ -2,13 +2,14 @@
 """
 scripts/gen_sounds.py — generate the BeatBird UI sound effect set.
 
-Outputs eight 16-bit mono 44.1 kHz WAV files to ``assets/sounds/``.
+Outputs 7 of the 8 sound slots as ``assets/sounds/*.wav``. The 8th
+(``volume.wav``) is the mixkit Long Pop sample committed separately —
+this script does NOT overwrite it.
 
-Design philosophy: ambient, melodic, never startling. Every sound is a
-short pad — fundamental + sub-octave + perfect fifth, all swelling in
-with a raised-cosine attack (no percussive strike) and fading out with
-an exponential-ish tail. No inharmonic partials, no chirps, no sweeps.
-The interaction is the foreground; the sound just colours the moment.
+Character: short percussive pops in the style of the volume tick.
+Fast attack, exponential decay, fundamental + sub-octave. Each
+"voice" is a single pop tone; melodies and chords are built by
+sequencing or layering pops at different pitches.
 
 Run from the repo root::
 
@@ -33,13 +34,6 @@ def _sine_n(freq: float, n: int) -> List[float]:
     return [math.sin(two_pi_over_sr * freq * i) for i in range(n)]
 
 
-def concat(*parts: Sequence[float]) -> List[float]:
-    out: List[float] = []
-    for p in parts:
-        out.extend(p)
-    return out
-
-
 def mix(*tracks: Sequence[float]) -> List[float]:
     n = max(len(t) for t in tracks)
     out = [0.0] * n
@@ -61,153 +55,120 @@ def save_wav(path: str, samples: Sequence[float], gain: float = 0.18) -> None:
         w.writeframes(pcm)
 
 
-# ─── Envelopes ──────────────────────────────────────────────────────────────
+# ─── Pop voice ──────────────────────────────────────────────────────────────
+# Approximates the mouth-pop character: very short attack, immediate
+# exponential decay, fundamental + sub-octave for body. Total length
+# ~80-120 ms — short enough to feel percussive, long enough to read as
+# tonal pitch.
 
-def swell_env(n: int, attack_frac: float = 0.25) -> List[float]:
-    """Raised-cosine swell up (no plateau), then raised-cosine fade out.
-    No sharp onset — the sound 'arrives' rather than 'hits'.
-
-    ``attack_frac`` is the fraction of total samples spent on the
-    swell-in; the rest is the fade-out. 0.25 = 25 % rise / 75 % fall =
-    musical 'attack-release' shape without a sustain plateau.
-    """
-    a_n = max(1, int(n * attack_frac))
-    out: List[float] = [0.0] * n
-    # Attack: 0 → 1 raised cosine
-    for i in range(a_n):
-        out[i] = (1.0 - math.cos(math.pi * i / a_n)) * 0.5
-    # Release: 1 → 0 raised cosine
-    r_n = n - a_n
-    for i in range(r_n):
-        # i goes 0..r_n-1 ; we want out[a_n + i] to go from 1 down to 0
-        out[a_n + i] = (1.0 + math.cos(math.pi * i / r_n)) * 0.5
-    return out
-
-
-def apply_env(samples: List[float], env: List[float]) -> List[float]:
-    return [s * e for s, e in zip(samples, env)]
-
-
-# ─── Pad voice ──────────────────────────────────────────────────────────────
-
-def pad(freq: float, dur_s: float, attack_frac: float = 0.25,
-        sub: float = 0.45, fifth: float = 0.30) -> List[float]:
-    """Soft pad voice at ``freq``: fundamental + sub-octave + perfect
-    fifth above, all sharing one smooth swell-fade envelope. No
-    inharmonic partials, no per-partial decay differences — the three
-    sines stay in fixed amplitude relation throughout the note so
-    there's no warbling or beat-frequency interference.
-
-    ``sub`` and ``fifth`` are the relative amplitudes of the sub and
-    fifth voices vs. the fundamental at 1.0.
-    """
+def pop(freq: float, dur_s: float = 0.10, body: float = 0.55) -> List[float]:
     n = int(SR * dur_s)
-    fund = _sine_n(freq,        n)
-    sub_v = _sine_n(freq * 0.5, n)
-    fifth_v = _sine_n(freq * 1.5, n)
-    mixed = [a + sub * b + fifth * c
-             for a, b, c in zip(fund, sub_v, fifth_v)]
-    env = swell_env(n, attack_frac=attack_frac)
-    return apply_env(mixed, env)
+    fund = _sine_n(freq,       n)
+    sub  = _sine_n(freq * 0.5, n)
+    raw = [a + body * b for a, b in zip(fund, sub)]
+
+    # Tiny smooth attack (~2 ms raised-cosine) so the leading sample
+    # doesn't click on the DAC.
+    a_n = int(0.002 * SR)
+    for i in range(a_n):
+        raw[i] *= (1.0 - math.cos(math.pi * i / a_n)) * 0.5
+
+    # Exponential decay over the rest. tau is set so the tail is at
+    # ~3 % by end of duration — gives a clean cut without a hard edge.
+    decay_n = n - a_n
+    tau = dur_s * 0.30
+    rate = 1.0 / (tau * SR)
+    for i in range(decay_n):
+        raw[a_n + i] *= math.exp(-i * rate)
+
+    return raw
+
+
+def sequence(notes_with_offsets: List[tuple]) -> List[float]:
+    """Layer pops at given (freq, dur, start_offset_s) positions.
+    Overlapping notes are summed; great for arpeggios where each pop
+    rings into the next."""
+    rendered = [(pop(f, d), int(SR * off)) for f, d, off in notes_with_offsets]
+    total_n = max(off + len(s) for s, off in rendered)
+    out = [0.0] * total_n
+    for s, off in rendered:
+        for i, v in enumerate(s):
+            out[off + i] += v
+    return out
 
 
 # ─── Sound recipes ──────────────────────────────────────────────────────────
 
 NOTE = {
-    "C3": 130.81, "D3": 146.83, "E3": 164.81, "F3": 174.61, "G3": 196.00,
-    "A3": 220.00, "B3": 246.94, "C4": 261.63, "D4": 293.66, "E4": 329.63,
-    "F4": 349.23, "G4": 392.00, "A4": 440.00, "C5": 523.25,
+    "C3": 130.81, "D3": 146.83, "E3": 164.81, "G3": 196.00, "A3": 220.00,
+    "B3": 246.94, "C4": 261.63, "D4": 293.66, "E4": 329.63, "G4": 392.00,
+    "A4": 440.00, "C5": 523.25, "E5": 659.25, "G5": 783.99,
 }
 
 
 def boot(outdir: str) -> None:
-    """Welcome — a slow C-major triad (C4 + E4 + G4) swelling in
-    together, ~1.6 s total. Reads as 'the system is here' without
-    announcing itself."""
-    dur = 1.6
-    layers = [
-        pad(NOTE["C4"], dur, attack_frac=0.30, sub=0.50, fifth=0.20),
-        pad(NOTE["E4"], dur, attack_frac=0.30, sub=0.35, fifth=0.20),
-        pad(NOTE["G4"], dur, attack_frac=0.30, sub=0.30, fifth=0.20),
+    """Welcome — a four-pop ascending arpeggio C4 / E4 / G4 / C5,
+    each ~140 ms with 90 ms spacing so they bleed slightly into each
+    other and build the chord while reading as a melody."""
+    notes = [
+        (NOTE["C4"], 0.16, 0.00),
+        (NOTE["E4"], 0.16, 0.09),
+        (NOTE["G4"], 0.16, 0.18),
+        (NOTE["C5"], 0.28, 0.27),   # top note held a touch longer
     ]
-    out = mix(layers[0],
-              [0.75 * s for s in layers[1]],
-              [0.55 * s for s in layers[2]])
-    save_wav(f"{outdir}/boot.wav", out, gain=0.20)
-
-
-def volume(outdir: str) -> None:
-    """Volume tick — single soft pad at A3, 220 ms. Short enough that
-    a rotary gesture's many ticks don't pile up, soft enough not to
-    startle the user."""
-    s = pad(NOTE["A3"], 0.22, attack_frac=0.35, sub=0.40, fifth=0.25)
-    save_wav(f"{outdir}/volume.wav", s, gain=0.16)
+    save_wav(f"{outdir}/boot.wav", sequence(notes), gain=0.30)
 
 
 def play(outdir: str) -> None:
-    """PLAY — major-third pad chord (G3 + B3) swelling in then fading."""
-    g = pad(NOTE["G3"], 0.55, attack_frac=0.20, sub=0.45, fifth=0.25)
-    b = pad(NOTE["B3"], 0.55, attack_frac=0.20, sub=0.35, fifth=0.25)
-    out = mix(g, [0.80 * s for s in b])
-    save_wav(f"{outdir}/play.wav", out, gain=0.18)
+    """PLAY — major-third dyad (G3 + B3) struck together, ~120 ms."""
+    notes = [
+        (NOTE["G3"], 0.14, 0.00),
+        (NOTE["B3"], 0.14, 0.00),
+    ]
+    save_wav(f"{outdir}/play.wav", sequence(notes), gain=0.26)
 
 
 def pause(outdir: str) -> None:
-    """PAUSE — minor-third pad (G3 + Bb3), mellower than PLAY. Same
-    fundamental, lowered third, so it sits in the same tonal space
-    but reads as 'resting' rather than 'going'."""
-    g = pad(NOTE["G3"], 0.55, attack_frac=0.25, sub=0.45, fifth=0.25)
-    bb = pad(233.08, 0.55, attack_frac=0.25, sub=0.40, fifth=0.25)  # Bb3
-    out = mix(g, [0.80 * s for s in bb])
-    save_wav(f"{outdir}/pause.wav", out, gain=0.18)
+    """PAUSE — minor-third dyad (G3 + Bb3), slightly shorter than PLAY
+    so it reads as 'resting'."""
+    notes = [
+        (NOTE["G3"], 0.12, 0.00),
+        (233.08,     0.12, 0.00),  # Bb3
+    ]
+    save_wav(f"{outdir}/pause.wav", sequence(notes), gain=0.26)
 
 
 def skip_next(outdir: str) -> None:
-    """NEXT — single soft pad at G4, 280 ms. No two-tone — felt too
-    'beeper'."""
-    s = pad(NOTE["G4"], 0.28, attack_frac=0.25, sub=0.35, fifth=0.20)
-    save_wav(f"{outdir}/skip_next.wav", s, gain=0.17)
+    """NEXT — single bright pop at G4."""
+    s = pop(NOTE["G4"], 0.10)
+    save_wav(f"{outdir}/skip_next.wav", s, gain=0.28)
 
 
 def skip_prev(outdir: str) -> None:
-    """PREV — single soft pad at D4, 280 ms."""
-    s = pad(NOTE["D4"], 0.28, attack_frac=0.25, sub=0.40, fifth=0.20)
-    save_wav(f"{outdir}/skip_prev.wav", s, gain=0.17)
+    """PREV — single pop at D4 (fifth below NEXT)."""
+    s = pop(NOTE["D4"], 0.10)
+    save_wav(f"{outdir}/skip_prev.wav", s, gain=0.28)
 
 
 def bt_connected(outdir: str) -> None:
-    """BT pairing complete — ascending arpeggio C4 / E4 / G4, each note
-    overlapping into the next so it reads as a chord building up."""
-    notes_dur = [(NOTE["C4"], 0.70), (NOTE["E4"], 0.70), (NOTE["G4"], 1.00)]
-    rendered = [pad(f, d, attack_frac=0.25, sub=0.40, fifth=0.20)
-                for f, d in notes_dur]
-    offset_s = 0.22
-    offset_n = int(SR * offset_s)
-    total_n = offset_n * (len(rendered) - 1) + len(rendered[-1])
-    out = [0.0] * total_n
-    for i, n in enumerate(rendered):
-        start = i * offset_n
-        amp = 1.0 if i == len(rendered) - 1 else 0.80
-        for j, s in enumerate(n):
-            out[start + j] += s * amp
-    save_wav(f"{outdir}/bt_connected.wav", out, gain=0.20)
+    """BT pairing — ascending arpeggio C4 / E4 / G4 with overlap,
+    similar shape to boot but shorter + only three notes."""
+    notes = [
+        (NOTE["C4"], 0.14, 0.00),
+        (NOTE["E4"], 0.14, 0.10),
+        (NOTE["G4"], 0.22, 0.20),
+    ]
+    save_wav(f"{outdir}/bt_connected.wav", sequence(notes), gain=0.28)
 
 
 def standby(outdir: str) -> None:
-    """Goodnight — two notes descending E3 → C3, the lower one held
-    longer with extra sub-octave for warmth. Slow, generous fade —
-    the speaker is yawning."""
-    e3 = pad(NOTE["E3"], 0.70, attack_frac=0.20, sub=0.60, fifth=0.20)
-    c3 = pad(NOTE["C3"], 1.20, attack_frac=0.20, sub=0.75, fifth=0.15)
-    offset_n = int(SR * 0.40)
-    total_n = offset_n + len(c3)
-    out = [0.0] * total_n
-    for j, s in enumerate(e3):
-        if j < total_n:
-            out[j] += s
-    for j, s in enumerate(c3):
-        out[offset_n + j] += 0.90 * s
-    save_wav(f"{outdir}/standby.wav", out, gain=0.20)
+    """Goodnight — two descending pops E3 → C3, the lower one longer
+    and warmer. The bass driver gets material."""
+    notes = [
+        (NOTE["E3"], 0.18, 0.00),
+        (NOTE["C3"], 0.32, 0.14),
+    ]
+    save_wav(f"{outdir}/standby.wav", sequence(notes), gain=0.28)
 
 
 # ─── Driver ─────────────────────────────────────────────────────────────────
@@ -217,15 +178,17 @@ def main() -> None:
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "assets", "sounds",
     )
+    # NOTE: volume.wav is NOT regenerated — it's the mixkit Long Pop
+    # sample (trimmed) which the user picked as the SFX reference. Any
+    # change to volume.wav must happen outside this script.
     boot(outdir)
-    volume(outdir)
     play(outdir)
     pause(outdir)
     skip_next(outdir)
     skip_prev(outdir)
     bt_connected(outdir)
     standby(outdir)
-    print(f"wrote 8 sounds to {outdir}")
+    print(f"wrote 7 sounds (volume.wav left untouched) to {outdir}")
 
 
 if __name__ == "__main__":
