@@ -77,6 +77,14 @@ static String    last_clock_rendered    = "";
 // Capacitive touch is single-finger so file-scope is fine.
 static int       press_sx               = 0;
 static int       press_sy               = 0;
+
+// Fixed pixel width of the flap label. Used both when we configure the
+// label in create() and when set_flap_text decides whether the next
+// message needs the marquee. Hardcoded — calling lv_obj_get_width() on
+// a freshly created label returns 0 until LVGL's layout has run, and
+// on the very first standby transition that race made every short
+// message look like 'wider than the label → scroll → align LEFT'.
+static constexpr int FLAP_LABEL_WIDTH    = 380;
 // Cached flap text — set by the Pi-side STBY: line. Cached so a message
 // arriving before create() runs gets applied on the next create() pass.
 static String    pending_flap_text      = "ON STANDBY";
@@ -503,7 +511,7 @@ void create()
     lv_obj_set_style_text_font        (lbl_flap, Theme::font_display_md(),      0);
     lv_obj_set_style_text_letter_space(lbl_flap, Theme::LETTER_SPACE_LABEL,     0);
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,          0);
-    lv_obj_set_width                  (lbl_flap, 380);
+    lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 400);
 
@@ -534,7 +542,10 @@ void set_flap_text(const char *text)
         int32_t lsp = lv_obj_get_style_text_letter_space(lbl_flap, LV_PART_MAIN);
         lv_point_t sz;
         lv_text_get_size(&sz, text, font, lsp, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        bool will_scroll = sz.x > lv_obj_get_width(lbl_flap);
+        // Hardcoded width instead of lv_obj_get_width — first-call
+        // layout race produced get_width=0 and forced every short
+        // message to LEFT/scroll mode for the first standby transition.
+        bool will_scroll = sz.x > FLAP_LABEL_WIDTH;
         // SCROLL_CIRCULAR anchors text at the left edge of the label;
         // CENTER alignment keeps short messages pretty on the round
         // display. Switching the alignment in lockstep with the scroll
