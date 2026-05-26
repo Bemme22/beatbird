@@ -11,6 +11,7 @@
   #include "sim/arduino_shim.h"
 #endif
 #include <lvgl.h>
+#include <math.h>
 #include <string.h>
 
 namespace CenterStage {
