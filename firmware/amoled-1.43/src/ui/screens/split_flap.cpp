@@ -41,6 +41,16 @@ struct Anim {
     // those scroll-restarts as "chaos → snap to final text" instead of a
     // smooth reveal, which was the long-to-short jitter the user saw.
     lv_label_long_mode_t saved_long_mode;
+    // When the new text is shorter than the old (positions > new_len),
+    // target is padded with trailing spaces. A CENTER-aligned label
+    // then centers the FULL padded string — visible chars end up
+    // left-shifted because the trailing spaces still count for width.
+    // Force LEFT during the animation and restore the caller's choice
+    // when the trimmed final text lands. Only relevant when there's
+    // actual padding (positions > new_len), so we record whether we
+    // touched the alignment at all.
+    lv_text_align_t saved_text_align;
+    bool            forced_left_align;
 };
 
 // Concurrent slots: title, artist, maybe boot wordmark later.
@@ -120,6 +130,12 @@ static void tick_cb(lv_timer_t *t) {
         // (and a circular-scroll label may even decide to scroll a string
         // that should comfortably fit).
         a->buf[a->new_len] = '\0';
+        // Restore the caller's alignment now that the trailing padding
+        // is gone — a center-aligned short text will look centered
+        // again instead of stuck on the LEFT we forced during the flap.
+        if (a->forced_left_align) {
+            lv_obj_set_style_text_align(a->label, a->saved_text_align, 0);
+        }
         // Restore long-mode BEFORE set_text. LVGL initialises the scroll
         // animation inside set_text — if we're still in CLIP when the
         // final text lands, LVGL records "no scroll needed" and the
@@ -176,9 +192,10 @@ void set_text(lv_obj_t *label, const char *new_text) {
     // MAX_ANIMS=4), just set the text directly.
     Anim *a = find_existing(label);
     if (a) {
-        // Already animating on this label — keep saved_long_mode untouched
-        // (still holds the *original* mode from before the in-flight flap)
-        // and just kill the timer so we can restart with the new target.
+        // Already animating on this label — keep saved_long_mode + saved
+        // text-align untouched (they still hold the *original* values
+        // from before the in-flight flap) and just kill the timer so we
+        // can restart with the new target.
         if (a->timer) { lv_timer_del(a->timer); a->timer = nullptr; }
     } else {
         a = alloc_slot(label);
@@ -189,8 +206,22 @@ void set_text(lv_obj_t *label, const char *new_text) {
         // Fresh slot — capture the label's current long-mode so we can
         // put it back after the flap. Then freeze it to CLIP so LVGL's
         // SCROLL_CIRCULAR doesn't restart on every per-tick set_text.
-        a->saved_long_mode = lv_label_get_long_mode(label);
+        a->saved_long_mode  = lv_label_get_long_mode(label);
+        a->saved_text_align = (lv_text_align_t)
+            lv_obj_get_style_text_align(label, LV_PART_MAIN);
+        a->forced_left_align = false;
         lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+    }
+
+    // If the new text is shorter than the longest position involved,
+    // we'll be rendering trailing spaces every tick. A center-aligned
+    // label sums those into its centering computation and the visible
+    // text drifts off to the left. Force LEFT during animation; the
+    // final tick restores the caller's alignment after trimming.
+    if (positions > new_len &&
+        a->saved_text_align != LV_TEXT_ALIGN_LEFT) {
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+        a->forced_left_align = true;
     }
 
     a->positions = positions;

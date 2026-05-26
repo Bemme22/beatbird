@@ -17,8 +17,10 @@ namespace CenterStage {
 
 // ─── Internal state ─────────────────────────────────────────────────────────
 
-static lv_obj_t *label = nullptr;
+static lv_obj_t *label   = nullptr;
+static lv_obj_t *spinner = nullptr;   // 5-dot orbit, shown while sys.spotify_stuck
 static bool      created = false;
+static bool      last_spinner_visible = false;
 
 // Toast: a non-persistent message with an expiry. Suppressed while any
 // persistent trigger is active.
@@ -182,6 +184,49 @@ static void apply(const char *text, lv_color_t color)
     }
 }
 
+// ─── Spinner (orbit of 5 dots) ─────────────────────────────────────────────
+// Shown next to the "RECONNECTING" text while sys.spotify_stuck is on.
+// Five dots orbiting a centre point at constant angular velocity, with
+// per-dot opacity tapering so the rotation reads as a comet trail rather
+// than a steady wheel.
+
+static constexpr int      SPINNER_RADIUS    = 18;
+static constexpr int      SPINNER_DOT_COUNT = 5;
+static constexpr int      SPINNER_DOT_R     = 3;
+static constexpr float    SPINNER_PERIOD_MS = 1100.0f;   // one full revolution
+
+static void draw_circle(lv_layer_t *layer, int cx, int cy, int r,
+                        lv_color_t color, lv_opa_t opa) {
+    if (opa == LV_OPA_TRANSP) return;
+    lv_draw_rect_dsc_t dsc;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.bg_color = color;
+    dsc.bg_opa   = opa;
+    dsc.radius   = LV_RADIUS_CIRCLE;
+    lv_area_t a = { cx - r, cy - r, cx + r, cy + r };
+    lv_draw_rect(layer, &dsc, &a);
+}
+
+static void spinner_draw_cb(lv_event_t *e) {
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_obj_t  *obj    = (lv_obj_t *)lv_event_get_target(e);
+    lv_area_t coords; lv_obj_get_coords(obj, &coords);
+    const int cx = (coords.x1 + coords.x2) / 2;
+    const int cy = (coords.y1 + coords.y2) / 2;
+
+    const float t = (float)millis() / SPINNER_PERIOD_MS;
+    const float phase = (t - floorf(t)) * 6.2832f;   // 0..2π
+    for (int i = 0; i < SPINNER_DOT_COUNT; i++) {
+        // Trail: dot 0 leads (brightest), dot N-1 trails (dimmest).
+        float a = phase - (float)i * (6.2832f / (float)SPINNER_DOT_COUNT) * 0.5f;
+        int x = cx + (int)roundf(cosf(a) * (float)SPINNER_RADIUS);
+        int y = cy + (int)roundf(sinf(a) * (float)SPINNER_RADIUS);
+        // Linear opacity falloff over the trail.
+        lv_opa_t opa = (lv_opa_t)(255 - (i * 200 / (SPINNER_DOT_COUNT - 1)));
+        draw_circle(layer, x, y, SPINNER_DOT_R, Theme::accent, opa);
+    }
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 void create(lv_obj_t *parent)
@@ -201,11 +246,41 @@ void create(lv_obj_t *parent)
     // Touch passes through to the parent screen
     lv_obj_add_flag(label, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
+
+    // Spinner widget — small (60×60), positioned just below the label.
+    // Hidden by default; update() reveals it while spotify_stuck is on.
+    spinner = lv_obj_create(parent);
+    lv_obj_remove_style_all(spinner);
+    lv_obj_set_size(spinner, 60, 60);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_set_style_bg_opa(spinner, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(spinner, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(spinner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag  (spinner, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_flag  (spinner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(spinner, spinner_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
 }
 
 void update()
 {
     if (!created) return;
+
+    // Spinner visibility tracks spotify_stuck independently of the text
+    // priority chain so it doesn't compete with PI OFFLINE / NO NETWORK
+    // overlays — those are bigger emergencies that take the centre.
+    const bool want_spinner =
+        State::sys.spotify_stuck &&
+        State::app.state != State::PLAY_STANDBY &&
+        State::app.state != State::PLAY_SHUTDOWN &&
+        State::app.state != State::PLAY_SHUTDOWN_WARN &&
+        !(State::app.connected_to_pi == false ||
+          !State::sys.gateway_ok);
+    if (want_spinner != last_spinner_visible) {
+        if (want_spinner) lv_obj_clear_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+        else              lv_obj_add_flag  (spinner, LV_OBJ_FLAG_HIDDEN);
+        last_spinner_visible = want_spinner;
+    }
+    if (want_spinner) lv_obj_invalidate(spinner);
 
     TriggerResult t = evaluate_persistent_trigger();
 
