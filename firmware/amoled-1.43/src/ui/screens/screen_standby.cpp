@@ -43,6 +43,7 @@ static inline float  sf(float n)    { return n * (float)ICON_SCALE_NUM / (float)
 // ─── LVGL objects ───────────────────────────────────────────────────────────
 
 static lv_obj_t *scr           = nullptr;
+static lv_obj_t *scint_layer   = nullptr;   // background scintillation dots (ambient)
 static lv_obj_t *lbl_clock     = nullptr;
 static lv_obj_t *icon_obj      = nullptr;   // custom-draw container @ (233, 240)
 static lv_obj_t *lbl_temp      = nullptr;
@@ -50,6 +51,23 @@ static lv_obj_t *lbl_highlow   = nullptr;
 static lv_obj_t *lbl_condition = nullptr;
 static lv_obj_t *lbl_flap      = nullptr;   // airport-board-style idle text
 static lv_obj_t *heartbeat     = nullptr;
+
+// ─── Scintillation: ambient dot field ──────────────────────────────────────
+// A handful of low-opacity accent dots scattered across the round display,
+// each modulating its alpha with an independent sine. Pure cosmetic
+// "this thing is alive even when nothing's happening" cue — peaks well
+// below the text colour so it doesn't compete for attention with the
+// clock or weather block.
+struct Scintilla {
+    int16_t  x, y;
+    int8_t   r;       // dot radius in px
+    uint16_t phase_ms;
+    uint16_t period_ms;
+};
+static constexpr int SCINT_COUNT      = 11;
+static constexpr int SCINT_PEAK_OPA   = 60;   // 0..255, well below text @ 255
+static Scintilla scint[SCINT_COUNT];
+static bool scint_seeded = false;
 
 static lv_anim_t anim_heartbeat;
 static bool      created                = false;
@@ -93,6 +111,47 @@ static void draw_rect(lv_layer_t *layer,
     dsc.radius   = radius;
     lv_area_t a = { x1, y1, x2, y2 };
     lv_draw_rect(layer, &dsc, &a);
+}
+
+// ─── Scintillation seed + draw ─────────────────────────────────────────────
+
+static void seed_scintillation() {
+    // Hand-picked positions distributed around the round display, biased
+    // toward the layout gaps (above the clock, beside the icon, between
+    // the high/low and flap rows) so the dots feel intentional rather
+    // than scattered noise. Each gets a period in 3-6 s and a phase
+    // offset so the field doesn't pulse in unison.
+    static const int16_t POS[SCINT_COUNT][2] = {
+        { 110,  90}, { 360,  85}, { 220,  30},
+        { 410, 200}, {  60, 210},
+        { 380, 330}, {  85, 350},
+        { 195, 430}, { 330, 445},
+        { 145, 165}, { 320, 250},
+    };
+    for (int i = 0; i < SCINT_COUNT; i++) {
+        scint[i].x         = POS[i][0];
+        scint[i].y         = POS[i][1];
+        scint[i].r         = (int8_t)(2 + (i & 1));        // 2 or 3 px
+        scint[i].phase_ms  = (uint16_t)((i * 547u) % 6000);
+        scint[i].period_ms = (uint16_t)(3000 + ((i * 911u) % 3000));
+    }
+    scint_seeded = true;
+}
+
+static void scint_draw_cb(lv_event_t *e) {
+    if (!scint_seeded) seed_scintillation();
+    lv_layer_t *layer = lv_event_get_layer(e);
+    const uint32_t now = millis();
+    for (int i = 0; i < SCINT_COUNT; i++) {
+        // sin in 0..1, period independent per dot.
+        float phase = (float)((now + scint[i].phase_ms) % scint[i].period_ms)
+                      / (float)scint[i].period_ms;
+        float s = 0.5f + 0.5f * sinf(phase * 6.2832f);
+        lv_opa_t opa = (lv_opa_t)((float)SCINT_PEAK_OPA * s);
+        if (opa < 4) continue;
+        draw_dot(layer, scint[i].x, scint[i].y, scint[i].r,
+                 Theme::accent, opa);
+    }
 }
 
 // ─── Cloud helper (5 puffs + flat base) ─────────────────────────────────────
@@ -328,6 +387,21 @@ void create()
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    // ── Scintillation layer ────────────────────────────────────────────────
+    // First child = bottom of the z-stack, so all subsequent widgets
+    // (clock, weather, flap) render on top. Full-screen, transparent,
+    // not clickable — purely a draw canvas. Invalidated by update().
+    scint_layer = lv_obj_create(scr);
+    lv_obj_remove_style_all(scint_layer);
+    lv_obj_set_size(scint_layer, 466, 466);
+    lv_obj_set_pos (scint_layer, 0, 0);
+    lv_obj_set_style_bg_opa(scint_layer, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(scint_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(scint_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag  (scint_layer, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(scint_layer, scint_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+
     // Touch model on standby:
     //   - Tap → CMD:WAKE (bridge no-ops past _exit_standby; firmware
     //     switches to player when bridge pushes the next non-standby ST:)
@@ -534,6 +608,9 @@ void update()
     if (now - last_anim_tick >= 50) {
         last_anim_tick = now;
         if (State::weather.valid) lv_obj_invalidate(icon_obj);
+        // Scintillation runs at the same cadence — 20 fps is plenty
+        // for a sine-modulated alpha pulsing over multi-second periods.
+        if (scint_layer) lv_obj_invalidate(scint_layer);
     }
 
     // ACCENT/palette refresh — runtime palette tokens are pushed by the
