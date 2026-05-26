@@ -507,20 +507,6 @@ static void on_released(lv_event_t *e) {
     int adx = abs(dx);
     int ady = abs(dy);
 
-    // Swipe-down → quick-settings panel. Works from both the player and
-    // the (legacy) compact-standby sub-state so the user can reach the
-    // pair-bluetooth button without first waking to the player screen.
-    //
-    // Threshold is looser than the horizontal NEXT/PREV check: ady > adx
-    // is enough (no 1.3:1 ratio) because a downward finger drag on a
-    // round display naturally has some horizontal wobble, and the only
-    // competing intent (vertical) is "scroll upward" which we don't act
-    // on. Min 30 px so a static tap doesn't trip it.
-    if (ady > 30 && ady > adx && dy > 0) {
-        ScreenSettings::show();
-        return;
-    }
-
     // Tap-to-wake from standby. Any non-swipe release wakes — the bridge
     // calls _exit_standby() on any CMD: so WAKE is a no-op past that point.
     if (in_standby) {
@@ -528,7 +514,26 @@ static void on_released(lv_event_t *e) {
         return;
     }
 
+    // Rotary-volume wins over every other release gesture. If the user
+    // touched the outer ring and either dragged enough angle to consume
+    // a tick or just touched-and-released without movement, that's a
+    // volume interaction — don't double-interpret it as a swipe-down to
+    // settings. Earlier order had swipe-down evaluated first, which
+    // meant a downward drag starting on the outer ring both changed
+    // volume AND opened settings.
     if (rotary_consumed) return;
+
+    // Swipe-down → quick-settings panel. Reachable only when the press
+    // started inside the rotary inner radius (rotary_active stayed
+    // false), which is the unambiguous "I want to navigate, not change
+    // volume" zone. Threshold is looser than the horizontal NEXT/PREV
+    // check: ady > adx is enough (no 1.3:1 ratio) because a downward
+    // finger drag on a round display naturally has some horizontal
+    // wobble. Min 30 px so a static tap doesn't trip it.
+    if (ady > 30 && ady > adx && dy > 0) {
+        ScreenSettings::show();
+        return;
+    }
 
     if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
         // Swipe-right (dx > 0) → NEXT, swipe-left (dx < 0) → PREV.
