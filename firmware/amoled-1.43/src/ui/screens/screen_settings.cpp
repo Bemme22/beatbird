@@ -5,6 +5,7 @@
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
+#include "touch_dirs.h"
 
 #ifdef ARDUINO
   #include <Arduino.h>
@@ -66,7 +67,9 @@ static void on_panel_released(lv_event_t * /*e*/) {
     lv_point_t p; lv_indev_get_point(indev, &p);
     int dx = p.x - press_sx, dy = p.y - press_sy;
     int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
-    if (ady > 30 && ady > adx && dy < 0) {
+    // Swipe-up — physically up. Direction multiplier flips per panel
+    // mount (Beat vs Zipp) so the gesture feels the same on both.
+    if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY < 0) {
         close();
     }
 }
@@ -109,6 +112,11 @@ static void build() {
     lv_obj_set_style_border_color(btn_pair, Theme::accent, 0);
     lv_obj_set_style_border_width(btn_pair, 2,             0);
     lv_obj_add_flag(btn_pair, LV_OBJ_FLAG_CLICKABLE);
+    // Bubble touch events to the screen so a swipe-up that starts on
+    // top of the button still reaches on_panel_released and can close
+    // the panel. Tap-without-movement still fires CLICKED on the
+    // button itself so the pair action keeps working.
+    lv_obj_add_flag(btn_pair, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(btn_pair, on_pair_clicked, LV_EVENT_CLICKED, NULL);
 
     lbl_pair = lv_label_create(btn_pair);

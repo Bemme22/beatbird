@@ -17,6 +17,7 @@
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
+#include "touch_dirs.h"
 
 #include <lvgl.h>
 #include <math.h>
@@ -433,8 +434,9 @@ void create()
         // Swipe-down — looser threshold than horizontal swipes elsewhere.
         // A real "swipe down" with finger drag has wobble; ady > adx (no
         // 1.3:1 ratio) gives the gesture room. Min 30 px so a static tap
-        // with millimetre-jitter still resolves to WAKE.
-        if (ady > 30 && ady > adx && dy > 0) {
+        // with millimetre-jitter still resolves to WAKE. Direction
+        // multiplier handles the per-case panel-mount difference.
+        if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY > 0) {
             ScreenSettings::show();
             return;
         }

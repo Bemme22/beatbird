@@ -32,6 +32,7 @@
 #include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 #include "screens/split_flap.h"
+#include "touch_dirs.h"
 #include "state.h"
 #include "theme.h"
 #include "proto.h"
@@ -531,19 +532,17 @@ static void on_released(lv_event_t *e) {
     // check: ady > adx is enough (no 1.3:1 ratio) because a downward
     // finger drag on a round display naturally has some horizontal
     // wobble. Min 30 px so a static tap doesn't trip it.
-    if (ady > 30 && ady > adx && dy > 0) {
+    if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY > 0) {
         ScreenSettings::show();
         return;
     }
 
     if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
-        // Swipe-right (dx > 0) → NEXT, swipe-left (dx < 0) → PREV.
-        // Direction was reversed for years because nobody noticed the
-        // touch-Y axis was mirrored; once Y was fixed the user reported
-        // the X mapping felt unnatural too. Swiping the title rightward
-        // ("away to the right, give me the next one") matches the
-        // "SKIP >" arrow direction.
-        if (dx > 0) {
+        // Swipe physically right → NEXT, physically left → PREV.
+        // TOUCH_DIR_RIGHT_IS_POS_DX is +1 on Zipp and -1 on Beat (panel
+        // mount differs by 180° per case), so the same source code maps
+        // the user's intent consistently across both speakers.
+        if (dx * TOUCH_DIR_RIGHT_IS_POS_DX > 0) {
             Proto::send_command("NEXT");
             CenterStage::show_toast("SKIP >", 1200);
         } else {
