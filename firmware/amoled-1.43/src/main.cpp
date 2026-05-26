@@ -29,6 +29,7 @@
 #include "proto.h"
 #include "screens/screen_boot.h"
 #include "screens/screen_player.h"
+#include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 
 // LVGL internal hit-test shim — kept for compilation parity with prior builds.
@@ -447,6 +448,7 @@ void loop()
 
     ScreenPlayer::update();
     ScreenStandby::update();
+    ScreenSettings::update();
 
     check_dim();
 

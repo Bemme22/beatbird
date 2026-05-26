@@ -29,6 +29,7 @@
 
 #include "screens/screen_player.h"
 #include "screens/center_stage.h"
+#include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 #include "screens/split_flap.h"
 #include "state.h"
@@ -437,19 +438,28 @@ static void on_released(lv_event_t *e) {
     rotary_active = false;
     if (in_shutdown) return;
 
-    // Tap-to-wake from standby. Any release wakes — the bridge calls
-    // _exit_standby() on any CMD: so WAKE is a no-op past that point.
+    int dx  = press_last_x - press_start_x;
+    int dy  = press_last_y - press_start_y;
+    int adx = abs(dx);
+    int ady = abs(dy);
+
+    // Swipe-down → quick-settings panel. Works from both the player and
+    // the (legacy) compact-standby sub-state so the user can reach the
+    // pair-bluetooth button without first waking to the player screen.
+    if (ady > SWIPE_MIN_PX && ady * SWIPE_RATIO_D > adx * SWIPE_RATIO_N
+            && dy > 0) {
+        ScreenSettings::show();
+        return;
+    }
+
+    // Tap-to-wake from standby. Any non-swipe release wakes — the bridge
+    // calls _exit_standby() on any CMD: so WAKE is a no-op past that point.
     if (in_standby) {
         Proto::send_command("WAKE");
         return;
     }
 
     if (rotary_consumed) return;
-
-    int dx  = press_last_x - press_start_x;
-    int dy  = press_last_y - press_start_y;
-    int adx = abs(dx);
-    int ady = abs(dy);
 
     if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
         if (dx < 0) {

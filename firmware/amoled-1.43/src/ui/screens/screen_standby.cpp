@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include "screens/screen_standby.h"
+#include "screens/screen_settings.h"
 #include "screens/split_flap.h"
 #include "proto.h"
 #include "state.h"
@@ -54,6 +55,10 @@ static lv_anim_t anim_heartbeat;
 static bool      created                = false;
 static uint8_t   last_icon_rendered     = 255;   // force first paint
 static String    last_clock_rendered    = "";
+// Tap vs swipe distinguisher for the standby screen's release handler.
+// Capacitive touch is single-finger so file-scope is fine.
+static int       press_sx               = 0;
+static int       press_sy               = 0;
 // Cached flap text — set by the Pi-side STBY: line. Cached so a message
 // arriving before create() runs gets applied on the next create() pass.
 static String    pending_flap_text      = "ON STANDBY";
@@ -323,12 +328,31 @@ void create()
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    // Tap-to-wake: any release on the standby screen sends CMD:WAKE, which
-    // the bridge interprets as a no-op past _exit_standby(). The screen
-    // switch back to the player happens once the bridge pushes a ST: line
-    // with the non-standby state (handled in screen_player.cpp::update()).
+    // Touch model on standby:
+    //   - Tap → CMD:WAKE (bridge no-ops past _exit_standby; firmware
+    //     switches to player when bridge pushes the next non-standby ST:)
+    //   - Swipe-down → quick-settings panel (pair bluetooth etc.)
+    // Capacitive touch is single-finger so file-scope press-start state
+    // is fine. The decision happens on RELEASED so a downward drag can
+    // be distinguished from a static tap.
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, [](lv_event_t *) {
+    lv_obj_add_event_cb(scr, [](lv_event_t * /*e*/) {
+        lv_indev_t *indev = lv_indev_active();
+        if (!indev) return;
+        lv_point_t p; lv_indev_get_point(indev, &p);
+        press_sx = p.x; press_sy = p.y;
+    }, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(scr, [](lv_event_t * /*e*/) {
+        lv_indev_t *indev = lv_indev_active();
+        if (!indev) { Proto::send_command("WAKE"); return; }
+        lv_point_t p; lv_indev_get_point(indev, &p);
+        int dx = p.x - press_sx, dy = p.y - press_sy;
+        int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
+        // Swipe-down — vertical dominant + downward + non-trivial distance.
+        if (ady > 40 && ady * 10 > adx * 13 && dy > 0) {
+            ScreenSettings::show();
+            return;
+        }
         Proto::send_command("WAKE");
     }, LV_EVENT_RELEASED, NULL);
 

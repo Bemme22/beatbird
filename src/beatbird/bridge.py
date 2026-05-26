@@ -646,6 +646,23 @@ class BeatBirdBridge:
         if cmd == "WAKE":
             return
 
+        # BT_PAIR: swipe-down settings-menu → "Pair Bluetooth" button on
+        # the display. Same code path as the web UI's pairing button —
+        # bluez goes discoverable for 60 s, bt-agent auto-accepts the
+        # incoming request, the existing SYS:bt= flag drives the PAIRING
+        # overlay back on the display. Lets a non-tech household member
+        # pair their phone without finding the web UI.
+        if cmd == "BT_PAIR":
+            if self.bt is None:
+                log.warning("BT_PAIR but bluetooth source is disabled in profile")
+                return
+            try:
+                from beatbird.sources.bluetooth import set_discoverable
+                set_discoverable(True, timeout_s=60)
+            except Exception as e:
+                log.error("BT_PAIR failed: %s", e)
+            return
+
         if self.source == Source.BLUETOOTH and self.bt:
             from beatbird.sources.bluetooth import send_avrcp
             active = self.bt.active_device()
