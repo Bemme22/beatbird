@@ -36,6 +36,18 @@ def sine(freq: float, dur_s: float) -> List[float]:
     return [math.sin(two_pi_over_sr * freq * i) for i in range(n)]
 
 
+def warm(freq: float, dur_s: float) -> List[float]:
+    """Fundamental + sub-octave + 2nd harmonic — a small additive stack
+    that gives the otherwise-thin sine tones some body. Mixed in low so
+    the perceived pitch is still the fundamental, but the tone has
+    weight a single sine doesn't on real speakers."""
+    fund = sine(freq,        dur_s)
+    sub  = sine(freq * 0.5,  dur_s)
+    harm = sine(freq * 2.0,  dur_s)
+    return [0.78 * a + 0.35 * b + 0.10 * c
+            for a, b, c in zip(fund, sub, harm)]
+
+
 def chirp(f0: float, f1: float, dur_s: float) -> List[float]:
     """Linear frequency sweep from f0 to f1 over dur_s. Phase is
     integrated correctly so the waveform is continuous (no clicks)."""
@@ -107,69 +119,80 @@ def save_wav(path: str, samples: Sequence[float], gain: float = 0.3) -> None:
 
 # ─── Sound recipes ──────────────────────────────────────────────────────────
 
+def warm_chirp(f0: float, f1: float, dur_s: float) -> List[float]:
+    """Chirp with the same fundamental + sub + 2nd-harmonic stack as
+    warm(), sweeping from f0 to f1 over dur_s."""
+    fund = chirp(f0,       f1,       dur_s)
+    sub  = chirp(f0 * 0.5, f1 * 0.5, dur_s)
+    harm = chirp(f0 * 2.0, f1 * 2.0, dur_s)
+    return [0.78 * a + 0.35 * b + 0.10 * c
+            for a, b, c in zip(fund, sub, harm)]
+
+
 def boot(outdir: str) -> None:
-    """Welcome jingle — C5 / E5 / G5 / C6 with a bell-ish release on the
-    last note. Reads as 'system coming alive' without being a corporate
-    fanfare."""
+    """Welcome jingle — C4 / E4 / G4 / C5 with a bell-ish release on the
+    last note. Down an octave from the first cut so the speaker's bass
+    response actually gets exercised; pure sines at 500-1000 Hz sounded
+    laptop-tinny on good hardware."""
     parts = []
     for freq, dur in [
-        (523.25, 0.18),   # C5
-        (659.25, 0.18),   # E5
-        (783.99, 0.18),   # G5
-        (1046.50, 0.55),  # C6 — held longer, bell-like
+        (261.63, 0.18),   # C4
+        (329.63, 0.18),   # E4
+        (392.00, 0.18),   # G4
+        (523.25, 0.55),   # C5 — held longer, bell-like
     ]:
-        s = sine(freq, dur)
+        s = warm(freq, dur)
         s = adsr(s, attack=0.005, decay=0.05, sustain=0.7,
                  release=dur * 0.5)
         parts.append(s)
-    save_wav(f"{outdir}/boot.wav", concat(*parts), gain=0.30)
+    save_wav(f"{outdir}/boot.wav", concat(*parts), gain=0.32)
 
 
 def volume(outdir: str) -> None:
-    """Volume tick — 80 ms blip at 1200 Hz. Plays through CamillaDSP so
-    the user hears it AT the new master volume, which is the whole
-    point of the Libratone-style 'now you know how loud it'll be'."""
-    s = sine(1200, 0.08)
+    """Volume tick — 80 ms blip around 500 Hz. Warm enough to read on
+    good speakers, not so heavy that rapid ticks during a rotary
+    gesture become a buzz."""
+    s = warm(500, 0.08)
     s = adsr(s, attack=0.002, decay=0.015, sustain=0.5, release=0.05)
-    save_wav(f"{outdir}/volume.wav", s, gain=0.20)
+    save_wav(f"{outdir}/volume.wav", s, gain=0.22)
 
 
 def play(outdir: str) -> None:
-    """PLAY — rising chirp 440 → 880 Hz."""
-    s = chirp(440, 880, 0.22)
+    """PLAY — rising chirp 220 → 440 Hz."""
+    s = warm_chirp(220, 440, 0.22)
     s = adsr(s, attack=0.005, decay=0.04, sustain=0.7, release=0.12)
     save_wav(f"{outdir}/play.wav", s, gain=0.28)
 
 
 def pause(outdir: str) -> None:
-    """PAUSE — falling chirp 880 → 440 Hz, symmetrical with play."""
-    s = chirp(880, 440, 0.22)
+    """PAUSE — falling chirp 440 → 220 Hz, symmetrical with play."""
+    s = warm_chirp(440, 220, 0.22)
     s = adsr(s, attack=0.005, decay=0.04, sustain=0.7, release=0.12)
     save_wav(f"{outdir}/pause.wav", s, gain=0.28)
 
 
 def skip_next(outdir: str) -> None:
     """Two-tone tick rising — quick + crisp, like a tape advance."""
-    s1 = adsr(sine(600, 0.06), 0.001, 0.01, 0.5, 0.04)
-    s2 = adsr(sine(900, 0.10), 0.001, 0.02, 0.6, 0.06)
+    s1 = adsr(warm(300, 0.06), 0.001, 0.01, 0.5, 0.04)
+    s2 = adsr(warm(450, 0.10), 0.001, 0.02, 0.6, 0.06)
     save_wav(f"{outdir}/skip_next.wav", concat(s1, s2), gain=0.28)
 
 
 def skip_prev(outdir: str) -> None:
-    s1 = adsr(sine(900, 0.06), 0.001, 0.01, 0.5, 0.04)
-    s2 = adsr(sine(600, 0.10), 0.001, 0.02, 0.6, 0.06)
+    s1 = adsr(warm(450, 0.06), 0.001, 0.01, 0.5, 0.04)
+    s2 = adsr(warm(300, 0.10), 0.001, 0.02, 0.6, 0.06)
     save_wav(f"{outdir}/skip_prev.wav", concat(s1, s2), gain=0.28)
 
 
 def bt_connected(outdir: str) -> None:
-    """BT pairing complete — E5 / A5 / E6 ascending, bell decay on top."""
+    """BT pairing complete — E4 / A4 / E5 ascending, bell decay on top."""
     parts = []
     for freq, dur in [
-        (659.25, 0.14),   # E5
-        (880.00, 0.14),   # A5
-        (1318.51, 0.45),  # E6 — sustained tail
+        (329.63, 0.14),   # E4
+        (440.00, 0.14),   # A4
+        (659.25, 0.45),   # E5 — sustained tail
     ]:
-        s = sine(freq, dur)
+        s = warm(freq, dur)
         s = adsr(s, attack=0.005, decay=0.04, sustain=0.6,
                  release=dur * 0.5)
         parts.append(s)
@@ -177,10 +200,10 @@ def bt_connected(outdir: str) -> None:
 
 
 def standby(outdir: str) -> None:
-    """Going to sleep — slow descending chirp."""
-    s = chirp(600, 220, 0.45)
+    """Going to sleep — slow descending chirp 300 → 110 Hz."""
+    s = warm_chirp(300, 110, 0.45)
     s = adsr(s, attack=0.01, decay=0.10, sustain=0.5, release=0.25)
-    save_wav(f"{outdir}/standby.wav", s, gain=0.22)
+    save_wav(f"{outdir}/standby.wav", s, gain=0.24)
 
 
 # ─── Driver ─────────────────────────────────────────────────────────────────

@@ -36,13 +36,11 @@ DEV_SOUNDS_DIR = os.path.abspath(
     os.path.join(_HERE, "..", "..", "..", "assets", "sounds")
 )
 
-# ALSA target. plughw wraps hw:Loopback,0 with the plug plugin which
-# handles format + rate conversion — our WAVs are 16-bit mono 44.1 kHz
-# but the Loopback playback side accepts only S32_LE at the configured
-# sample rate. Raw hw:Loopback or dmix:Loopback wouldn't convert.
-# Loopback supports multiple substreams so this can co-exist with the
-# music sources writing to the same card.
-DEFAULT_DEVICE = "plughw:CARD=Loopback,DEV=0"
+# ALSA target. `beatbird_mix` is the dmix-on-Loopback PCM defined in
+# /etc/asound.conf (installed by install/10-soundcard.sh). go-librespot
+# is configured against the same name, so the dmix multiplexes music +
+# UI SFX into one underlying stream that CamillaDSP captures as usual.
+DEFAULT_DEVICE = "beatbird_mix"
 
 # Minimum interval between successive volume ticks. set_volume fires
 # many times per second during a rotary gesture; without this guard the

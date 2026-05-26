@@ -88,11 +88,11 @@ class Sfx(BaseModel):
     perceived loudness scales with master volume — the volume tick
     plays at exactly the same level the user just set."""
     enabled: bool = True
-    # ALSA device name. plughw wraps hw:Loopback,0 with format/rate
-    # conversion — required because Loopback's playback side accepts
-    # only S32_LE while our WAVs are S16_LE. CamillaDSP captures the
-    # mix from the other side.
-    device:  str  = "plughw:CARD=Loopback,DEV=0"
+    # ALSA device name. `beatbird_mix` is the dmix-on-Loopback defined
+    # in /etc/asound.conf — see config/alsa/beatbird-asound.conf. Same
+    # device go-librespot targets, so the dmix multiplexes music + SFX
+    # into one stream that CamillaDSP captures.
+    device:  str  = "beatbird_mix"
 
 
 class Audio(BaseModel):

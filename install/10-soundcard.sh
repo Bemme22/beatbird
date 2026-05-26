@@ -25,3 +25,10 @@ fi
 
 log_step "Soundcard: $DRIVER"
 bash "$SUB_SCRIPT"
+
+# ─── ALSA system config (dmix on Loopback for SFX + music coexistence) ───
+# The dmix lets multiple writers (go-librespot + our UI SFX aplay) share
+# the same Loopback playback stream. Without it, librespot held Loopback
+# exclusively and SFX during music was silent.
+log_step "Installing /etc/asound.conf (beatbird_mix dmix on Loopback)"
+install -m 644 "$REPO_DIR/config/alsa/beatbird-asound.conf" /etc/asound.conf
