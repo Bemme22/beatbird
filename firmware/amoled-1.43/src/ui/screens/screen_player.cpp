@@ -97,6 +97,15 @@ static float    energy_smoothed    = 0.0f;
 static uint32_t source_pulse_until = 0;
 static constexpr uint32_t SOURCE_PULSE_MS = 300;
 
+// Volume-change "wave" — when the volume changes, a brighter/larger
+// hotspot travels once around the ring (CW, ~700 ms). Pure cosmetic
+// feedback; doesn't replace the volume-arc rendering, just rides on
+// top of it. A fresh volume change aborts any in-flight pulse and
+// starts a new one (volume_pulse_start_ms = millis()).
+static uint32_t volume_pulse_start_ms = 0;
+static constexpr uint32_t VOLUME_PULSE_MS    = 700;
+static constexpr float    VOLUME_PULSE_WIDTH = 3.0f;   // ± dots from wave centre that still get a boost
+
 // Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
 static int   prog_x[60],   prog_y[60];
@@ -258,10 +267,40 @@ static inline float energy_dyn(float raw) {
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
+// Distance between two dot indices around the 24-dot ring (shorter way).
+static inline float vol_ring_distance(int i, float center) {
+    float raw = fabsf((float)i - center);
+    return raw < 12.0f ? raw : 24.0f - raw;
+}
+
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
     int lit = (vol * 24 + 50) / 100;
+
+    // Wave phase 0..1, or -1 if no pulse active.
+    const uint32_t now_ms = millis();
+    float wave_phase = -1.0f;
+    if (volume_pulse_start_ms != 0) {
+        uint32_t elapsed = now_ms - volume_pulse_start_ms;
+        if (elapsed < VOLUME_PULSE_MS) {
+            wave_phase = (float)elapsed / (float)VOLUME_PULSE_MS;
+        } else {
+            volume_pulse_start_ms = 0;   // self-clean expired pulse
+        }
+    }
+    // Wave centre as a (fractional) dot index. Ease-out so the hotspot
+    // launches fast and trails off — feels more deliberate than linear.
+    float wave_centre = -1.0f;
+    if (wave_phase >= 0.0f) {
+        float p = 1.0f - (1.0f - wave_phase) * (1.0f - wave_phase);   // ease-out quad
+        wave_centre = p * 24.0f;
+    }
+    // Envelope: dies as the pulse approaches its end so it doesn't
+    // hard-cut at frame n→n+1 when wave_phase crosses 1.0.
+    const float wave_env = (wave_phase < 0.0f)
+                           ? 0.0f
+                           : 1.0f - wave_phase * wave_phase;   // 1→0 quadratic
     // Phase-2 energy modulation. The dynamic-range remap (energy_dyn) is
     // critical: raw RMS sits in 0.55..0.93 during music, which on its own
     // makes the wobble look identical on quiet and loud passages. After
@@ -282,16 +321,36 @@ static void vol_draw_cb(lv_event_t *e) {
     for (int i = 0; i < 24; i++) {
         if (i == 0) continue;
         bool is_lit = (i < lit);
+
+        // Per-dot wave boost (0..1). Linear falloff over ±WIDTH dots,
+        // multiplied by the global envelope so the boost fades out as
+        // the pulse expires.
+        float wboost = 0.0f;
+        if (wave_centre >= 0.0f) {
+            float d = vol_ring_distance(i, wave_centre);
+            if (d < VOLUME_PULSE_WIDTH) {
+                wboost = (1.0f - d / VOLUME_PULSE_WIDTH) * wave_env;
+            }
+        }
+
         if (is_lit) {
             float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
-            int   r   = (int)roundf((float)Theme::VOL_DOT_R * wob);
+            // Wave boost: +60 % radius at peak, additive on top of the
+            // energy wobble so a wave during loud music still pops.
+            float r_f  = (float)Theme::VOL_DOT_R * wob * (1.0f + 0.60f * wboost);
+            int   r    = (int)roundf(r_f);
             if (r < 2) r = 2;
-            lv_opa_t o = (lv_opa_t)(217 + (int)(E * 38.0f));   // 0.85..1.00
-            if (o > 255) o = 255;
+            int o_int  = 217 + (int)(E * 38.0f) + (int)(wboost * 38.0f);
+            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
             draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
         } else {
-            draw_dot(layer, vol_x[i], vol_y[i],
-                     Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
+            // Unlit dots get a softer wave: bumps opacity, doesn't
+            // grow radius. Reads as "the wave is passing through here"
+            // even on the dim half of the ring.
+            int r_dim = Theme::VOL_DOT_R_DIM + (int)(wboost * 2.0f);
+            int o_int = 160 + (int)(wboost * 70.0f);
+            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
+            draw_dot(layer, vol_x[i], vol_y[i], r_dim, Theme::accent_dim, o);
         }
     }
 }
@@ -881,7 +940,10 @@ void update() {
         State::clear_dirty(State::Dirty::SOURCE);
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
-        // Volume text widget gone — vol ring + CenterStage's MUTE cover it now
+        // Volume text widget gone — vol ring + CenterStage's MUTE cover it now.
+        // Kick a fresh wave pulse; the energy-render loop below keeps
+        // invalidating vol_layer at 60 Hz while it's in flight.
+        volume_pulse_start_ms = millis();
         lv_obj_invalidate(vol_layer);
         State::clear_dirty(State::Dirty::VOLUME);
     }
@@ -896,10 +958,15 @@ void update() {
     // the loop keeps running (cheaply) until the smoothed value decays
     // away — without this the source-marker would freeze at its last opacity
     // instead of fading back to its idle level on pause.
+    const bool volume_pulse_active = (
+        volume_pulse_start_ms != 0
+        && (millis() - volume_pulse_start_ms) < VOLUME_PULSE_MS
+    );
     const bool keep_animating =
         (State::app.state == State::PLAY_PLAYING) ||
         (energy_smoothed > 0.01f) ||
-        (millis() < source_pulse_until);   // keep ticking through a source-switch pulse
+        (millis() < source_pulse_until) ||   // keep ticking through a source-switch pulse
+        volume_pulse_active;                 // and through a volume-wave pulse
     if (keep_animating) {
         uint32_t now = millis();
         if (now - last_energy_render >= 16) {
