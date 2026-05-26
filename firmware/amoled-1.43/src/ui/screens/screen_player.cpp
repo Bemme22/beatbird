@@ -443,6 +443,15 @@ static void on_released(lv_event_t *e) {
     int adx = abs(dx);
     int ady = abs(dy);
 
+    // Debug: log every release's dx/dy so we can see why the swipe-down
+    // path isn't firing on hardware. Remove after the gesture works.
+    {
+        char dbg[64];
+        snprintf(dbg, sizeof dbg, "DEBUG:player dx=%d dy=%d sx=%d sy=%d",
+                 dx, dy, press_start_x, press_start_y);
+        Proto::send_command(dbg);
+    }
+
     // Swipe-down → quick-settings panel. Works from both the player and
     // the (legacy) compact-standby sub-state so the user can reach the
     // pair-bluetooth button without first waking to the player screen.

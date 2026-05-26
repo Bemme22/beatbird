@@ -348,6 +348,15 @@ void create()
         lv_point_t p; lv_indev_get_point(indev, &p);
         int dx = p.x - press_sx, dy = p.y - press_sy;
         int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
+        // Debug: same trace as the player's so we can see why swipe-down
+        // isn't tripping. Remove after the gesture works.
+        {
+            char dbg[80];
+            snprintf(dbg, sizeof dbg,
+                     "DEBUG:standby dx=%d dy=%d sx=%d sy=%d ex=%d ey=%d",
+                     dx, dy, press_sx, press_sy, (int)p.x, (int)p.y);
+            Proto::send_command(dbg);
+        }
         // Swipe-down — looser threshold than horizontal swipes elsewhere.
         // A real "swipe down" with finger drag has wobble; ady > adx (no
         // 1.3:1 ratio) gives the gesture room. Min 30 px so a static tap
