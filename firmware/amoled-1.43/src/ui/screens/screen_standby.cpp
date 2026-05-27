@@ -546,6 +546,13 @@ void create()
     lv_qrcode_set_size(qr_code, 320);
     lv_qrcode_set_dark_color (qr_code, lv_color_black());
     lv_qrcode_set_light_color(qr_code, lv_color_white());
+    // Quiet zone is OFF by default in LVGL 9.x — without ~4 modules of
+    // white margin around the matrix, phone scanners refuse to lock on.
+    // Symptom on real hardware: QR clearly visible, no phone (Pixel,
+    // motorola, default Android camera) will decode it. Enabling shrinks
+    // the matrix area inside the same canvas size to leave room for the
+    // margin — verified scannable result.
+    lv_qrcode_set_quiet_zone(qr_code, true);
     lv_obj_align(qr_code, LV_ALIGN_TOP_MID, 0, 50);
     lv_obj_add_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_CLICKABLE);
