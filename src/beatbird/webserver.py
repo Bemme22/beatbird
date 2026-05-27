@@ -681,8 +681,7 @@ def _status_for_template() -> dict:
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     p = _get_profile()
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "dashboard.html", {
         "name":    p.identity.friendly_name,
         "status":  _status_for_template(),
         "bt":      _bt_context(),
@@ -692,8 +691,7 @@ def dashboard(request: Request):
 @app.get("/advanced", response_class=HTMLResponse)
 def advanced(request: Request):
     p = _get_profile()
-    return templates.TemplateResponse("advanced.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "advanced.html", {
         "name":    p.identity.friendly_name,
         "status":  _status_for_template(),
         "diag":    diag(),
@@ -704,8 +702,7 @@ def advanced(request: Request):
 
 @app.get("/ui/now-playing", response_class=HTMLResponse)
 def ui_now_playing(request: Request):
-    return templates.TemplateResponse("_now_playing.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_now_playing.html", {
         "status":  _status_for_template(),
     })
 
@@ -713,8 +710,7 @@ def ui_now_playing(request: Request):
 @app.get("/ui/bluetooth", response_class=HTMLResponse)
 def ui_bluetooth(request: Request):
     p = _get_profile()
-    return templates.TemplateResponse("_bluetooth.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_bluetooth.html", {
         "name":    p.identity.friendly_name,
         "bt":      _bt_context(),
     })
@@ -746,8 +742,7 @@ def ui_cmd(request: Request, c: str):
         elif cmd == "STOP":         _spotify.close_session()
     except Exception as e:
         log.warning("ui_cmd %s failed: %s", cmd, e)
-    return templates.TemplateResponse("_now_playing.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_now_playing.html", {
         "status":  _status_for_template(),
     })
 
@@ -772,8 +767,7 @@ def ui_bluetooth_pair(request: Request):
         bt.set_discoverable(True, timeout_s=60)
     except Exception as e:
         log.error("ui_bluetooth_pair: %s", e)
-    return templates.TemplateResponse("_bluetooth.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_bluetooth.html", {
         "name":    p.identity.friendly_name,
         "bt":      _bt_context(),
     })
@@ -787,8 +781,7 @@ def ui_bluetooth_forget(request: Request, mac: str):
         bt.forget_device(mac)
     except Exception as e:
         log.error("ui_bluetooth_forget %s: %s", mac, e)
-    return templates.TemplateResponse("_bluetooth.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_bluetooth.html", {
         "name":    p.identity.friendly_name,
         "bt":      _bt_context(),
     })
@@ -798,8 +791,7 @@ def ui_bluetooth_forget(request: Request, mac: str):
 
 @app.get("/ui/advanced/system", response_class=HTMLResponse)
 def ui_advanced_system(request: Request):
-    return templates.TemplateResponse("_advanced_system.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_advanced_system.html", {
         "status":  _status_for_template(),
         "diag":    diag(),
     })
@@ -807,16 +799,14 @@ def ui_advanced_system(request: Request):
 
 @app.get("/ui/advanced/snapcast", response_class=HTMLResponse)
 def ui_advanced_snapcast(request: Request):
-    return templates.TemplateResponse("_advanced_snapcast.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_advanced_snapcast.html", {
         "diag":    diag(),
     })
 
 
 @app.get("/ui/advanced/filters", response_class=HTMLResponse)
 def ui_advanced_filters(request: Request):
-    return templates.TemplateResponse("_advanced_filters.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_advanced_filters.html", {
         "filters": get_filters().get("filters", []),
     })
 
