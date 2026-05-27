@@ -392,6 +392,22 @@ def set_trusted(mac: str, trusted: bool = True) -> bool:
     return ok
 
 
+def trust_all_paired() -> int:
+    """One-shot sweep: trust every paired device that isn't already
+    trusted. Fixes pre-existing bonds that were created before the
+    auto-trust-on-connect logic landed, and acts as a safety net for
+    any pairing flow that side-stepped bt-agent. Returns the number
+    of devices we flipped from untrusted → trusted."""
+    flipped = 0
+    for d in list_paired_devices():
+        if d.paired and not d.trusted:
+            if set_trusted(d.mac, True):
+                flipped += 1
+    if flipped:
+        log.info("BT: trusted %d previously-paired device(s)", flipped)
+    return flipped
+
+
 def disconnect_device(mac: str) -> bool:
     """Drop a single connected device. Paired + trusted state survive,
     so the phone can reconnect on its own as soon as it's in range
@@ -661,6 +677,12 @@ class BluetoothSource:
         # look "new" and fire a spurious "PAIRED" toast after every reboot.
         # Skip the callback on the first poll and just seed the cache.
         self._first_poll_done = False
+        # MACs we've already auto-trusted in this bridge run. set_trusted
+        # shells out to bluetoothctl which takes ~50-100 ms — calling it
+        # on every poll for the same device would burn CPU pointlessly,
+        # so we just remember which ones we've handled. The actual trust
+        # bit persists in /var/lib/bluetooth across runs.
+        self._trusted_macs: set[str] = set()
 
     def poll(self) -> BTState:
         now = time.monotonic()
@@ -773,16 +795,29 @@ class BluetoothSource:
         # first poll seeds the cache without firing, otherwise every
         # bridge restart would spam a toast for the phone that's already
         # been connected for hours.
-        if self.on_newly_connected and self._first_poll_done:
+        if self._first_poll_done:
             for d in new_state.devices:
                 if d.mac in prev_macs:
                     continue
                 if not d.connected:
                     continue
-                try:
-                    self.on_newly_connected(d.alias or d.mac)
-                except Exception as e:
-                    log.error("on_newly_connected: %s", e)
+                # Auto-trust on connect. bt-agent --capability=NoInputNoOutput
+                # does NOT mark the device Trusted after pair, and an
+                # untrusted device fails BlueZ's auto-reconnect on the
+                # next round (silent rejection). Doing it here covers
+                # the pairing flow regardless of how the user got there
+                # (web UI button, swipe-down PAIR, phone-initiated).
+                if d.mac not in self._trusted_macs:
+                    self._trusted_macs.add(d.mac)
+                    try:
+                        set_trusted(d.mac, True)
+                    except Exception as e:
+                        log.warning("auto-trust %s failed: %s", d.mac, e)
+                if self.on_newly_connected:
+                    try:
+                        self.on_newly_connected(d.alias or d.mac)
+                    except Exception as e:
+                        log.error("on_newly_connected: %s", e)
 
         self._first_poll_done = True
         self._last_state = new_state

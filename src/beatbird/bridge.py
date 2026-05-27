@@ -536,6 +536,17 @@ class BeatBirdBridge:
             except Exception as e:
                 log.debug("set bt alias failed: %s", e)
 
+            # One-shot sweep: trust every paired device that isn't
+            # already trusted. Fixes pre-existing bonds created before
+            # auto-trust-on-connect landed (bt-agent itself doesn't
+            # set Trusted, so anything paired with the old code stays
+            # untrusted and BlueZ silently rejects the reconnect).
+            try:
+                from beatbird.sources.bluetooth import trust_all_paired
+                trust_all_paired()
+            except Exception as e:
+                log.debug("trust_all_paired failed: %s", e)
+
         # Initial sync. Order of preference:
         # 1) CamillaDSP's persistent volume if it's within the profile's
         #    sane range (i.e. someone has used the speaker before).
