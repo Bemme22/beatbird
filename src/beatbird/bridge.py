@@ -461,13 +461,14 @@ class BeatBirdBridge:
         self.source = new_source
 
     def _on_bt_active(self, alias: str) -> None:
-        """BT became the active audio source."""
+        """BT became the active audio source (phone started streaming)."""
         log.info("BT source active: %s", alias)
         self._transition_source(Source.BLUETOOTH)
         self.bt_device_alias = alias
-        # Confirmation jingle so the user hears the pairing took
-        # without having to look at the display.
-        self.sfx.play("bt_connected")
+        # SFX moved to _on_bt_newly_connected — that fires on link
+        # establishment, which is what users associate with "did the
+        # connect work?". Streaming-start can happen seconds later
+        # depending on which audio app the user picks first.
 
     def _on_bt_volume(self, pct: int) -> None:
         """Phone slider moved → sync to CamillaDSP."""
@@ -521,6 +522,11 @@ class BeatBirdBridge:
         overlay tmpfs, which would die on reboot without this push to
         disk."""
         log.info("BT newly connected: %s", alias)
+        # Audible confirmation that the BT link came up — fires on
+        # actual link establishment, not just on stream start, so the
+        # user gets feedback as soon as their phone says "Connected"
+        # regardless of whether they've picked a music app yet.
+        self.sfx.play("bt_connected")
         self._persist_bt_state()
         # If we're in an active pairing window, close it now — the user
         # got what they came for. Saves them from the 60 s discoverable
@@ -777,13 +783,7 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
-        # BT_PAIR is the one command we want to stay in standby for: the
-        # standby screen hosts the QR-code overlay and the PAIRING <name>
-        # flap text, both of which are the whole point of opening the
-        # discoverable window. Exiting standby would yank the user back
-        # to the player chrome and force them to find the QR via another
-        # path.
-        if self.in_standby and cmd != "BT_PAIR":
+        if self.in_standby:
             self._exit_standby("user command")
 
         # WAKE: tap-to-wake from the standby screen. Side-effect-free — the

@@ -20,11 +20,17 @@ namespace ScreenSettings {
 
 static lv_obj_t *scr           = nullptr;
 static lv_obj_t *prev_scr      = nullptr;   // remembered so close() can return to it
-static lv_obj_t *btn_pair      = nullptr;
-static lv_obj_t *lbl_pair      = nullptr;
+static lv_obj_t *qr_code       = nullptr;
+static lv_obj_t *qr_caption    = nullptr;
 static lv_obj_t *lbl_hint      = nullptr;   // small "swipe up to close" line
 static bool      created       = false;
 static uint32_t  opened_at_ms  = 0;
+// QR URL cache. ScreenStandby has its own copy on its own widget; the
+// protocol layer dispatches set_qr_url to both. We don't share a global
+// buffer because the LVGL widgets live in separate trees and each owns
+// its own render.
+static String    qr_url_cached = "";
+static bool      qr_url_applied= false;
 // Press-start tracker for the swipe-up-to-close gesture. Same pattern
 // as screen_standby; single-finger capacitive touch so file-scope is fine.
 static int       press_sx      = 0;
@@ -37,16 +43,14 @@ static constexpr uint32_t AUTO_CLOSE_MS = 12000;
 
 // ─── Build ──────────────────────────────────────────────────────────────────
 
-static void on_pair_clicked(lv_event_t * /*e*/) {
-    Proto::send_command("BT_PAIR");
-    // Optimistic feedback — bridge needs ~50-200 ms to flip BlueZ and
-    // another up-to-5 s for SYS:bt=1 to arrive. Without an immediate
-    // local change the user thinks the tap was lost.
-    if (lbl_pair) lv_label_set_text(lbl_pair, "PAIRING…");
-    // Close right after so the user can read the standby PAIRING overlay
-    // or watch their phone's BT picker. The bridge's PAIRING badge will
-    // light up within 5 s.
-    close();
+static String short_caption_from_url(const String &url) {
+    String s = url;
+    int p = s.indexOf("://");
+    if (p >= 0) s = s.substring(p + 3);
+    while (s.length() > 0 && s.charAt(s.length() - 1) == '/') {
+        s = s.substring(0, s.length() - 1);
+    }
+    return s;
 }
 
 static void on_panel_pressed(lv_event_t * /*e*/) {
@@ -90,42 +94,47 @@ static void build() {
 
     // ── Title ──────────────────────────────────────────────────────────────
     lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "SETTINGS");
+    lv_label_set_text(title, "SCAN ZUM KOPPELN");
     lv_obj_set_style_text_color       (title, Theme::text_secondary,         0);
     lv_obj_set_style_text_font        (title, Theme::font_display_md(),      0);
     lv_obj_set_style_text_letter_space(title, Theme::LETTER_SPACE_LABEL,     0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);
     lv_obj_add_flag(title, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
 
-    // ── Pair Bluetooth button ──────────────────────────────────────────────
-    // Centered on the round display. Big enough that a relaxed thumb-tap
-    // lands reliably (~220×80 region). Border + accent fill so it reads
-    // as a touchable affordance, not just text.
-    btn_pair = lv_obj_create(scr);
-    lv_obj_remove_style_all(btn_pair);
-    lv_obj_set_size(btn_pair, 280, 100);
-    lv_obj_align(btn_pair, LV_ALIGN_CENTER, 0, -10);
-    lv_obj_set_style_bg_color(btn_pair, Theme::accent_dim, 0);
-    lv_obj_set_style_bg_opa  (btn_pair, LV_OPA_COVER,      0);
-    lv_obj_set_style_radius  (btn_pair, 18,                0);
-    lv_obj_set_style_border_color(btn_pair, Theme::accent, 0);
-    lv_obj_set_style_border_width(btn_pair, 2,             0);
-    lv_obj_add_flag(btn_pair, LV_OBJ_FLAG_CLICKABLE);
-    // Bubble touch events to the screen so a swipe-up that starts on
-    // top of the button still reaches on_panel_released and can close
-    // the panel. Tap-without-movement still fires CLICKED on the
-    // button itself so the pair action keeps working.
-    lv_obj_add_flag(btn_pair, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_event_cb(btn_pair, on_pair_clicked, LV_EVENT_CLICKED, NULL);
+    // ── QR code ────────────────────────────────────────────────────────────
+    // 300 px is a touch smaller than the standby QR (320) because we
+    // need room for the title + hint at top/bottom. quiet_zone must be
+    // explicit — LVGL 9.x leaves it off by default and phones won't
+    // scan without the ~4-module white margin (see
+    // feedback_lvgl_qrcode_quiet_zone in memory).
+    qr_code = lv_qrcode_create(scr);
+    lv_qrcode_set_size(qr_code, 300);
+    lv_qrcode_set_dark_color (qr_code, lv_color_black());
+    lv_qrcode_set_light_color(qr_code, lv_color_white());
+    lv_qrcode_set_quiet_zone(qr_code, true);
+    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(qr_code, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_CLICKABLE);
 
-    lbl_pair = lv_label_create(btn_pair);
-    lv_label_set_text(lbl_pair, "PAIR BLUETOOTH");
-    lv_obj_set_style_text_color       (lbl_pair, Theme::text_primary,        0);
-    lv_obj_set_style_text_font        (lbl_pair, Theme::font_display_md(),   0);
-    lv_obj_set_style_text_letter_space(lbl_pair, Theme::LETTER_SPACE_LABEL,  0);
-    lv_obj_center(lbl_pair);
-    lv_obj_add_flag(lbl_pair, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    qr_caption = lv_label_create(scr);
+    lv_label_set_text(qr_caption, "");
+    lv_obj_set_style_text_color(qr_caption, Theme::accent, 0);
+    lv_obj_set_style_text_font (qr_caption, Theme::font_display_md(), 0);
+    lv_obj_set_style_text_letter_space(qr_caption, Theme::LETTER_SPACE_LABEL, 0);
+    lv_obj_set_style_text_align(qr_caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(qr_caption, LV_ALIGN_BOTTOM_MID, 0, -90);
+    lv_obj_add_flag(qr_caption, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(qr_caption, LV_OBJ_FLAG_CLICKABLE);
+
+    // Apply any URL the bridge pushed before build() ran (the bridge
+    // sends QR: once at start; if that arrived before show() built
+    // this screen the cache picks it up here).
+    if (qr_url_cached.length() > 0 && !qr_url_applied) {
+        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
+        lv_label_set_text(qr_caption, short_caption_from_url(qr_url_cached).c_str());
+        qr_url_applied = true;
+    }
 
     // ── Hint ──────────────────────────────────────────────────────────────
     lbl_hint = lv_label_create(scr);
@@ -134,18 +143,28 @@ static void build() {
     lv_obj_set_style_text_opa         (lbl_hint, (lv_opa_t)100,              0);
     lv_obj_set_style_text_font        (lbl_hint, Theme::font_display_md(),   0);
     lv_obj_set_style_text_letter_space(lbl_hint, Theme::LETTER_SPACE_LABEL,  0);
-    lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -60);
+    lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -55);
     lv_obj_add_flag(lbl_hint, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_hint, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void set_qr_url(const char *url) {
+    if (!url || !url[0]) return;
+    qr_url_cached  = String(url);
+    qr_url_applied = false;
+    if (qr_code) {
+        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
+        qr_url_applied = true;
+    }
+    if (qr_caption) {
+        lv_label_set_text(qr_caption, short_caption_from_url(qr_url_cached).c_str());
+    }
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 void show() {
     if (!created) build();
-    // Reset button text in case we're re-opening after a previous
-    // BT_PAIR sequence that left it in "PAIRING…" state.
-    if (lbl_pair) lv_label_set_text(lbl_pair, "PAIR BLUETOOTH");
     prev_scr = lv_screen_active();
     opened_at_ms = millis();
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_OVER_TOP, 250, 0, false);
