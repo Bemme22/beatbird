@@ -35,8 +35,17 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=beatbird-bridge
 
-# Light hardening (avoid PrivateTmp — breaks alsa device access)
-NoNewPrivileges=true
+# Light hardening (avoid PrivateTmp — breaks alsa device access).
+#
+# NoNewPrivileges intentionally NOT set: the bridge needs to call sudo
+# for two narrowly-scoped, NOPASSWD-restricted commands —
+#   - /usr/local/sbin/beatbird-bt-sync (BlueZ state → disk under
+#     overlayroot=tmpfs, see install/61-bluetooth-persist.sh)
+#   - /usr/sbin/overlayroot-chroot (used elsewhere for persistence)
+# Both are listed by full path in /etc/sudoers.d/beatbird-overlay so the
+# bridge can't repurpose sudo for arbitrary commands. Enabling
+# NoNewPrivileges would break the sudo call with "no new privileges
+# flag is set, which prevents sudo from running as root".
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/beatbird /etc/beatbird
