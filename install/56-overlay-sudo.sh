@@ -29,6 +29,11 @@ cat > "$SUDOERS_FILE" <<EOF
 # the bridge user needs for overlay-mode persistence + reboot.
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/sbin/overlayroot-chroot
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
+# journalctl is strictly read-only and we need it for diagnosing
+# bluez / camilladsp / go-librespot rejections without prompting for
+# a password on each SSH session. No write or service-control rights
+# are granted by this entry.
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/journalctl
 EOF
 chmod 0440 "$SUDOERS_FILE"
 
