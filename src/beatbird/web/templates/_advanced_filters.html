@@ -1,0 +1,17 @@
+<!-- One row per CamillaDSP filter the bridge exposes as tunable.
+     The slider posts back via the existing /api/filter endpoint with
+     JSON body. htmx default is form-encoded, so we use vanilla JS for
+     this one POST — the existing endpoint expects Pydantic JSON. -->
+{% for f in filters %}
+  <div style="display:grid;grid-template-columns:100px 1fr 70px;gap:0.6rem;align-items:center;margin:0.4rem 0">
+    <label style="color:var(--pico-muted-color);font-size:0.85rem">{{ f.name }}</label>
+    <input type="range" min="-20" max="20" step="0.5"
+           value="{{ f.gain }}"
+           oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1) + ' dB'"
+           onchange="fetch('/api/filter', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({name:'{{ f.name }}', gain: parseFloat(this.value)})})">
+    <span class="num" style="text-align:right;font-size:0.85rem">{{ "%.1f"|format(f.gain) }} dB</span>
+  </div>
+{% endfor %}
+{% if not filters %}
+  <span style="color:var(--pico-muted-color)">Keine Filter-Patches aktiv.</span>
+{% endif %}

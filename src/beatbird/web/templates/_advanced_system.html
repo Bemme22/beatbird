@@ -1,0 +1,34 @@
+<article id="system-card"
+         hx-get="/ui/advanced/system"
+         hx-trigger="every 4s"
+         hx-swap="outerHTML">
+  <header><strong>System</strong></header>
+  <div class="grid-2" style="gap:0.3rem 1rem">
+    <div><small style="color:var(--pico-muted-color)">CPU temp</small><br>
+         <span class="num">{{ "%.1f"|format(status.cpu_temp or 0) }} °C</span></div>
+    <div><small style="color:var(--pico-muted-color)">WiFi</small><br>
+         <span class="num">{{ status.wifi_rssi }} dBm</span></div>
+    <div><small style="color:var(--pico-muted-color)">Firmware</small><br>
+         <span class="num">{{ diag.firmware_version }}</span></div>
+    <div><small style="color:var(--pico-muted-color)">Uptime</small><br>
+         <span class="num">
+           {% set u = diag.uptime_s %}
+           {% if u >= 86400 %}{{ (u // 86400) }} d {{ ((u % 86400) // 3600) }} h
+           {% elif u >= 3600 %}{{ (u // 3600) }} h {{ ((u % 3600) // 60) }} min
+           {% else %}{{ (u // 60) }} min{% endif %}
+         </span></div>
+    <div><small style="color:var(--pico-muted-color)">Bridge</small><br>
+         <span class="pill {% if status.bridge %}on{% endif %}">{{ 'aktiv' if status.bridge else 'aus' }}</span></div>
+    <div><small style="color:var(--pico-muted-color)">CamillaDSP</small><br>
+         <span class="pill {% if status.camilladsp %}on{% endif %}">{{ 'aktiv' if status.camilladsp else 'aus' }}</span></div>
+    <div><small style="color:var(--pico-muted-color)">go-librespot</small><br>
+         <span class="pill {% if status.spotify_service %}on{% endif %}">{{ 'aktiv' if status.spotify_service else 'aus' }}</span></div>
+    <div><small style="color:var(--pico-muted-color)">Mem free</small><br>
+         <span class="num">{{ diag.mem_available }}</span></div>
+  </div>
+  {% if diag.disk.upper_free_mb is not none %}
+    <div style="margin-top:0.6rem;font-size:0.85rem;color:var(--pico-muted-color)">
+      Overlay (RAM, tmpfs): {{ diag.disk.upper_used_mb }} MB / {{ diag.disk.upper_total_mb }} MB belegt
+    </div>
+  {% endif %}
+</article>

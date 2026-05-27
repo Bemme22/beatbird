@@ -28,8 +28,12 @@ import os
 import re
 import subprocess
 
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from beatbird import settings_overrides, system
@@ -42,6 +46,13 @@ from beatbird.sources.spotify import SpotifyClient
 log = logging.getLogger("beatbird.web")
 
 app = FastAPI(title="BeatBird")
+
+# Static (pico.css + htmx) + Jinja templates live alongside the bridge
+# code under src/beatbird/web/ so the editable install picks them up
+# without extra path tricks. Relative to webserver.py for portability.
+_WEB_DIR = Path(__file__).parent / "web"
+app.mount("/static", StaticFiles(directory=_WEB_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=_WEB_DIR / "templates")
 _profile = None
 _dsp = CamillaDSP()
 _spotify = SpotifyClient()
@@ -495,9 +506,355 @@ async def stream_logs(unit: str = "beatbird-bridge", lines: int = 50):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-# ─── Dashboard (single HTML blob, no build step) ─────────────────────────────
+# ─── /api/diag — extra diagnostics for the /advanced page ───────────────────
+#
+# Surfaces stuff that today only shows up in the bridge journal: firmware
+# version, BT codec of the active link, snapcast stream details, disk +
+# memory. The dashboard ignores this endpoint; only /advanced consumes it.
 
-_HTML = """<!doctype html>
+def _read_fw_version() -> str:
+    try:
+        with open("/var/lib/beatbird/firmware-version") as f:
+            return f.read().strip() or "?"
+    except OSError:
+        return "?"
+
+
+def _read_uptime_seconds() -> int:
+    try:
+        with open("/proc/uptime") as f:
+            return int(float(f.read().split()[0]))
+    except (OSError, ValueError):
+        return 0
+
+
+def _read_meminfo() -> dict:
+    out: dict = {}
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    out[k.strip()] = v.strip()
+    except OSError:
+        return {}
+    return out
+
+
+def _disk_free_root() -> dict:
+    """`/` is overlay tmpfs on the speakers — what shrinks is RAM-backed.
+    We report both the usable / view and /media/root-rw (the tmpfs upper
+    layer) so users can see what's actually free."""
+    import shutil
+    out: dict = {}
+    try:
+        u = shutil.disk_usage("/")
+        out["root_total_mb"] = u.total // (1024 * 1024)
+        out["root_used_mb"]  = u.used  // (1024 * 1024)
+        out["root_free_mb"]  = u.free  // (1024 * 1024)
+    except OSError:
+        pass
+    try:
+        u = shutil.disk_usage("/media/root-rw")
+        out["upper_total_mb"] = u.total // (1024 * 1024)
+        out["upper_used_mb"]  = u.used  // (1024 * 1024)
+        out["upper_free_mb"]  = u.free  // (1024 * 1024)
+    except OSError:
+        pass
+    return out
+
+
+@app.get("/api/diag")
+def diag():
+    mi = _read_meminfo()
+    mem_total = mi.get("MemTotal", "")
+    mem_avail = mi.get("MemAvailable", "")
+    # bt active codec via the bridge's BT source state if available
+    bt_codec = None
+    bt_alias = None
+    try:
+        active = bt._list_connected_devices()  # type: ignore
+        if active:
+            bt_alias = active[0].alias
+    except Exception:
+        pass
+    # snapcast — bridge's poll already keeps state; expose via the
+    # bridge's state file or by re-querying the server. Cheap re-query:
+    snap = {}
+    try:
+        snap_host = os.environ.get("BEATBIRD_SNAPCAST_SERVER", "").strip()
+        if snap_host:
+            from beatbird.sources.snapcast import SnapcastClient, get_local_wlan_mac
+            mac = get_local_wlan_mac()
+            if mac:
+                cli = SnapcastClient(host=snap_host, my_mac=mac)
+                st = cli.get_state()
+                if st:
+                    snap = {
+                        "server":     snap_host,
+                        "group":      st.get("group_name") or "—",
+                        "playing":    bool(st.get("playing")),
+                        "stream":     st.get("stream") or "—",
+                        "title":      st.get("title") or "",
+                        "artist":     st.get("artist") or "",
+                        "volume_pct": st.get("volume_pct"),
+                    }
+    except Exception as e:
+        snap = {"error": str(e)}
+    return {
+        "firmware_version": _read_fw_version(),
+        "uptime_s":         _read_uptime_seconds(),
+        "mem_total":        mem_total,
+        "mem_available":    mem_avail,
+        "disk":             _disk_free_root(),
+        "bt": {
+            "connected_alias": bt_alias,
+            # Codec isn't directly exposed by bluez-alsa without a deeper
+            # dbus call; placeholder for now — journal shows it but
+            # surfacing means parsing org.bluealsa.PCM1 properties.
+            "codec":           None,
+        },
+        "snapcast": snap,
+    }
+
+
+# ─── Dashboard ───────────────────────────────────────────────────────────────
+#
+# / is the user-facing minimal dashboard (Now Playing, Volume, Bluetooth).
+# /advanced is the technical view (logs, loudness, services, system).
+# Both render Jinja2 templates from web/templates/, talk to htmx-friendly
+# /ui/* partial endpoints. The legacy /api/* endpoints stay untouched so
+# external integrations and the old inline JS pages keep working.
+
+def _bt_context() -> dict:
+    """Snapshot of paired/connected BT state in the shape the templates
+    expect. Cheap (single bluetoothctl invocation + one is_discoverable
+    check)."""
+    paired = bt.list_paired_devices()
+    connected = next((d for d in paired if d.connected), None)
+    return {
+        "paired":       paired,
+        "connected":    connected,
+        "discoverable": bt.is_discoverable(),
+        # Time-left during a pairing window is not directly exposed by
+        # bluez — bluetoothctl just returns the boolean. Showing a fixed
+        # "wait" is good enough; the bridge closes the window after
+        # actual pair success anyway.
+        "discoverable_seconds_left": None,
+    }
+
+
+def _status_for_template() -> dict:
+    """Same shape get_status returns but post-processed for the template
+    layer: playback as a string ("Playing"/"Paused"/"Stopped"), source as
+    a tag, title/artist flattened from the nested spotify state."""
+    raw = get_status()
+    sp = raw.get("spotify") or {}
+    if sp and not sp.get("stopped"):
+        playback = "Paused" if sp.get("paused") else "Playing"
+        source = "spotify"
+        title = sp.get("title") or ""
+        artist = sp.get("artist") or ""
+    else:
+        playback = "Stopped"
+        source = "none"
+        title = ""
+        artist = ""
+    # BT-active overrides Spotify-stopped: if a phone is streaming the
+    # bridge sees source=bluetooth in its own state. The web layer can't
+    # query the bridge directly, so we just check whether any device is
+    # currently connected — close enough for the dashboard pill.
+    try:
+        if any(d.connected for d in bt.list_paired_devices()):
+            source = "bluetooth"
+    except Exception:
+        pass
+    return {
+        **raw,
+        "playback": playback,
+        "source":   source,
+        "title":    title,
+        "artist":   artist,
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
+    p = _get_profile()
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "name":    p.identity.friendly_name,
+        "status":  _status_for_template(),
+        "bt":      _bt_context(),
+    })
+
+
+@app.get("/advanced", response_class=HTMLResponse)
+def advanced(request: Request):
+    p = _get_profile()
+    return templates.TemplateResponse("advanced.html", {
+        "request": request,
+        "name":    p.identity.friendly_name,
+        "status":  _status_for_template(),
+        "diag":    diag(),
+    })
+
+
+# ─── /ui/* — htmx partial responses (HTML, not JSON) ────────────────────────
+
+@app.get("/ui/now-playing", response_class=HTMLResponse)
+def ui_now_playing(request: Request):
+    return templates.TemplateResponse("_now_playing.html", {
+        "request": request,
+        "status":  _status_for_template(),
+    })
+
+
+@app.get("/ui/bluetooth", response_class=HTMLResponse)
+def ui_bluetooth(request: Request):
+    p = _get_profile()
+    return templates.TemplateResponse("_bluetooth.html", {
+        "request": request,
+        "name":    p.identity.friendly_name,
+        "bt":      _bt_context(),
+    })
+
+
+@app.post("/ui/cmd", response_class=HTMLResponse)
+def ui_cmd(request: Request, c: str):
+    """Single-endpoint playback command (PLAY/PAUSE/PLAYPAUSE/NEXT/PREV).
+    Re-renders the Now Playing partial so the dashboard reflects the new
+    state immediately. State may briefly lag (Spotify takes 100-300 ms
+    to settle) — htmx's 2-second poll will correct any miss."""
+    cmd = c.upper()
+    if cmd not in ("PLAY", "PAUSE", "PLAYPAUSE", "NEXT", "PREV", "STOP"):
+        raise HTTPException(400, f"bad cmd {cmd!r}")
+    # The legacy /api/playback handler uses a Pydantic body; emulate by
+    # going straight to the spotify client. Same behaviour, no body
+    # parsing detour.
+    try:
+        if cmd == "PLAY":           _spotify.play()
+        elif cmd == "PAUSE":        _spotify.pause()
+        elif cmd == "PLAYPAUSE":
+            st = _spotify.get_state()
+            if st and not st.stopped and not st.paused:
+                _spotify.pause()
+            else:
+                _spotify.play()
+        elif cmd == "NEXT":         _spotify.next()
+        elif cmd == "PREV":         _spotify.prev()
+        elif cmd == "STOP":         _spotify.close_session()
+    except Exception as e:
+        log.warning("ui_cmd %s failed: %s", cmd, e)
+    return templates.TemplateResponse("_now_playing.html", {
+        "request": request,
+        "status":  _status_for_template(),
+    })
+
+
+@app.post("/ui/vol")
+async def ui_vol(request: Request):
+    """htmx form-encoded slider POST. Body: pct=42."""
+    form = await request.form()
+    try:
+        pct = int(float(form.get("pct") or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "bad pct")
+    pct = max(0, min(100, pct))
+    _dsp.set_volume_db(pct_to_db(pct))
+    return HTMLResponse("")  # hx-swap="none" — slider handles its own UI
+
+
+@app.post("/ui/bluetooth/pair", response_class=HTMLResponse)
+def ui_bluetooth_pair(request: Request):
+    p = _get_profile()
+    try:
+        bt.set_discoverable(True, timeout_s=60)
+    except Exception as e:
+        log.error("ui_bluetooth_pair: %s", e)
+    return templates.TemplateResponse("_bluetooth.html", {
+        "request": request,
+        "name":    p.identity.friendly_name,
+        "bt":      _bt_context(),
+    })
+
+
+@app.post("/ui/bluetooth/forget", response_class=HTMLResponse)
+def ui_bluetooth_forget(request: Request, mac: str):
+    p = _get_profile()
+    mac = _validate_mac(mac)
+    try:
+        bt.forget_device(mac)
+    except Exception as e:
+        log.error("ui_bluetooth_forget %s: %s", mac, e)
+    return templates.TemplateResponse("_bluetooth.html", {
+        "request": request,
+        "name":    p.identity.friendly_name,
+        "bt":      _bt_context(),
+    })
+
+
+# ─── /ui/advanced/* ─────────────────────────────────────────────────────────
+
+@app.get("/ui/advanced/system", response_class=HTMLResponse)
+def ui_advanced_system(request: Request):
+    return templates.TemplateResponse("_advanced_system.html", {
+        "request": request,
+        "status":  _status_for_template(),
+        "diag":    diag(),
+    })
+
+
+@app.get("/ui/advanced/snapcast", response_class=HTMLResponse)
+def ui_advanced_snapcast(request: Request):
+    return templates.TemplateResponse("_advanced_snapcast.html", {
+        "request": request,
+        "diag":    diag(),
+    })
+
+
+@app.get("/ui/advanced/filters", response_class=HTMLResponse)
+def ui_advanced_filters(request: Request):
+    return templates.TemplateResponse("_advanced_filters.html", {
+        "request": request,
+        "filters": get_filters().get("filters", []),
+    })
+
+
+@app.post("/ui/advanced/service/{name}")
+def ui_advanced_service(name: str):
+    if name not in _ALLOWED_SERVICES:
+        raise HTTPException(400, f"unit {name!r} not allowed")
+    try:
+        subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", name],
+                       capture_output=True, timeout=10)
+    except Exception as e:
+        log.error("service restart %s: %s", name, e)
+    return HTMLResponse("")
+
+
+@app.post("/ui/advanced/system/{action}")
+def ui_advanced_system_action(action: str):
+    if action not in ("reboot", "shutdown"):
+        raise HTTPException(400, f"action {action!r} not allowed")
+    try:
+        if action == "reboot":
+            subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "reboot"])
+        else:
+            subprocess.Popen(["sudo", "-n", "/sbin/poweroff"])
+    except Exception as e:
+        log.error("system %s: %s", action, e)
+    return HTMLResponse("")
+
+
+# ─── Legacy inline HTML blob — replaced by templates/dashboard.html.
+# Kept here only because removing it would require a parallel surgery
+# on the duplicated `@app.get("/")` route below. The route was already
+# replaced by the Jinja-based dashboard() above; this old definition is
+# now unreachable (FastAPI uses the first match) but harmless. Marking
+# both for deletion in a follow-up to keep this commit focused.
+
+_LEGACY_HTML = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BeatBird — {name}</title>
@@ -673,16 +1030,9 @@ _HTML = """<!doctype html>
 """
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard():
-    p = _get_profile()
-    return _HTML.format(
-        name=p.identity.friendly_name,
-        speaker_id=p.identity.speaker_id,
-        driver=p.soundcard.driver,
-        display=p.display.type,
-    )
-
+# (Legacy `/` route + _HTML.format(...) removed — superseded by the
+#  Jinja-based dashboard() near the top of this file. The old _LEGACY_HTML
+#  string is unreferenced after this edit; will be cleaned up next pass.)
 
 # ─── /health page — one-glance network + service diagnostics ─────────────────
 

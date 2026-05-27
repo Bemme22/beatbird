@@ -1,0 +1,64 @@
+<!-- Partial used by dashboard.html (initial render) and the /ui/bluetooth
+     endpoint (htmx 4-second poll). Outer wrapper carries the hx-* refresh
+     so a /ui/bluetooth response can outerHTML-swap the whole article. -->
+<article id="bluetooth-card"
+         hx-get="/ui/bluetooth"
+         hx-trigger="every 4s"
+         hx-swap="outerHTML">
+  <header style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.4rem">
+    <strong>Bluetooth</strong>
+    {% if bt.discoverable %}
+      <span class="pill on">Sichtbar — Phone wählt jetzt aus seinen BT-Settings</span>
+    {% elif bt.connected %}
+      <span class="pill on">Verbunden</span>
+    {% else %}
+      <span class="pill">Bereit</span>
+    {% endif %}
+  </header>
+
+  {% if bt.connected %}
+    <p style="margin:0.2rem 0 0.8rem">
+      <strong>{{ bt.connected.alias }}</strong>
+      <br><span style="color:var(--pico-muted-color);font-size:0.85rem">Aktiv</span>
+    </p>
+  {% elif not bt.discoverable %}
+    <p style="margin:0.2rem 0 0.8rem;color:var(--pico-muted-color)">
+      Tippe „Pairen", dann öffne die Bluetooth-Einstellungen am Phone und wähle <strong>{{ name }}</strong>.
+    </p>
+  {% endif %}
+
+  {% if not bt.discoverable %}
+    <button hx-post="/ui/bluetooth/pair"
+            hx-target="#bluetooth-card" hx-swap="outerHTML"
+            style="width:100%">
+      Neues Gerät pairen
+    </button>
+  {% else %}
+    <button class="secondary" disabled style="width:100%">
+      Wartet auf Phone… ({{ bt.discoverable_seconds_left or 60 }} s)
+    </button>
+  {% endif %}
+
+  {% if bt.paired %}
+    <details style="margin-top:0.8rem">
+      <summary style="cursor:pointer">{{ bt.paired|length }} gepairte Geräte</summary>
+      <ul style="margin-top:0.4rem;padding-left:0;list-style:none">
+        {% for d in bt.paired %}
+          <li style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--pico-muted-border-color)">
+            <span>
+              {{ d.alias }}
+              {% if d.connected %}<span class="pill on" style="margin-left:0.4rem">verbunden</span>{% endif %}
+            </span>
+            <button class="secondary outline"
+                    hx-post="/ui/bluetooth/forget?mac={{ d.mac }}"
+                    hx-target="#bluetooth-card" hx-swap="outerHTML"
+                    hx-confirm='Gerät "{{ d.alias }}" wirklich vergessen? Du musst dann neu pairen.'
+                    style="margin:0;padding:0.2rem 0.6rem;font-size:0.8rem">
+              vergessen
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+</article>

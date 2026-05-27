@@ -1,0 +1,32 @@
+<!-- Partial used both by dashboard.html (initial render) and the
+     /ui/now-playing endpoint (htmx 2-second poll). Must include the
+     outer wrapper so hx-swap="outerHTML" replaces correctly. -->
+<article id="now-playing"
+         hx-get="/ui/now-playing"
+         hx-trigger="every 2s"
+         hx-swap="outerHTML">
+  <header style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.4rem">
+    <strong style="font-size:1.05rem">
+      {% if status.title %}{{ status.title }}{% else %}<span style="color:var(--pico-muted-color)">Nichts spielt</span>{% endif %}
+    </strong>
+    <span class="pill {% if status.source and status.source != 'none' %}on{% endif %}">
+      {% if status.source == 'spotify' %}Spotify
+      {% elif status.source == 'bluetooth' %}Bluetooth
+      {% elif status.source == 'snapcast' %}Snapcast
+      {% else %}Idle{% endif %}
+    </span>
+  </header>
+  {% if status.artist %}
+    <div style="color:var(--pico-muted-color);font-size:0.95rem;margin-bottom:0.6rem">{{ status.artist }}</div>
+  {% else %}
+    <div style="height:1rem"></div>
+  {% endif %}
+
+  <div role="group" style="margin:0">
+    <button hx-post="/ui/cmd?c=PREV"      hx-target="#now-playing" hx-swap="outerHTML">⏮</button>
+    <button hx-post="/ui/cmd?c=PLAYPAUSE" hx-target="#now-playing" hx-swap="outerHTML">
+      {% if status.playback == 'Playing' %}⏸{% else %}▶{% endif %}
+    </button>
+    <button hx-post="/ui/cmd?c=NEXT"      hx-target="#now-playing" hx-swap="outerHTML">⏭</button>
+  </div>
+</article>

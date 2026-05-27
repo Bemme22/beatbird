@@ -1,0 +1,30 @@
+<article id="snapcast-card"
+         hx-get="/ui/advanced/snapcast"
+         hx-trigger="every 5s"
+         hx-swap="outerHTML">
+  <header><strong>Snapcast</strong></header>
+  {% if diag.snapcast and not diag.snapcast.error %}
+    <div class="grid-2" style="gap:0.3rem 1rem">
+      <div><small style="color:var(--pico-muted-color)">Server</small><br>
+           <span class="num">{{ diag.snapcast.server }}</span></div>
+      <div><small style="color:var(--pico-muted-color)">Stream</small><br>
+           <span class="pill {% if diag.snapcast.playing %}on{% endif %}">
+             {{ 'streamt' if diag.snapcast.playing else 'idle' }}
+           </span></div>
+      <div><small style="color:var(--pico-muted-color)">Gruppe</small><br>
+           <span>{{ diag.snapcast.group }}</span></div>
+      <div><small style="color:var(--pico-muted-color)">Quelle</small><br>
+           <span>{{ diag.snapcast.stream }}</span></div>
+    </div>
+    {% if diag.snapcast.title %}
+      <div style="margin-top:0.6rem">
+        <strong>{{ diag.snapcast.title }}</strong>
+        {% if diag.snapcast.artist %}<br><span style="color:var(--pico-muted-color)">{{ diag.snapcast.artist }}</span>{% endif %}
+      </div>
+    {% endif %}
+  {% elif diag.snapcast.error %}
+    <p style="color:var(--pico-muted-color);margin:0">Server nicht erreichbar: {{ diag.snapcast.error }}</p>
+  {% else %}
+    <p style="color:var(--pico-muted-color);margin:0">Nicht konfiguriert.</p>
+  {% endif %}
+</article>

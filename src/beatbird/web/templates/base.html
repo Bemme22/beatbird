@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0e0e0e">
+  <title>{% block title %}BeatBird{% endblock %} — {{ name }}</title>
+
+  <link rel="stylesheet" href="/static/pico.min.css">
+  <script src="/static/htmx.min.js" defer></script>
+
+  <style>
+    /* Pico defaults are great; here we tighten only the speaker-specific
+       bits. Cards stay compact on phones, transport buttons are large
+       enough for thumbs without help text. */
+    :root {
+      --pico-form-element-spacing-vertical: 0.6rem;
+      --pico-spacing: 0.9rem;
+    }
+    body { padding: 1rem; max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; letter-spacing: 0.02em; margin-bottom: 0.3rem; }
+    h1 .sub { color: var(--pico-muted-color); font-size: 0.9rem; font-weight: 400; }
+    nav.bottom { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); font-size: 0.85rem; }
+    nav.bottom a { margin-right: 1rem; color: var(--pico-muted-color); }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
+    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; background: var(--pico-card-sectioning-background-color); color: var(--pico-muted-color); }
+    .pill.on { background: var(--pico-primary); color: var(--pico-primary-inverse); }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <header>
+    <h1>{{ name }}<br><span class="sub">{% block subtitle %}{% endblock %}</span></h1>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <nav class="bottom">
+    {% block nav %}
+      <a href="/">Dashboard</a>
+      <a href="/bluetooth">Bluetooth</a>
+      <a href="/settings">Settings</a>
+      <a href="/advanced">Diagnose</a>
+    {% endblock %}
+  </nav>
+</body>
+</html>

@@ -93,8 +93,11 @@ static void build() {
     lv_obj_add_event_cb(scr, on_panel_released, LV_EVENT_RELEASED, NULL);
 
     // ── Title ──────────────────────────────────────────────────────────────
+    // Caption stays generic — the QR routes to the speaker's web UI
+    // dashboard, which is the entry point for everything (pairing,
+    // volume, paired-devices management). Not BT-specific anymore.
     lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "SCAN ZUM KOPPELN");
+    lv_label_set_text(title, "SCAN ZUR STEUERUNG");
     lv_obj_set_style_text_color       (title, Theme::text_secondary,         0);
     lv_obj_set_style_text_font        (title, Theme::font_display_md(),      0);
     lv_obj_set_style_text_letter_space(title, Theme::LETTER_SPACE_LABEL,     0);

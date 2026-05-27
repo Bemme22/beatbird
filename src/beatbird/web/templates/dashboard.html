@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block subtitle %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Now Playing — partial renders its own <article id="now-playing">
+     with the hx-* attributes that handle 2-second auto-refresh. Same
+     partial is returned by /ui/now-playing for the htmx swap. -->
+{% include "_now_playing.html" %}
+
+<!-- Volume — separate fragment so dragging the slider doesn't fight the
+     2-second status poll. The slider posts on input (debounced inside
+     htmx via hx-trigger="input changed delay:150ms") and we update the
+     label client-side via hx-on::after-request — saves a server round-
+     trip just to render the percentage text. -->
+<article id="volume-card">
+  <header style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.4rem">
+    <strong>Lautstärke</strong>
+    <span class="num" id="vol-pct">{{ status.volume }}%</span>
+  </header>
+  <input type="range" min="0" max="100" value="{{ status.volume }}"
+         name="pct"
+         hx-post="/ui/vol"
+         hx-trigger="input changed delay:150ms"
+         hx-swap="none"
+         hx-on::after-request="document.getElementById('vol-pct').textContent = this.value + '%'">
+</article>
+
+<!-- Bluetooth — pair button + connected device + paired-devices list.
+     Pair-now posts to a UI endpoint that opens a 60 s discoverable
+     window. The card auto-refreshes every 4 s so the discoverable
+     countdown + connection state stay live. -->
+{% include "_bluetooth.html" %}
+{% endblock %}

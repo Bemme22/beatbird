@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Diagnose{% endblock %}
+{% block subtitle %}Diagnose & Tuning{% endblock %}
+
+{% block content %}
+<!-- System tile — refreshes every 4 s via htmx outerHTML swap. The
+     inline content is the initial render so the page doesn't flash. -->
+<article id="system-card"
+         hx-get="/ui/advanced/system"
+         hx-trigger="every 4s"
+         hx-swap="outerHTML">
+  {% include "_advanced_system.html" %}
+</article>
+
+<!-- Snapcast tile -->
+<article id="snapcast-card"
+         hx-get="/ui/advanced/snapcast"
+         hx-trigger="every 5s"
+         hx-swap="outerHTML">
+  {% include "_advanced_snapcast.html" %}
+</article>
+
+<!-- Loudness filters — live sliders patch CamillaDSP at runtime. Refresh
+     once on load only; sliders carry their own state once dragged so
+     re-rendering them would fight the user. -->
+<article id="filters-card">
+  <header><strong>Loudness — Live tuning</strong></header>
+  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
+    Patches CamillaDSP at runtime. Snaps back on DSP reload.
+  </p>
+  <div id="filter-list" hx-get="/ui/advanced/filters" hx-trigger="load" hx-swap="innerHTML">
+    <span style="color:var(--pico-muted-color)">Lade…</span>
+  </div>
+</article>
+
+<!-- Service control + reboot -->
+<article id="service-card">
+  <header><strong>Services</strong></header>
+  <div class="grid-2" style="margin-bottom:0.6rem">
+    <button class="secondary outline"
+            hx-post="/ui/advanced/service/beatbird-bridge"
+            hx-swap="none" hx-confirm="Bridge neustarten?">
+      Bridge neu
+    </button>
+    <button class="secondary outline"
+            hx-post="/ui/advanced/service/camilladsp"
+            hx-swap="none" hx-confirm="CamillaDSP neustarten?">
+      CamillaDSP neu
+    </button>
+    <button class="secondary outline"
+            hx-post="/ui/advanced/service/go-librespot"
+            hx-swap="none" hx-confirm="Spotify neustarten?">
+      Spotify neu
+    </button>
+    <button class="secondary outline"
+            hx-post="/ui/advanced/service/snapclient"
+            hx-swap="none" hx-confirm="Snapclient neustarten?">
+      Snapclient neu
+    </button>
+  </div>
+  <div class="grid-2">
+    <button class="contrast"
+            hx-post="/ui/advanced/system/reboot"
+            hx-swap="none" hx-confirm="Pi rebooten?">
+      Pi rebooten
+    </button>
+    <button class="contrast"
+            hx-post="/ui/advanced/system/shutdown"
+            hx-swap="none" hx-confirm="Pi ausschalten? Du musst den Stecker ziehen + neu setzen zum starten.">
+      Pi ausschalten
+    </button>
+  </div>
+</article>
+
+<!-- Live log stream. Server-Sent Events are first-class in htmx via the
+     SSE extension; we use vanilla EventSource here to keep the asset list
+     tight (htmx alone is enough for everything else). -->
+<article id="logs-card">
+  <header><strong>Bridge log — live</strong></header>
+  <pre id="logs"
+       style="background:#000;color:#9c9;font:11px/1.3 ui-monospace,monospace;padding:0.7rem;border-radius:4px;height:240px;overflow-y:scroll;margin:0">
+(connecting…)</pre>
+</article>
+
+<script>
+  const logBox = document.getElementById('logs');
+  logBox.textContent = '';
+  const ev = new EventSource('/api/logs?unit=beatbird-bridge');
+  ev.onmessage = e => {
+    logBox.textContent += e.data + '\n';
+    const lines = logBox.textContent.split('\n');
+    if (lines.length > 500) logBox.textContent = lines.slice(-500).join('\n');
+    logBox.scrollTop = logBox.scrollHeight;
+  };
+  ev.onerror = () => { logBox.textContent += '(stream lost — reconnecting…)\n'; };
+</script>
+{% endblock %}
