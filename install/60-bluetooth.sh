@@ -36,6 +36,7 @@ ensure_pkg bluez bluez-alsa-utils bluez-tools rfkill
 #
 # Pairable always-on is fine: pairing only succeeds while discoverable
 # is also on, so this isn't an attack surface on its own.
+mkdir -p /etc/bluetooth/main.conf.d
 cat > /etc/bluetooth/main.conf.d/beatbird.conf <<EOF
 [General]
 Class = 0x200414
