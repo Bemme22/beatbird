@@ -976,8 +976,16 @@ class BeatBirdBridge:
             self.song_pos_ms = 0
         else:
             self._stopped_since = None
-            # Spotify is actively streaming — take over source
-            if self.source != Source.SPOTIFY:
+            # Source takeover only when Spotify is actively PLAYING — NOT
+            # when merely paused. Without this guard, the BT handoff
+            # livelocks: bridge hands off Spotify→BT, calls close_session,
+            # go-librespot transitions through `paused` for a poll or two
+            # before reaching `stopped`, the next Spotify poll sees
+            # not-stopped → snatches the source back → disconnects BT
+            # → phone reconnects → loop. Symptom for the user: phone
+            # disconnects after ~2 s, reconnect fails until forget+repair
+            # because every attempt hits the same livelock.
+            if not state.paused and self.source != Source.SPOTIFY:
                 self._transition_source(Source.SPOTIFY)
             self.playback = Playback.PAUSED if state.paused else Playback.PLAYING
 
