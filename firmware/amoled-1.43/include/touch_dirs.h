@@ -20,11 +20,24 @@
 // =============================================================================
 #pragma once
 
-// Empirically both Beat and Zipp report touch coords in the same
-// convention (right = +dx, down = +dy) once the touch_cb's rotation
-// logic in main.cpp has run. Earlier per-build flips here were based
-// on misinterpreted user feedback; the actual answer was "they're
-// the same". Kept as constants so they're easy to flip per build
-// again if a future case mounts the panel differently.
-constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
-constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
+// Per-case panel mount. After all the back-and-forth: Beat's case has
+// the panel mounted such that LVGL's +x axis matches the user's
+// physical right; Zipp's case (or the DEG=90 rotation we apply to the
+// panel) ends up with X reading mirrored. Multiplying dx-derived
+// gestures + the rotary atan2's x argument by this constant collapses
+// the difference so the rest of the code can assume a single
+// "right is positive x, down is positive y" convention.
+//
+// Verified empirically: with the multiplier set per below the user
+// reports clockwise rotary = volume up and swipe-right = NEXT on
+// both speakers.
+#ifdef DISPLAY_ROTATE_NATIVE
+    // Beat — no flip.
+    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
+    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
+#else
+    // Zipp DEG=90 — X axis reads mirrored after the touch-cb transpose
+    // in main.cpp. Y is fine.
+    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = -1;
+    constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
+#endif

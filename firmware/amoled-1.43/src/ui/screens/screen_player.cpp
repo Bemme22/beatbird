@@ -444,8 +444,13 @@ static void on_pressed(lv_event_t *e) {
     if (d2 >= ROTARY_INNER_R_SQ) {
         rotary_active         = true;
         rotary_start_vol      = State::app.volume;
-        rotary_last_angle_rad = atan2f((float)(p.y - Theme::CENTER),
-                                       (float)(p.x - Theme::CENTER));
+        // Multiply the x argument by TOUCH_DIR_RIGHT_IS_POS_DX so the
+        // rotary uses the same axis convention as skip — Zipp's panel
+        // reports X mirrored, which would invert atan2's rotation
+        // direction and make clockwise read as volume-down.
+        rotary_last_angle_rad = atan2f(
+            (float)(p.y - Theme::CENTER),
+            (float)(p.x - Theme::CENTER) * TOUCH_DIR_RIGHT_IS_POS_DX);
     }
 }
 
@@ -468,8 +473,9 @@ static void on_pressing(lv_event_t *e) {
         return;
     }
 
-    float cur_angle = atan2f((float)(p.y - Theme::CENTER),
-                             (float)(p.x - Theme::CENTER));
+    float cur_angle = atan2f(
+        (float)(p.y - Theme::CENTER),
+        (float)(p.x - Theme::CENTER) * TOUCH_DIR_RIGHT_IS_POS_DX);
     float delta = cur_angle - rotary_last_angle_rad;
     if (delta >  (float)M_PI) delta -= 2.0f * (float)M_PI;
     if (delta < -(float)M_PI) delta += 2.0f * (float)M_PI;
