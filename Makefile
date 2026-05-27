@@ -28,7 +28,8 @@ PROFILE ?=
 
 .PHONY: help profile secrets install update status logs amixer-apply dsp-reload \
         uninstall check-profile check-root install-role _banner \
-        firmware-check firmware-update firmware-update-force
+        firmware-check firmware-update firmware-update-force \
+        bt-persist
 
 help:
 	@echo "BeatBird targets:"
@@ -115,6 +116,19 @@ firmware-update-force: ## reflash even if version already matches
 
 amixer-apply: check-profile ## re-apply amplifier levels for the active soundcard
 	REPO_DIR=$(REPO_DIR) PROFILE_YML=$(PROFILE_LINK) sudo -E bash install/10-soundcard/_apply-levels.sh
+
+bt-persist: check-profile ## set up persistent BlueZ state across reboots (one-shot, requires overlayroot-chroot)
+	@# install/61-bluetooth-persist.sh refuses to run on the live overlay
+	@# because anything it writes to /etc or /var/lib would vanish on the
+	@# next reboot. The chroot remounts the underlying root R/W and runs
+	@# the script there. Resolv.conf nudge needed because apt/git inside
+	@# chroot otherwise can't reach the network on Trixie.
+	sudo overlayroot-chroot bash -c '\
+	  echo nameserver 1.1.1.1 > /etc/resolv.conf && \
+	  cd $(REPO_DIR) && \
+	  REPO_DIR=$(REPO_DIR) PROFILE_YML=$(PROFILE_LINK) bash install/61-bluetooth-persist.sh'
+	@echo
+	@echo "==> BT persistence installed. Reboot to activate the bind mount."
 
 dsp-reload: ## reload CamillaDSP config without restart
 	@curl -s -f http://localhost:5000/reload >/dev/null 2>&1 \
