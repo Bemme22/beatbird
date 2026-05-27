@@ -580,13 +580,16 @@ class BeatBirdBridge:
             )
             # Push the BT-pairing QR URL early so the standby screen has
             # it cached before the user opens a discoverable window.
-            # mDNS hostname is most reliable on a LAN; lowercased to
-            # avoid case-sensitive URL pickiness in browsers that
-            # don't normalise (rare, but free).
-            if (self.bt is not None
-                    and self.profile.web.enabled
-                    and self.profile.identity.hostname):
-                host = self.profile.identity.hostname.lower()
+            # Use the runtime hostname (lowercased) rather than the
+            # profile's identity.hostname: the profile value is what we
+            # set the system to during install, but a mismatch is
+            # possible (legacy installs, manual hostname changes) and
+            # mDNS resolves the runtime name, not the profile one.
+            # Lowercased because some Android/iOS URL parsers are picky
+            # about case in mDNS lookups.
+            if self.bt is not None and self.profile.web.enabled:
+                import socket as _sock
+                host = _sock.gethostname().split(".")[0].lower()
                 port = self.profile.web.port or 8080
                 qr_url = f"http://{host}.local:{port}/"
                 try:
