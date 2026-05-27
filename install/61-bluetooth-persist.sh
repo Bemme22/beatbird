@@ -55,12 +55,19 @@ log_step "installing $MOUNT_UNIT"
 cat > "$MOUNT_UNIT" <<EOF
 [Unit]
 Description=Persistent BlueZ bond state (bind over /var/lib/bluetooth)
-# bluetooth.service has no PartOf= linking it to this mount, so the only
-# thing tying ordering together is Before=. RequiresMountsFor pulls in
-# the local FS where the source dir lives.
-Before=bluetooth.service
-After=local-fs.target
-RequiresMountsFor=/var/lib
+# DefaultDependencies=no disables systemd's auto-applied
+# After=local-fs.target / RequiresMountsFor=. Those create an ordering
+# cycle for a bind mount whose source lives on /: RequiresMountsFor=
+# (the implicit one) pulls in our mount as a prerequisite of
+# local-fs.target, which we also After=. systemd resolves the cycle by
+# dropping local-fs.target/start, which cascades to beatbird-bt-agent
+# (it never starts at boot). With DefaultDependencies=no we declare
+# ordering explicitly and avoid the cycle entirely. The source dir
+# lives on the root FS which is up at sysinit.target.
+DefaultDependencies=no
+Conflicts=umount.target
+Before=umount.target bluetooth.service
+After=sysinit.target
 ConditionPathIsDirectory=$PERSIST_DIR
 
 [Mount]
