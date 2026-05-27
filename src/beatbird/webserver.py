@@ -615,7 +615,7 @@ _HTML = """<!doctype html>
    const row = document.createElement('div');
    row.className = 'filter-row';
    row.innerHTML = `<label>${{f.name}}</label>
-     <input type="range" min="-12" max="12" step="0.5" value="${{f.gain}}" data-name="${{f.name}}">
+     <input type="range" min="-20" max="20" step="0.5" value="${{f.gain}}" data-name="${{f.name}}">
      <span class="v">${{f.gain.toFixed(1)}} dB</span>`;
    const input = row.querySelector('input');
    const span = row.querySelector('.v');
