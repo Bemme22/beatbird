@@ -91,5 +91,10 @@ class DisplayInterface(ABC):
         (e.g. 'PAIRED — Pixel 7'). Default is a no-op for displays
         without a toast slot."""
 
+    def push_qr_url(self, url: str) -> None:
+        """Cache a URL on the firmware for QR-code rendering during a
+        BT pairing window. Default is a no-op for displays without a
+        QR widget."""
+
     @abstractmethod
     def close(self) -> None: ...

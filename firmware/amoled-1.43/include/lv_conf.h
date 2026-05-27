@@ -79,6 +79,12 @@
 #define LV_USE_GRID 1
 #define LV_USE_FLEX 1
 
+// QR code widget — used by the standby screen during a BT pairing
+// window. Phone scans the code, gets the speaker's web UI which has
+// the actual pair-now button + status. Cheap: ~6 KB code, no extra
+// RAM unless the widget is created.
+#define LV_USE_QRCODE 1
+
 // === Tick ===
 // LVGL 9.2 removed LV_TICK_CUSTOM — use lv_tick_set_cb() in setup() instead.
 

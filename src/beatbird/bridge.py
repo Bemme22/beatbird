@@ -578,6 +578,22 @@ class BeatBirdBridge:
                 on_command=self._handle_display_command,
                 on_volume=self.set_volume,
             )
+            # Push the BT-pairing QR URL early so the standby screen has
+            # it cached before the user opens a discoverable window.
+            # mDNS hostname is most reliable on a LAN; lowercased to
+            # avoid case-sensitive URL pickiness in browsers that
+            # don't normalise (rare, but free).
+            if (self.bt is not None
+                    and self.profile.web.enabled
+                    and self.profile.identity.hostname):
+                host = self.profile.identity.hostname.lower()
+                port = self.profile.web.port or 8080
+                qr_url = f"http://{host}.local:{port}/"
+                try:
+                    self.display.push_qr_url(qr_url)
+                    log.info("pushed BT pair QR URL: %s", qr_url)
+                except Exception as e:
+                    log.debug("push_qr_url failed: %s", e)
         if self.spectrum:
             self.spectrum.start()
         if self.power_button:
@@ -758,7 +774,13 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
-        if self.in_standby:
+        # BT_PAIR is the one command we want to stay in standby for: the
+        # standby screen hosts the QR-code overlay and the PAIRING <name>
+        # flap text, both of which are the whole point of opening the
+        # discoverable window. Exiting standby would yank the user back
+        # to the player chrome and force them to find the QR via another
+        # path.
+        if self.in_standby and cmd != "BT_PAIR":
             self._exit_standby("user command")
 
         # WAKE: tap-to-wake from the standby screen. Side-effect-free — the
@@ -780,6 +802,13 @@ class BeatBirdBridge:
             try:
                 from beatbird.sources.bluetooth import set_discoverable
                 set_discoverable(True, timeout_s=60)
+                # Optimistically push the bt_pairing flag so the standby
+                # screen swaps in the QR + caption right now instead of
+                # waiting up to 5 s for the next _refresh_system tick.
+                # _push_system_now sends a fresh SYS line with bt=1.
+                self.sys_bt_pairing = True
+                self._last_bt_pairing = True
+                self._push_system_now()
             except Exception as e:
                 log.error("BT_PAIR failed: %s", e)
             return

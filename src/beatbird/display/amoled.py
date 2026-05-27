@@ -91,6 +91,11 @@ class AmoledDisplay(DisplayInterface):
         self._reconnect_delay = 5.0
         # Re-send palette on every reconnect — the ESP32 may have rebooted
         self._palette_sent = False
+        # QR URL is similarly volatile across firmware reboots. The bridge
+        # pushes it once at start; on a mid-session ESP32 boot we re-send
+        # via the [boot] handler so the standby screen has it ready
+        # before any sys.bt_pairing transition.
+        self._last_qr_url: str | None = None
         # Heartbeat watchdog: ESP32 sends `[hb]` every 10s. If we stop seeing
         # them while the serial port is still "open", it's a CDC zombie —
         # write() returns OK but bytes never reach the device. Force reopen.
@@ -280,6 +285,21 @@ class AmoledDisplay(DisplayInterface):
         self._send("IMG:end")
         log.info("cover pushed: %d bytes in %d chunks", size, seq)
 
+    def push_qr_url(self, url: str) -> None:
+        """Cache the BT-pairing QR URL on the firmware. The standby
+        screen renders it as a scannable QR code only while
+        sys.bt_pairing is true; the bridge pushes this once at start
+        (and again on the [boot] marker if the ESP32 rebooted) so the
+        URL is ready before the user opens the discoverable window.
+
+        Protocol: QR:<url>  (newline-terminated, ASCII only)
+        """
+        clean = "".join(c for c in (url or "") if 32 <= ord(c) < 127).strip()
+        if not clean:
+            return
+        self._last_qr_url = clean
+        self._send(f"QR:{clean}")
+
     def push_toast(self, text: str, duration_ms: int = 2000) -> None:
         """Send a transient banner via the firmware's CenterStage slot.
         Used by the bridge to surface events that don't fit the periodic
@@ -388,6 +408,11 @@ class AmoledDisplay(DisplayInterface):
             log.info("ESP32 boot marker received, re-sending palette")
             self._palette_sent = False
             self._send_palette()
+            # Same logic for the QR URL — firmware-side cache is gone after
+            # the boot, so push it again so the standby screen has it
+            # ready for the next bt_pairing transition.
+            if self._last_qr_url:
+                self._send(f"QR:{self._last_qr_url}")
         elif raw.startswith("cover_rx:"):
             # Diagnostic echo from firmware's IMG: parser. Format:
             # "cover_rx: got <received>/<expected>". INFO so it surfaces

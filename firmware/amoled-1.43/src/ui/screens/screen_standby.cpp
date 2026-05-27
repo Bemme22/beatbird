@@ -52,6 +52,15 @@ static lv_obj_t *lbl_highlow   = nullptr;
 static lv_obj_t *lbl_condition = nullptr;
 static lv_obj_t *lbl_flap      = nullptr;   // airport-board-style idle text
 static lv_obj_t *heartbeat     = nullptr;
+// BT-pairing QR widget + its caption. Created hidden; shown only while
+// State::sys.bt_pairing is true and a URL has been received from the
+// bridge. When shown, the clock + weather block are hidden so the QR
+// has the full center of the screen.
+static lv_obj_t *qr_code       = nullptr;
+static lv_obj_t *qr_caption    = nullptr;
+static String    qr_url_cached = "";
+static bool      qr_url_applied= false;
+static bool      qr_was_pairing= false;
 
 // ─── Scintillation: ambient dot field ──────────────────────────────────────
 // A handful of low-opacity accent dots scattered across the round display,
@@ -526,6 +535,68 @@ void create()
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
     lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 445);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
+
+    // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
+    // Size picked for scannability: 320 px on a 466-px @ 326-PPI panel is
+    // ~25 mm wide. For a typical 30-char URL the QR widget will pick
+    // v2-v3 (25-29 modules), i.e. ~0.9 mm per module — comfortable scan
+    // at 15-20 cm. The QR's own light_color is white so it works on the
+    // black AMOLED background; phones expect dark-on-light orientation.
+    qr_code = lv_qrcode_create(scr);
+    lv_qrcode_set_size(qr_code, 320);
+    lv_qrcode_set_dark_color (qr_code, lv_color_black());
+    lv_qrcode_set_light_color(qr_code, lv_color_white());
+    lv_obj_align(qr_code, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_add_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_CLICKABLE);
+
+    qr_caption = lv_label_create(scr);
+    lv_label_set_text(qr_caption, "");
+    lv_obj_set_style_text_color(qr_caption, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font (qr_caption, Theme::font_display_md(), 0);
+    lv_obj_set_style_text_letter_space(qr_caption, Theme::LETTER_SPACE_LABEL, 0);
+    lv_obj_set_style_text_align(qr_caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(qr_caption, LV_ALIGN_TOP_MID, 0, 378);
+    lv_obj_add_flag(qr_caption, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(qr_caption, LV_OBJ_FLAG_CLICKABLE);
+
+    // Apply any URL the bridge pushed before create() ran.
+    if (qr_url_cached.length() > 0 && !qr_url_applied) {
+        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
+        qr_url_applied = true;
+    }
+}
+
+// Build a short hostname:port caption from the URL for the secondary
+// label. Strips http:// and any trailing slash so a 30-char URL collapses
+// to ~20 chars that fit at font_display_md without scrolling.
+static String short_caption_from_url(const String &url)
+{
+    String s = url;
+    int p = s.indexOf("://");
+    if (p >= 0) s = s.substring(p + 3);
+    while (s.length() > 0 && s.charAt(s.length() - 1) == '/') {
+        s = s.substring(0, s.length() - 1);
+    }
+    return s;
+}
+
+void set_qr_url(const char *url)
+{
+    if (!url || !url[0]) return;
+    qr_url_cached  = String(url);
+    qr_url_applied = false;
+    // If the screen tree has been built, apply now. Otherwise create()
+    // will pick it up on first build via the qr_url_cached check above.
+    if (qr_code) {
+        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
+        qr_url_applied = true;
+    }
+    // Same for the caption — short hostname:port form.
+    if (qr_caption) {
+        String cap = short_caption_from_url(qr_url_cached);
+        lv_label_set_text(qr_caption, cap.c_str());
+    }
 }
 
 void set_flap_text(const char *text)
@@ -621,6 +692,34 @@ bool is_visible()
 void update()
 {
     if (!created || !is_visible()) return;
+
+    // BT pairing mode: swap clock+weather block for the QR. Only fires
+    // on the transition edge so we don't churn flags every frame. The
+    // QR caption is shown alongside; the flap text below it (driven
+    // separately by STBY:) still shows "PAIRING <name>".
+    const bool is_pairing = State::sys.bt_pairing && qr_url_applied;
+    if (is_pairing != qr_was_pairing) {
+        auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+        auto HIDE = [](lv_obj_t *o) { if (o) lv_obj_add_flag  (o, LV_OBJ_FLAG_HIDDEN); };
+        if (is_pairing) {
+            HIDE(lbl_clock);
+            HIDE(icon_obj);
+            HIDE(lbl_temp);
+            HIDE(lbl_highlow);
+            HIDE(lbl_condition);
+            SHOW(qr_code);
+            SHOW(qr_caption);
+        } else {
+            SHOW(lbl_clock);
+            SHOW(icon_obj);
+            SHOW(lbl_temp);
+            SHOW(lbl_highlow);
+            SHOW(lbl_condition);
+            HIDE(qr_code);
+            HIDE(qr_caption);
+        }
+        qr_was_pairing = is_pairing;
+    }
 
     // Drive the icon animations at ~20 fps. The weather icons all use
     // millis() in their draw callbacks (raindrops falling, sun rays

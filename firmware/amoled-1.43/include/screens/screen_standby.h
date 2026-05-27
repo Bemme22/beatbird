@@ -47,4 +47,12 @@ void update();
  *  applies it on next create(). */
 void set_flap_text(const char *text);
 
+/** Cache the BT-pairing QR URL (e.g. "http://zipp2minipi.local:8080/"). The
+ *  bridge pushes this once at start + on display [boot] reconnect; the
+ *  standby screen renders it as a QR code only while sys.bt_pairing == true,
+ *  replacing the clock + weather block. Phone scans → opens speaker's web
+ *  UI which has full pairing controls. Safe to call before create(); cached
+ *  and applied lazily. */
+void set_qr_url(const char *url);
+
 }  // namespace ScreenStandby
