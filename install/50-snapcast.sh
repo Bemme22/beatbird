@@ -9,7 +9,18 @@ if [[ "$SN_ENABLED" != "true" ]]; then
   exit 0
 fi
 
-SERVER="$(pq sources.snapcast.server)"
+# Resolve the real server. The profile YAML carries a placeholder
+# (192.168.1.10) because the repo is public; the actual host lives in
+# secrets/snapcast.host and is written into /etc/beatbird/env as
+# BEATBIRD_SNAPCAST_SERVER by 00-base.sh. Prefer the env var; fall
+# back to the profile placeholder only if the secrets file was empty
+# during install (in which case the user wanted snapcast disabled
+# anyway and the placeholder won't resolve).
+SECRETS_SERVER=""
+if [[ -s "$SECRETS_DIR/snapcast.host" ]]; then
+  SECRETS_SERVER="$(head -1 "$SECRETS_DIR/snapcast.host" | tr -d '[:space:]')"
+fi
+SERVER="${SECRETS_SERVER:-$(pq sources.snapcast.server)}"
 LATENCY="$(pq_or sources.snapcast.latency_ms 30)"
 HOSTNAME_VAL="$(pq identity.friendly_name)"
 
