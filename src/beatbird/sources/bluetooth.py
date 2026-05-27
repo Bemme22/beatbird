@@ -476,19 +476,29 @@ def is_discoverable() -> bool:
 
 
 def set_discoverable(on: bool, timeout_s: int = 60) -> bool:
-    """Toggle the adapter's Discoverable state. Use a short timeout so
+    """Toggle the adapter's Discoverable state. Uses a short timeout so
     the Pi isn't a permanently-visible pairing target — the install
     formerly set DiscoverableTimeout=0 (always on) but that's a soft
     attack surface. The web UI is the legit entry point for pairing
     sessions now.
 
+    Robustness: forces `power on` first. When the adapter is in
+    `Powered: no` state (rfkill block, recent USB hotplug, BlueZ
+    daemon restart), `discoverable-timeout` is silently rejected and
+    the timeout stays at 0 — meaning the pair window never auto-
+    closes and the firmware's PAIRING badge hangs forever. Powering
+    on before the timeout command makes the value stick.
+
     Verifies by reading `bluetoothctl show` after the command instead
     of parsing the noisy interactive output (ANSI escapes, async
-    new_settings notifications); the simple `'succeeded' in out` check
-    we had before missed the actual confirmation pattern."""
+    new_settings notifications)."""
     if on:
-        # discoverable-timeout takes effect before `discoverable on` — set
-        # the inactivity window first so the adapter auto-stops advertising.
+        # `power on` first, then timeout, then discoverable. If the
+        # adapter was already powered, `power on` is a cheap no-op.
+        # The short sleep is empirical — without it the next command
+        # races BlueZ's adapter-init coroutine.
+        _btctl("power on")
+        time.sleep(0.2)
         _btctl(
             f"discoverable-timeout {timeout_s}",
             "pairable on",

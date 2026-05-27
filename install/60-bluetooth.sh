@@ -26,7 +26,7 @@ fi
 # bluez-tools gives us `bt-agent`, the headless pairing agent. Without
 # it BlueZ rejects every incoming pair request by default — the phone
 # sees the speaker but the pair flow fails with no useful error.
-ensure_pkg bluez bluez-alsa-utils bluez-tools
+ensure_pkg bluez bluez-alsa-utils bluez-tools rfkill
 
 # Discoverable mode is now opt-in via /bluetooth in the web UI (which
 # calls `discoverable on` with an explicit per-session timeout). The
@@ -86,8 +86,49 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable --now bluetooth bluealsa beatbird-bt-agent 2>/dev/null || true
+# systemd-rfkill persists rfkill state across reboots in
+# /var/lib/systemd/rfkill/. If the adapter was ever blocked (manual
+# `rfkill block`, or the kernel default for some USB BT dongles after
+# a USB reset), that "blocked" state sticks across every subsequent
+# boot — `bluetoothctl power on` silently fails, the adapter shows
+# `Powered: no`, and no pair request reaches the daemon. We've burned
+# hours on this on both speakers. Wipe any saved "blocked" entries
+# at install time so a fresh deploy starts clean.
+log_step "wiping persistent rfkill 'blocked' state for bluetooth"
+for f in /var/lib/systemd/rfkill/*bluetooth*; do
+  [ -f "$f" ] || continue
+  echo 0 > "$f"
+done
 
-log_ok "Bluetooth A2DP sink enabled"
-log_ok "Pair new devices at http://<host>:8080/bluetooth"
+# A small oneshot service that re-runs `rfkill unblock bluetooth` at
+# every boot, before bluetooth.service. Belt + braces alongside the
+# saved-state wipe — if some other system component re-blocks BT
+# between boots (BlueZ, a USB hotplug rule), this resets it.
+cat > /etc/systemd/system/beatbird-bt-unblock.service <<'EOF'
+[Unit]
+Description=BeatBird BT adapter unblock (rfkill)
+After=local-fs.target
+Before=bluetooth.service
+ConditionPathExists=/usr/sbin/rfkill
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/rfkill unblock bluetooth
+RemainAfterExit=yes
+
+[Install]
+WantedBy=bluetooth.service
+EOF
+mkdir -p /etc/systemd/system/bluetooth.service.wants
+ln -sf /etc/systemd/system/beatbird-bt-unblock.service \
+       /etc/systemd/system/bluetooth.service.wants/beatbird-bt-unblock.service
+
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable --now bluetooth bluealsa beatbird-bt-agent beatbird-bt-unblock 2>/dev/null || true
+
+# Final live nudge — if the install ran from outside chroot the
+# unblock-service may not have fired yet, so do it explicitly.
+/usr/sbin/rfkill unblock bluetooth 2>/dev/null || true
+
+log_ok "Bluetooth A2DP sink enabled (rfkill unblock service active)"
+log_ok "Pair new devices at http://<host>:8080/  →  the dashboard's Pair button"
