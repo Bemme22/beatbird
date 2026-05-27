@@ -474,6 +474,32 @@ class BeatBirdBridge:
         log.info("BT phone volume → %d%%", pct)
         self.set_volume(pct)
 
+    def _persist_bt_state(self) -> None:
+        """Sync /var/lib/bluetooth to the disk via beatbird-bt-sync so
+        bonds survive overlayroot=tmpfs reboot. Best-effort — failures
+        are logged at INFO and don't block the caller. The script is
+        only installed on Pis that ran `make bt-persist`; on others
+        the sudoers entry won't exist and the call will fail cleanly
+        with "no askpass".
+
+        Called after every observed BT state mutation (pair completion,
+        trust flag flip). Cheap enough to run inline — the tar is
+        ~hundreds of bytes for a typical bond pair, and the
+        overlayroot-chroot setup is ~200 ms."""
+        try:
+            r = subprocess.run(
+                ["sudo", "-n", "/usr/local/sbin/beatbird-bt-sync"],
+                capture_output=True, timeout=20, text=True,
+            )
+            if r.returncode == 0:
+                msg = r.stdout.strip() or "ok"
+                log.info("BT persist: %s", msg)
+            else:
+                log.info("BT persist (rc=%d): %s", r.returncode,
+                         (r.stderr or r.stdout).strip())
+        except Exception as e:
+            log.debug("BT persist call failed: %s", e)
+
     def _on_bt_newly_connected(self, alias: str) -> None:
         """Paired device just came online. Shows a 'PAIRED — <alias>' toast
         on the display so the user gets clear feedback right after the
@@ -481,8 +507,14 @@ class BeatBirdBridge:
         music. Without this, the display sits on the standby flap until
         the first audio packet arrives and there's no signal that the
         link is actually up. SFX is handled separately by _on_bt_active
-        when audio starts flowing."""
+        when audio starts flowing.
+
+        Also triggers a BT-state persistence sync — the auto-trust
+        applied in BluetoothSource.poll() flipped Trusted=true in the
+        overlay tmpfs, which would die on reboot without this push to
+        disk."""
         log.info("BT newly connected: %s", alias)
+        self._persist_bt_state()
         if not self.display:
             return
         # Exit standby first so the firmware switches back to the player
@@ -543,7 +575,12 @@ class BeatBirdBridge:
             # untrusted and BlueZ silently rejects the reconnect).
             try:
                 from beatbird.sources.bluetooth import trust_all_paired
-                trust_all_paired()
+                flipped = trust_all_paired()
+                # Trust changes wrote to /var/lib/bluetooth which is in
+                # the overlay tmpfs — push to disk so they survive the
+                # next reboot. Only when something actually changed.
+                if flipped:
+                    self._persist_bt_state()
             except Exception as e:
                 log.debug("trust_all_paired failed: %s", e)
 
