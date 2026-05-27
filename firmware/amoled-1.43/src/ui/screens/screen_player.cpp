@@ -142,7 +142,7 @@ static void start_text_opa_anim(lv_obj_t *obj, lv_anim_t *anim,
 
 // ─── Rotary volume state ────────────────────────────────────────────────────
 
-static constexpr int   ROTARY_INNER_R       = 140;
+static constexpr int   ROTARY_INNER_R       = 170;
 static constexpr int   ROTARY_KILL_R        =  80;
 static constexpr int   ROTARY_INNER_R_SQ    = ROTARY_INNER_R * ROTARY_INNER_R;
 static constexpr int   ROTARY_KILL_R_SQ     = ROTARY_KILL_R  * ROTARY_KILL_R;
