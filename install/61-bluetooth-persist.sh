@@ -84,30 +84,51 @@ cat > "$SYNC_SCRIPT" <<'SYNC_EOF'
 # Invoked by the bridge via sudo (NOPASSWD entry installed alongside
 # this script). Safe to run at any time — bluez survives concurrent
 # read/write on its state files.
+#
+# Diagnostics: writes "step:<name> rc=<n>" lines on every pipeline
+# segment so an early-boot failure (race with overlayroot-chroot
+# setup, missing source dir, etc.) shows up in the bridge journal
+# instead of an opaque rc=1. pipefail catches a failure on the tar -c
+# side that would otherwise be masked by a successful inner shell.
 set -e
+set -o pipefail
+
+log() { echo "beatbird-bt-sync: $*"; }
 
 RUNTIME=/var/lib/bluetooth
 if [[ ! -d "$RUNTIME" ]]; then
-  echo "no $RUNTIME, nothing to sync" >&2
+  log "no $RUNTIME, nothing to sync"
   exit 0
 fi
 
-# Empty dir is fine — we still create the destination shell. Use tar's
-# --no-recursion + . pattern when empty so we don't accidentally pass
-# an empty file set to the extract side.
-tar -c -C "$RUNTIME" . 2>/dev/null \
-  | overlayroot-chroot bash -c '
-      set -e
-      mkdir -p /var/lib/bluetooth
-      chown root:root /var/lib/bluetooth
-      chmod 700 /var/lib/bluetooth
-      cd /var/lib/bluetooth
-      # --overwrite so existing bond files are replaced with the
-      # current (newer) versions from the overlay.
-      tar -x --overwrite 2>/dev/null
-    '
+# Count what we'\''re about to transfer up front so a 0-byte sync is
+# obvious in the log even if both tar sides succeed silently.
+n_files=$(find "$RUNTIME" -mindepth 1 2>/dev/null | wc -l)
+log "starting (source=$RUNTIME, $n_files entries)"
 
-echo "beatbird-bt-sync: persisted $(find "$RUNTIME" -mindepth 1 | wc -l) entries to disk"
+# Stream tar -c through overlayroot-chroot into tar -x. We deliberately
+# do NOT suppress stderr — if tar barks (e.g. SIGPIPE if the chroot
+# side exits early), it lands in the journal so we can see it. The
+# inner chroot bash uses set -e + pipefail too.
+if tar -c -C "$RUNTIME" . \
+   | overlayroot-chroot bash -c '
+       set -e
+       set -o pipefail
+       echo "chroot: entered, target=/var/lib/bluetooth"
+       mkdir -p /var/lib/bluetooth
+       chown root:root /var/lib/bluetooth
+       chmod 700 /var/lib/bluetooth
+       cd /var/lib/bluetooth
+       tar -x --overwrite
+       echo "chroot: tar -x ok, $(find . -mindepth 1 | wc -l) entries on disk"
+     ' ; then
+  log "sync ok"
+  exit 0
+else
+  rc=$?
+  log "sync FAILED rc=$rc (pipefail surfaced the first failing stage)"
+  exit $rc
+fi
 SYNC_EOF
 chmod 0755 "$SYNC_SCRIPT"
 

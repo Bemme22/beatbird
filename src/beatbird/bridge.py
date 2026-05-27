@@ -491,12 +491,19 @@ class BeatBirdBridge:
                 ["sudo", "-n", "/usr/local/sbin/beatbird-bt-sync"],
                 capture_output=True, timeout=20, text=True,
             )
+            # Combine both streams — the sync script logs progress via
+            # stdout while overlayroot-chroot's banner + any inner tar
+            # errors land on stderr. On failure we want the whole
+            # picture; on success the stdout log line is enough but a
+            # multi-line dump doesn't hurt.
+            combined = "\n".join(s.strip() for s in (r.stdout, r.stderr) if s.strip())
             if r.returncode == 0:
-                msg = r.stdout.strip() or "ok"
-                log.info("BT persist: %s", msg)
+                log.info("BT persist: %s",
+                         combined.replace("\n", " | ") or "ok")
             else:
-                log.info("BT persist (rc=%d): %s", r.returncode,
-                         (r.stderr or r.stdout).strip())
+                log.warning("BT persist failed (rc=%d): %s",
+                            r.returncode,
+                            combined.replace("\n", " | ") or "(no output)")
         except Exception as e:
             log.debug("BT persist call failed: %s", e)
 
@@ -515,6 +522,27 @@ class BeatBirdBridge:
         disk."""
         log.info("BT newly connected: %s", alias)
         self._persist_bt_state()
+        # If we're in an active pairing window, close it now — the user
+        # got what they came for. Saves them from the 60 s discoverable
+        # timer running out (with the PAIRING badge stuck on screen),
+        # and avoids leaving the speaker visible to other phones in the
+        # area after a successful pair. Sets the local flag too so the
+        # display switches off the badge on the next push instead of
+        # waiting for the 5 s _refresh_system cycle; _push_system_now
+        # right after sends the SYS:bt=0 to the firmware immediately.
+        if self.sys_bt_pairing:
+            try:
+                from beatbird.sources.bluetooth import set_discoverable
+                set_discoverable(False)
+                self.sys_bt_pairing = False
+                self._last_bt_pairing = False
+                log.info("BT pairing window closed after successful pair")
+                try:
+                    self._push_system_now()
+                except Exception:
+                    pass
+            except Exception as e:
+                log.debug("close pairing window failed: %s", e)
         if not self.display:
             return
         # Exit standby first so the firmware switches back to the player
