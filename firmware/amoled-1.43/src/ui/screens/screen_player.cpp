@@ -75,6 +75,7 @@ static String  artist_pending;
 // Custom-draw layers (back→front)
 static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
 static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
+static lv_obj_t *zone_overlay  = nullptr;   // touch-time outline at the rotary boundary
 
 // Player widgets
 static lv_obj_t *source_marker = nullptr;
@@ -423,12 +424,48 @@ static void state_icon_draw_cb(lv_event_t *e) {
 
 // ─── Standby pulse ──────────────────────────────────────────────────────────
 
+// ─── Zone overlay (touch-time hint at the rotary boundary) ─────────────────
+// Fades in a thin circle outline at radius ROTARY_INNER_R while the
+// finger is down so the user can see at a glance where the rotary
+// zone (outside the ring) and the swipe/tap zone (inside) split.
+// Cheap visual affordance — no logic change, just makes the existing
+// split discoverable.
+
+static constexpr lv_opa_t ZONE_OVERLAY_PEAK_OPA = 90;
+static constexpr uint32_t ZONE_OVERLAY_FADE_IN_MS  = 150;
+static constexpr uint32_t ZONE_OVERLAY_FADE_OUT_MS = 250;
+
+static void zone_overlay_opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_border_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+
+static void zone_overlay_fade(int32_t to_opa, uint32_t duration_ms) {
+    if (!zone_overlay) return;
+    lv_anim_del(zone_overlay, zone_overlay_opa_cb);
+    int32_t from_opa = (int32_t)lv_obj_get_style_border_opa(
+        zone_overlay, LV_PART_MAIN);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, zone_overlay);
+    lv_anim_set_exec_cb(&a, zone_overlay_opa_cb);
+    lv_anim_set_values(&a, from_opa, to_opa);
+    lv_anim_set_time(&a, duration_ms);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+
 // ─── Touch handlers (unified press / move / release) ────────────────────────
 
 static void on_pressed(lv_event_t *e) {
     rotary_active          = false;
     rotary_consumed        = false;
     rotary_accumulated_deg = 0.0f;
+    // Visual zone hint — fade in the boundary circle. Suppressed in
+    // standby / shutdown so a tap-to-wake doesn't flash a circle the
+    // user has no use for yet.
+    if (!in_standby && !in_shutdown) {
+        zone_overlay_fade(ZONE_OVERLAY_PEAK_OPA, ZONE_OVERLAY_FADE_IN_MS);
+    }
 
     if (in_standby || in_shutdown) return;
 
@@ -508,6 +545,10 @@ static void on_pressing(lv_event_t *e) {
 
 static void on_released(lv_event_t *e) {
     rotary_active = false;
+    // Fade the zone hint back out, regardless of which branch handles
+    // the release. Even on shutdown / standby releases the fade is
+    // a no-op if the overlay wasn't shown (animation from 0 to 0).
+    zone_overlay_fade(0, ZONE_OVERLAY_FADE_OUT_MS);
     if (in_shutdown) return;
 
     int dx  = press_last_x - press_start_x;
@@ -767,6 +808,24 @@ void create() {
 
     // Standby UI now lives on ScreenStandby (clock + weather + heartbeat).
     // The player screen no longer hosts standby widgets.
+
+    // ── Zone overlay — touch-time boundary hint ─────────────────────────────
+    // Thin circle outline at radius ROTARY_INNER_R. Hidden by default
+    // (border_opa = 0); on_pressed / on_released animate the opacity so
+    // the user gets a momentary 'here's the volume-vs-swipe split' cue.
+    // CLICKABLE cleared so it never absorbs touches.
+    zone_overlay = lv_obj_create(scr);
+    lv_obj_remove_style_all(zone_overlay);
+    lv_obj_set_size(zone_overlay, 2 * ROTARY_INNER_R, 2 * ROTARY_INNER_R);
+    lv_obj_center(zone_overlay);
+    lv_obj_set_style_bg_opa       (zone_overlay, LV_OPA_TRANSP,        0);
+    lv_obj_set_style_radius       (zone_overlay, LV_RADIUS_CIRCLE,     0);
+    lv_obj_set_style_border_width (zone_overlay, 2,                    0);
+    lv_obj_set_style_border_color (zone_overlay, Theme::accent_dim,    0);
+    lv_obj_set_style_border_opa   (zone_overlay, LV_OPA_TRANSP,        0);
+    lv_obj_clear_flag(zone_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(zone_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag  (zone_overlay, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // ── CenterStage — status announcement slot (priority chain) ─────────────
     // Created LAST so its text renders on top of all the ring layers.
