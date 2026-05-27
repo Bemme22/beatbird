@@ -140,19 +140,43 @@ class CamillaDSP:
     # ─── Signal level ────────────────────────────────────────────────────────
 
     def get_signal_level(self) -> int:
-        """Return playback signal RMS as 0-100."""
+        """Return playback signal level as 0-100 for the firmware energy ring.
+
+        Uses PEAK-since-last-call (capture_peak), not RMS. RMS is a
+        sliding-window average that smooths out short transients — kick
+        drums, snare hits, punchy basses get lost in the average and the
+        ring barely flickered on instrumental music. Peak captures the
+        loudest sample within the polling window (default 100 ms) so
+        every transient registers. Tail is left to the firmware-side
+        low-pass (alpha=0.12 at 60 Hz) so the visual response stays
+        musical, not strobe-y.
+
+        Falls back to capture_rms if peak isn't in the response — some
+        CDSP versions / configs omit one or the other depending on
+        which filter has captured channels."""
         # CamillaDSP 4.x: no-arg commands are sent as bare strings, NOT as
         # {"GetSignalLevels": null} — the dict form was rejected silently and
         # this returned 0 (energy ring froze).
         resp = self._cmd("GetSignalLevels", timeout=0.5)
-        if not resp:
+        if not resp or not isinstance(resp, dict):
             return 0
         try:
-            rms_list = resp.get("capture_rms") if isinstance(resp, dict) else None
-            if not rms_list:
+            peak_list = resp.get("capture_peak")
+            rms_list  = resp.get("capture_rms")
+            # Peak preferred; fall back to RMS so we still get something
+            # on older CDSP / unusual configs.
+            level_db = None
+            if peak_list:
+                level_db = max(peak_list)
+            elif rms_list:
+                level_db = max(rms_list)
+            if level_db is None:
                 return 0
-            rms_db = max(rms_list)
-            return max(0, min(100, int((rms_db + 60.0) * 100.0 / 54.0)))
+            # Map -60..-6 dB → 0..100. -6 dB is the practical ceiling
+            # for clean playback (we already clip volume max at -10 dB
+            # in the profile), so leaving a 4 dB safety margin still
+            # lets the ring saturate during loud passages.
+            return max(0, min(100, int((level_db + 60.0) * 100.0 / 54.0)))
         except Exception:
             return 0
 

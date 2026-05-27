@@ -1022,12 +1022,21 @@ void update() {
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // Energy-driven repaint at ~60 Hz while playing. energy_smoothed
-    // low-passes app.energy with alpha=0.12 so transients feel musical,
-    // not strobe-y. When state != PLAYING, the target collapses to 0 and
-    // the loop keeps running (cheaply) until the smoothed value decays
-    // away — without this the source-marker would freeze at its last opacity
-    // instead of fading back to its idle level on pause.
+    // Energy-driven repaint at ~60 Hz while playing.
+    //
+    // Asymmetric envelope: fast attack (alpha=0.45) when the bridge
+    // pushes a louder peak than what's currently rendered, slow release
+    // (alpha=0.08) on the way down. Classic peak-meter response —
+    // transients (kick, snare, plucked bass) PUNCH up immediately and
+    // then breathe out, instead of being averaged into invisibility by
+    // a symmetric low-pass. Combined with the bridge-side switch to
+    // capture_peak (instead of capture_rms) this is what makes the
+    // ring feel reactive on instrumental / percussive music.
+    //
+    // When state != PLAYING, the target collapses to 0 and the loop
+    // keeps running (cheaply, under the release alpha) until the
+    // smoothed value decays — without this the source-marker would
+    // freeze at its last opacity instead of fading back to idle.
     const bool volume_pulse_active = (
         volume_pulse_start_ms != 0
         && (millis() - volume_pulse_start_ms) < VOLUME_PULSE_MS
@@ -1043,7 +1052,8 @@ void update() {
             last_energy_render = now;
             const float target = (State::app.state == State::PLAY_PLAYING)
                                ? State::app.energy : 0.0f;
-            energy_smoothed += (target - energy_smoothed) * 0.12f;
+            const float alpha  = (target > energy_smoothed) ? 0.45f : 0.08f;
+            energy_smoothed += (target - energy_smoothed) * alpha;
             lv_obj_invalidate(vol_layer);
             // Source marker pulse — opacity AND size driven by the same
             // sin the vol dots use, with the dynamic-remapped energy as
