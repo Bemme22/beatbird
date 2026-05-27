@@ -210,7 +210,8 @@ def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | N
     return LoudnessController(dsp, filters, curve=profile.audio.loudness.curve)
 
 
-def _build_bluetooth(profile: Profile, on_active, on_volume, get_bridge_volume):
+def _build_bluetooth(profile: Profile, on_active, on_volume, get_bridge_volume,
+                     on_newly_connected):
     """Build BT source tracker if bluetooth source is configured."""
     if not profile.sources.bluetooth.enabled:
         return None
@@ -220,6 +221,7 @@ def _build_bluetooth(profile: Profile, on_active, on_volume, get_bridge_volume):
             on_became_active=on_active,
             on_volume_from_phone=on_volume,
             get_bridge_volume=get_bridge_volume,
+            on_newly_connected=on_newly_connected,
         )
     except ImportError:
         log.warning("bluetooth module not available")
@@ -273,6 +275,7 @@ class BeatBirdBridge:
             on_active=self._on_bt_active,
             on_volume=self._on_bt_volume,
             get_bridge_volume=lambda: self.current_volume,
+            on_newly_connected=self._on_bt_newly_connected,
         )
 
         # FFT spectrum
@@ -470,6 +473,36 @@ class BeatBirdBridge:
         """Phone slider moved → sync to CamillaDSP."""
         log.info("BT phone volume → %d%%", pct)
         self.set_volume(pct)
+
+    def _on_bt_newly_connected(self, alias: str) -> None:
+        """Paired device just came online. Shows a 'PAIRED — <alias>' toast
+        on the display so the user gets clear feedback right after the
+        phone-side pairing flow finishes — before they've started any
+        music. Without this, the display sits on the standby flap until
+        the first audio packet arrives and there's no signal that the
+        link is actually up. SFX is handled separately by _on_bt_active
+        when audio starts flowing."""
+        log.info("BT newly connected: %s", alias)
+        if not self.display:
+            return
+        # Exit standby first so the firmware switches back to the player
+        # chrome; CenterStage is hidden inside standby mode and the toast
+        # would render into a hidden parent if we sent it the other way
+        # around. _push_state_now flushes ST:stop, which is what flips
+        # the firmware out of standby.
+        if self.in_standby:
+            self._exit_standby("bt connected")
+            self._push_state_now()
+        # Keep the toast short — CenterStage's toast_buf is 32 chars.
+        clean = (alias or "").strip()
+        if len(clean) > 22:
+            clean = clean[:22]
+        try:
+            # ASCII-only — push_toast strips non-ASCII chars on its side
+            # so an em-dash would just drop out and leave a double space.
+            self.display.push_toast(f"PAIRED - {clean}", duration_ms=2500)
+        except Exception as e:
+            log.warning("push_toast failed: %s", e)
 
     # ─── Startup / shutdown ─────────────────────────────────────────────────
 

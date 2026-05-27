@@ -637,7 +637,7 @@ class BluetoothSource:
     ECHO_GUARD_S = 5.0
 
     def __init__(self, on_became_active=None, on_volume_from_phone=None,
-                 get_bridge_volume=None):
+                 get_bridge_volume=None, on_newly_connected=None):
         self.on_became_active = on_became_active
         self.on_volume_from_phone = on_volume_from_phone
         # Called once per device when it first becomes active, so we can
@@ -646,11 +646,21 @@ class BluetoothSource:
         # back and clobber the speaker volume. Mirrors the Spotify
         # _spotify_initial_sync_done guard.
         self.get_bridge_volume = get_bridge_volume
+        # Fired once when a paired device transitions to Connected from
+        # not-connected — used by the bridge to push a "PAIRED — <alias>"
+        # toast to the display so the user gets explicit feedback that
+        # the BT link came up (without having to start music first).
+        self.on_newly_connected = on_newly_connected
         self._last_state = BTState()
         self._last_poll = 0.0
         self._last_pushed_volume: int | None = None
         self._last_pushed_at: float = 0.0
         self._initial_sync_done: dict[str, bool] = {}   # mac → bool
+        # First-poll suppression for on_newly_connected: at bridge start,
+        # _last_state.devices is empty so any already-connected phone would
+        # look "new" and fire a spurious "PAIRED" toast after every reboot.
+        # Skip the callback on the first poll and just seed the cache.
+        self._first_poll_done = False
 
     def poll(self) -> BTState:
         now = time.monotonic()
@@ -757,6 +767,24 @@ class BluetoothSource:
             self._initial_sync_done.pop(gone, None)
             _invalidate_player_cache(gone)
 
+        # Newly-connected device — fires once per "connected event" so
+        # the bridge can throw a 'PAIRED — <alias>' toast on the display.
+        # Devices that were already in the previous state stay quiet. The
+        # first poll seeds the cache without firing, otherwise every
+        # bridge restart would spam a toast for the phone that's already
+        # been connected for hours.
+        if self.on_newly_connected and self._first_poll_done:
+            for d in new_state.devices:
+                if d.mac in prev_macs:
+                    continue
+                if not d.connected:
+                    continue
+                try:
+                    self.on_newly_connected(d.alias or d.mac)
+                except Exception as e:
+                    log.error("on_newly_connected: %s", e)
+
+        self._first_poll_done = True
         self._last_state = new_state
         return new_state
 

@@ -280,6 +280,28 @@ class AmoledDisplay(DisplayInterface):
         self._send("IMG:end")
         log.info("cover pushed: %d bytes in %d chunks", size, seq)
 
+    def push_toast(self, text: str, duration_ms: int = 2000) -> None:
+        """Send a transient banner via the firmware's CenterStage slot.
+        Used by the bridge to surface events that don't fit the periodic
+        state push, e.g. 'PAIRED — Pixel 7' on BT connect. Translates
+        German chars to ASCII digraphs like push_idle_message — the
+        CenterStage label is rendered in the same font family with the
+        same byte-by-byte fade animation, so multi-byte UTF-8 would
+        corrupt mid-cycle.
+
+        Protocol: TOAST:<duration_ms>:<text>  (newline-terminated)
+        """
+        translated = text.translate(self._IDLE_TRANSLATE)
+        clean = "".join(c for c in translated if 32 <= ord(c) < 127).strip()
+        if not clean:
+            return
+        # Firmware's toast_buf is 32 bytes — clamp on this side too so a
+        # long alias gets visibly truncated rather than silently rejected.
+        if len(clean) > 30:
+            clean = clean[:30]
+        d = max(300, min(10000, int(duration_ms)))
+        self._send(f"TOAST:{d}:{clean}")
+
     def push_idle_message(self, text: str) -> None:
         # Translate accented chars to ASCII digraphs first, then strip any
         # remaining non-ASCII. STBY: line is newline-terminated; the

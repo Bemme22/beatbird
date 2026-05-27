@@ -86,5 +86,10 @@ class DisplayInterface(ABC):
         background. Empty bytes clear the cover. Default is a no-op for
         displays that don't have a graphic background layer."""
 
+    def push_toast(self, text: str, duration_ms: int = 2000) -> None:
+        """Show a short, transient announcement on the player screen
+        (e.g. 'PAIRED — Pixel 7'). Default is a no-op for displays
+        without a toast slot."""
+
     @abstractmethod
     def close(self) -> None: ...

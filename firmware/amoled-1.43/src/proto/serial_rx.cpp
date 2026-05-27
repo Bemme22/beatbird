@@ -4,6 +4,7 @@
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
+#include "screens/center_stage.h"
 #include "screens/screen_standby.h"
 
 #ifdef ARDUINO
@@ -84,6 +85,7 @@ void handle_line(const char *line)
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
     if (!strncmp(line, "STBY:", 5))     { ScreenStandby::set_flap_text(line + 5); return; }
+    if (!strncmp(line, "TOAST:", 6))    { handle_toast_line(line + 6);   return; }
     if (!strncmp(line, "IMG:",  4))     { handle_cover_line(line + 4);   return; }
     if (!strncmp(line, "TIME:", 5))     {
         State::set_clock(String(line + 5));
@@ -428,6 +430,36 @@ void handle_cover_line(const char *body)
 
 const uint8_t *cover_data() { return g_cover_buf; }
 size_t         cover_size() { return g_cover_buf_len; }
+
+// ─── TOAST: transient banner ────────────────────────────────────────────────
+//
+// Format: TOAST:<duration_ms>:<text>
+//   e.g.  TOAST:2500:PAIRED — Pixel 7
+//
+// Bridge sends this when a BT device connects (or any other one-shot
+// event that doesn't fit the periodic state push). Routes to
+// CenterStage::show_toast — the player screen's status slot — so the
+// announcement is visible exactly where the user is looking after a
+// pairing flow. If we're currently in the standby screen the bridge
+// exits standby on its end before sending, so the player chrome is
+// already on screen by the time the toast renders.
+
+void handle_toast_line(const char *body)
+{
+    if (!body || !body[0]) return;
+    const char *colon = strchr(body, ':');
+    if (!colon) {
+        // No duration — treat the whole body as text with the default.
+        CenterStage::show_toast(body);
+        return;
+    }
+    uint32_t dur = (uint32_t)atoi(body);
+    const char *text = colon + 1;
+    if (!*text) return;
+    if (dur < 300)   dur = 300;
+    if (dur > 10000) dur = 10000;
+    CenterStage::show_toast(text, dur);
+}
 
 // ─── Legacy single-shot lines ───────────────────────────────────────────────
 
