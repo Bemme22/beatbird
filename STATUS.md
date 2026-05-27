@@ -268,6 +268,42 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+### Settings panel — multi-page swipe (planned 2026-05-27)
+
+Current state: swipe-down opens a single screen showing the QR code
+for the web UI dashboard. The on-display PAIR button was removed in
+favour of "scan → web UI → tap PAIR there".
+
+**Problem:** the web UI is only reachable for users on the WLAN. A
+guest who wants to pair their phone via BT shouldn't need WLAN
+access — that exposes the rest of the household network. So we
+need a way to trigger BT discoverable directly from the speaker,
+without bringing back the cluttered single-button panel.
+
+**Idea — swipeable settings carousel** inside the existing swipe-down
+panel. Vertical swipe-down still opens; once open, horizontal swipes
+flip between pages:
+
+  ← [ QR — web UI ] · [ PAIR BLUETOOTH ] · [ NEXT SETTING ] →
+
+First two pages cover the use cases we have now (web link + local
+pair trigger). Page 3+ slot in over time without changing the entry/
+exit gesture — candidates:
+
+- Source switcher (Spotify / BT / Snapcast / Aux)
+- Brightness preset (Day / Night / Auto)
+- EQ preset (Flat / Bass+ / Vocal)
+- "Forget all paired phones" panic button
+- Rename speaker (push to BlueZ alias + mDNS)
+
+**Open questions:**
+- Page indicator UI: dot row at bottom, or label "1/N"?
+- Swipe gesture interaction with the player screen's NEXT/PREV (which
+  is also a horizontal swipe in the rotary zone) — different zones
+  probably enough, but document the split
+- Should the carousel auto-close after a page action, or stay open
+  so the user can tweak multiple things?
+
 ## Session 2026-05-21 — UI redesign Phase 5 (weather) + Phase 1 (center-stage) groundwork
 
 Implementation pass for the next big firmware patch — design locked
