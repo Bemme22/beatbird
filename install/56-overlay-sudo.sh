@@ -34,6 +34,16 @@ $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
 # a password on each SSH session. No write or service-control rights
 # are granted by this entry.
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/journalctl
+# beatbird-web restart — the web service hosts the dashboard so the
+# user can press "Bridge neu" / similar buttons. The matching restart
+# entry for the WEB unit itself was missing, which made every
+# rolling deploy of the dashboard require an SSH password.
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart beatbird-web
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl start   beatbird-web
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl stop    beatbird-web
+# Pi shutdown alongside the existing reboot entry, used by the
+# /ui/advanced/system/shutdown button in the new dashboard.
+$BEATBIRD_USER ALL=(root) NOPASSWD: /sbin/poweroff
 EOF
 chmod 0440 "$SUDOERS_FILE"
 
