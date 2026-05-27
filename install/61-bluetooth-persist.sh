@@ -74,8 +74,23 @@ WantedBy=bluetooth.service
 EOF
 chmod 0644 "$MOUNT_UNIT"
 
-systemctl daemon-reload
-systemctl enable var-lib-bluetooth.mount
+# Create the WantedBy= symlink manually instead of via `systemctl enable`.
+# When this script runs inside overlayroot-chroot (the supported path,
+# since otherwise the files don't persist), systemctl reports
+# is-system-running=offline and `enable` may refuse or no-op the dbus
+# round-trip. `ln -s` works regardless and produces the exact same
+# on-disk artifact systemctl would have created.
+WANTS_DIR=/etc/systemd/system/bluetooth.service.wants
+mkdir -p "$WANTS_DIR"
+ln -sf "$MOUNT_UNIT" "$WANTS_DIR/var-lib-bluetooth.mount"
+
+# daemon-reload is meaningless inside the chroot — the live PID 1
+# isn't reachable here. It runs on next boot automatically. If the
+# caller wants the mount active without a reboot, they need to:
+#   systemctl daemon-reload && \
+#     systemctl stop bluetooth bluealsa beatbird-bt-agent && \
+#     systemctl start var-lib-bluetooth.mount && \
+#     systemctl start bluetooth bluealsa beatbird-bt-agent
 
 log_ok "BT state will persist at $PERSIST_DIR across reboots"
-log_ok "mount unit enabled — takes effect on next boot (or 'systemctl start var-lib-bluetooth.mount' after stopping bluez)"
+log_ok "mount unit installed at $MOUNT_UNIT — takes effect on next boot"
