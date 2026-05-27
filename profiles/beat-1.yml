@@ -66,7 +66,9 @@ wifi:
   country: DE
   use_usb_dongle: true             # onboard = Faraday-caged by aluminium body
   disable_onboard_radio: true
-  disable_bluetooth: true
+  # Onboard BT chip stays disabled (still Faraday-caged), but a USB
+  # TP-Link UB500 dongle is plugged in and provides BT independently.
+  disable_bluetooth: false
 
 mqtt:
   # Disabled until a real broker exists. With enabled=true and the placeholder
@@ -88,7 +90,7 @@ sources:
     bitrate: 320
     normalisation: true
   bluetooth:
-    enabled: false                 # dtoverlay=disable-bt in use
+    enabled: true                  # via USB TP-Link UB500 dongle
     a2dp: true
   toslink:
     enabled: false

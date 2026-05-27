@@ -47,16 +47,23 @@ FastConnectable = true
 AutoEnable=true
 EOF
 
-# Enable A2DP sink. Bookworm's binary is `bluealsad` (daemon suffix), not
-# the historical `bluealsa` — they kept the unit name but renamed the
-# binary it ExecStart's. Without this override, the unit launches with
-# default args (no a2dp-sink profile) and a connecting phone fails the
-# transport negotiation with no useful error.
+# Enable A2DP sink. Probe for the actual binary path because the
+# bluez-alsa-utils package renamed bluealsa → bluealsad somewhere
+# between Bookworm and Trixie (we've now seen both spellings on
+# different deploys). Same applies to --xrun-boost: was a valid flag
+# on older versions, removed in newer. Stick to the minimum-viable
+# args here so the unit launches on whichever package version is
+# installed.
+if command -v bluealsad >/dev/null 2>&1; then
+  BLUEALSA_BIN=/usr/bin/bluealsad
+else
+  BLUEALSA_BIN=/usr/bin/bluealsa
+fi
 mkdir -p /etc/systemd/system/bluealsa.service.d
-cat > /etc/systemd/system/bluealsa.service.d/override.conf <<'EOF'
+cat > /etc/systemd/system/bluealsa.service.d/override.conf <<EOF
 [Service]
 ExecStart=
-ExecStart=/usr/bin/bluealsad -p a2dp-sink --xrun-boost=1
+ExecStart=$BLUEALSA_BIN -p a2dp-sink
 EOF
 
 # Headless pairing agent. bt-agent runs forever, registers itself as
