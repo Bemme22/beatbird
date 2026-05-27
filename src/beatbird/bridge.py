@@ -184,6 +184,12 @@ def _build_hardware(profile: Profile) -> HardwareInterface:
 def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | None:
     if not profile.audio.loudness.enabled or not profile.audio.loudness.filters:
         return None
+    # Hardcoded canonical base gains. NEVER read these from the live
+    # CamillaDSP config — that path created a positive-feedback loop
+    # because what's stored in CDSP is `base + offset * max_boost`,
+    # not `base`. Each bridge restart re-read the boosted value as
+    # the new base, so the bass crept up a few dB every reboot. Field
+    # reports of 'Bass auf max' were exactly this.
     known_base = {
         "bass_shelf":   {"type": "Lowshelf",  "freq": 120,  "base_gain": 10, "q": 0.6},
         "sub_punch":    {"type": "Peaking",   "freq": 45,   "base_gain": 5,  "q": 0.7},
@@ -191,22 +197,6 @@ def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | N
         "fullness":     {"type": "Peaking",   "freq": 200,  "base_gain": 3,  "q": 1.0},
         "air_lift":     {"type": "Highshelf", "freq": 8000, "base_gain": 0,  "q": 0.7},
     }
-    # P1: Try to read base gains from CamillaDSP config
-    cdsp_config = dsp.get_config()
-    if cdsp_config:
-        filters_cfg = cdsp_config.get("filters", {})
-        for name in known_base:
-            if name in filters_cfg:
-                params = filters_cfg[name].get("parameters", {})
-                if "gain" in params:
-                    known_base[name]["base_gain"] = params["gain"]
-                if "freq" in params:
-                    known_base[name]["freq"] = params["freq"]
-                if "q" in params:
-                    known_base[name]["q"] = params["q"]
-                if "type" in params:
-                    known_base[name]["type"] = params["type"]
-        log.info("Loudness base gains loaded from CamillaDSP config")
 
     filters: list[LoudnessFilter] = []
     for f in profile.audio.loudness.filters:
