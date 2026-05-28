@@ -1,0 +1,123 @@
+# BeatPiMini — self-built 2-way speaker (planned 2026-05-28)
+# Pi Zero 2W · Louder Hat Plus 1X (single stereo TAS5825M) · Waveshare AMOLED 1.43
+# 2-way mono: SB Acoustics SB13PFCR25-4 (5") + SB13PFCR-00 passive radiator
+#                  + salvaged LT300 ribbon tweeter
+# Crossover @ 3 kHz LR4 in CamillaDSP (see config/camilladsp/beatpimini.yml)
+#
+# First non-Libratone-retrofit in the lineup. Design rationale, hardware
+# choices, open items and the order-of-work are in STATUS.md → Roadmap →
+# BeatPiMini. This YAML is just the operational config; the why lives there.
+
+identity:
+  hostname: beatpimini
+  friendly_name: "BeatPi Mini"
+  speaker_id: beatpi_mini
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: louder-hat-plus-1x
+  # Default stereo digital vol + analog gain in 10-soundcard/louder-hat-plus-1x.sh
+  # apply, but we override analog_gain_db lower than usual — the ribbon
+  # protection chain is belt-and-braces, the safest moment of all is boot
+  # before CDSP has loaded its filter chain. -9 dB at boot leaves the
+  # ribbon comfortable even on a bad startup transient. CDSP's loudness
+  # makeup brings the level back to musical at runtime.
+  analog_gain_db: -9
+
+audio:
+  camilladsp_config: beatpimini   # config/camilladsp/beatpimini.yml
+  sample_rate: 48000
+  format: S32_LE
+  volume:
+    min_db: -60
+    max_db: -10
+    # Same Sonos-style audio taper as the other speakers. With gamma=2.0
+    # a 50%-slider gives ~50%-perceived loudness (instead of ~6%).
+    curve_gamma: 2.0
+  loudness:
+    enabled: true
+    # Smoothstep curve, plateau 0..10%, decay to 75%. Same shape as zipp-
+    # mini-2 but max boosts dialled back — the 5" + PR combo has real low
+    # extension (modelled F3 ≈ 45 Hz once the box is tuned), unlike the
+    # Zipp Mini's tiny drivers, so we don't need to push as hard. Air-lift
+    # stays around the same — the ribbon's HF rolloff is the same
+    # perceptual problem at low volumes regardless of bass capability.
+    curve: smoothstep
+    filters:
+      - {name: bass_shelf,   max_boost_db: 4.0}
+      - {name: sub_punch,    max_boost_db: 2.5}
+      - {name: timpani_body, max_boost_db: 2.0}
+      - {name: air_lift,     max_boost_db: 3.0}
+
+display:
+  type: amoled
+  variant: waveshare-1.43
+  serial_device: auto
+  spectrum_bands: 0      # firmware uses LV:-driven energy ring + side LED strips
+  cover_background:
+    enabled: false       # parked across the lineup until ESP32-S3 firmware drops the cover render cost
+
+  # Palette — placeholder, refine when the enclosure colour is settled.
+  # Trapezoidal Libratone-Beat-inspired body suggests warm metallic accent;
+  # tune by eye against the actual prototype.
+  accent_color:   "D9A36F"          # warm amber — primary highlight
+  accent_glow:    "F5C792"          # softer amber — "now playing" emphasis
+  accent_dim:     "8B6242"          # bronze deep — unfilled segments
+  text_primary:   "F4EFE0"          # cream — body text
+  text_secondary: "A89E89"          # linen — labels
+  accent_alert:   "C73E2C"          # rust — warnings
+
+hardware:
+  power_button:
+    enabled: false       # GPIO/I²C conflict pattern from the other speakers; revisit during build
+    gpio: 17
+    long_press_s: 2.0
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  # Decision deferred until enclosure material is decided — if metal,
+  # USB dongle like Beat #1; if plastic / wood, onboard radio works fine.
+  # Default to onboard like Zipp Mini 2; flip if signal turns out weak.
+  use_usb_dongle: false
+  disable_onboard_radio: false
+  disable_bluetooth: false
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/beatpimini
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "BeatPi Mini"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: true, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:
+    # Source-indicator only; audio routing through snapclient.service.
+    # Real server IP from BEATBIRD_SNAPCAST_SERVER (secrets/snapcast.host).
+    enabled: true
+    server: 192.168.1.10
+    latency_ms: 30
+
+# Weather — coords from secrets/location.coords (gitignored).
+weather:
+  enabled: true
+  interval_minutes: 30
+
+web:
+  enabled: true
+  port: 8080
+
+idle:
+  rss_url: ""
+  rss_refresh_minutes: 30
+  max_chars: 50
+  rss_weight: 0.5

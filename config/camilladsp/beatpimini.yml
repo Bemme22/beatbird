@@ -1,0 +1,158 @@
+---
+# CamillaDSP config — BeatPiMini (self-built 2-way, designed 2026-05-28).
+#
+# Drivers:
+#   Ch0 (TAS5825M L) → SB Acoustics SB13PFCR25-4 (5", 4 Ω) mid-bass
+#                       in a sealed-with-PR enclosure (SB13PFCR-00 radiator)
+#   Ch1 (TAS5825M R) → salvaged Libratone LT300 ribbon tweeter (4.3 Ω)
+#
+# This is the first BeatBird speaker that isn't a Libratone retrofit, so the
+# topology is unusual: the Louder Hat Plus 1X normally drives both amp
+# channels with the same stereo signal of a single full-range speaker. Here
+# we repurpose its two channels as a 2-way crossover output:
+#   - L/R input is mixed to mono (it's a single-speaker mono box)
+#   - mono is split into LP (5" mid) on ch0 and HP (ribbon) on ch1
+#
+# Crossover @ 3 kHz LR4 — chosen conservatively after the ribbon's exact
+# Fs couldn't be measured with our UCA222 setup (channel-sync issues with
+# PipeWire made REW's impedance numbers unreliable). 3 kHz with 24 dB/oct
+# is a safe minimum for almost any 4-Ω ribbon: Fs of typical units sits in
+# the 800 Hz – 2 kHz range, so we're at least 1.5× above worst-case Fs and
+# the LR4 gives 24 dB attenuation at one octave below. Refine downward
+# during in-situ listening once the box is built.
+#
+# Ribbon protection — four layers, of which two are in this config:
+#   1. (physical) 3.3-4.7 µF film cap in series with the ribbon wires →
+#      unbypassable DC blocker if CDSP is misconfigured / bypassed
+#   2. (CDSP, here) xover_hp @ 3 kHz LR4 → keeps anything below the
+#      crossover out of the ribbon path
+#   3. (CDSP, here) ribbon_limiter — peak limiter on ch1 at -3 dBFS to
+#      catch amp clipping before it reaches the ribbon
+#   4. (profile / install) safe boot — profile sets analog_gain_db lower
+#      than the other speakers, ramped up after CDSP loads
+#
+# The 5" SB13PFCR25-4 + PR can deliver real bass (~45 Hz F3 modelled),
+# unlike the tiny drivers in the Zipp Mini 2. So the bass-static + PR-boost
+# tricks from zipp-mini-2.yml aren't needed — the loudness chain is enough.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+mixers:
+  # Sum L+R input to a mono signal and replicate to both output channels.
+  # Both outs carry mono — the per-channel filtering downstream splits
+  # them into LP (mid-bass) and HP (ribbon). -8 dB per source avoids
+  # clipping during heavily-correlated L+R content.
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+
+filters:
+  # ─── Crossover ─────────────────────────────────────────────────────────────
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass,  freq: 3000, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 3000, order: 4}
+
+  # ─── Ribbon level + protection ─────────────────────────────────────────────
+  # The LT300 ribbon's sensitivity vs the SB13PFCR25-4 is unknown without
+  # measurement. Start at -3 dB on the ribbon side, tune by ear during the
+  # first listening session. Inverted flag is here for symmetry with
+  # zipp-mini-2's pattern, but for a single-speaker mono build the
+  # acoustic phase between drivers matters more than electrical polarity —
+  # set false initially, flip if the crossover region sounds hollow.
+  ribbon_trim:
+    type: Gain
+    parameters:
+      gain: -3.0
+      inverted: false
+  # Hard limit the ribbon channel at -3 dBFS — much tighter than the
+  # broadband limiter on ch0 (-1 dBFS). Ribbons fail fast on amp clipping,
+  # so we want the limiter to catch peaks well before they reach the
+  # supply rails. Cost: occasional softening on the brassiest content.
+  ribbon_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -3.0
+      soft_clip: true
+
+  # ─── Loudness / tonality (bridge patches these at runtime) ─────────────────
+  # The bridge's loudness controller boosts these as volume drops, per the
+  # profile's loudness.filters list. Base gains stay conservative — the
+  # boost is applied on top.
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 4, q: 0.7}
+  sub_punch:
+    type: Biquad
+    parameters: {type: Peaking,  freq: 50,  gain: 2, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking,  freq: 80,  gain: 2, q: 1.0}
+  fullness:
+    type: Biquad
+    parameters: {type: Peaking,  freq: 200, gain: 2, q: 1.0}
+  air_lift:
+    type: Biquad
+    parameters: {type: Highshelf, freq: 8000, gain: 0, q: 0.7}
+
+  # ─── Subsonic protection ───────────────────────────────────────────────────
+  # SB13PFCR25-4 datasheet Fs ≈ 52 Hz. With the PR-tuned box adding gain
+  # below Fs, an unfiltered 20 Hz pulse from a bad master can over-excurse
+  # the cone. 6th-order Butterworth at 30 Hz keeps the cone safe without
+  # eating into the musical bass range.
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 30, order: 6}
+
+  # ─── Output limiter on mid-bass ───────────────────────────────────────────
+  # Standard soft-clip at -1 dBFS for the mid-bass path, same recipe as
+  # the other speakers. Catches clipping from the loudness chain + bass
+  # shelf adding up on hot-mastered tracks.
+  broadband_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+
+pipeline:
+  # Mix L+R to mono first, before anything else touches the signal.
+  - type: Mixer
+    name: mono_sum
+
+  # Ch0 = 5" mid-bass path
+  - type: Filter
+    channels: [0]
+    names: [bass_shelf, sub_punch, timpani_body, fullness,
+            sub_protect, xover_lp, broadband_limiter]
+
+  # Ch1 = ribbon tweeter path. air_lift first (loudness shaping), then
+  # crossover, then trim + limiter as the final safety net before the amp.
+  - type: Filter
+    channels: [1]
+    names: [air_lift, xover_hp, ribbon_trim, ribbon_limiter]
