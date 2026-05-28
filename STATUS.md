@@ -268,6 +268,70 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+### New speaker: BeatPiMini (proposed 2026-05-28)
+
+A small, self-built two-way speaker — first one in the lineup that
+isn't a Libratone retrofit. Designed around a clean 2-way active
+topology with the existing BeatBird stack on top.
+
+**Hardware concept:**
+- 5" mid-bass driver (mains)
+- Ribbon tweeter (highs)
+- Compute: Pi Zero 2W (same as Beat / Zipp Mini family)
+- Soundcard: Louder Hat Plus 1X (single stereo TAS5825M, both
+  channels to the same enclosure — left = mid-bass, right = ribbon
+  via CamillaDSP routing, OR a stereo speaker pair if the build
+  becomes two satellites)
+- Display: ESP32-S3 AMOLED 1.43" (same firmware as other beats)
+- Light strip: WS2812-style RGBW LEDs on the ESP32-S3 (LED count
+  TBD — see open questions). Driven via RMT peripheral so it's
+  non-blocking against the LVGL 60 Hz render loop. RAM headroom
+  on the ESP32-S3 is fine for a few hundred LEDs alongside the
+  existing display work; main constraints are power supply and
+  3.3 V → 5 V level shifting (74AHCT125), not compute.
+
+**New design pieces vs the existing Libratone retrofits:**
+- **Active 2-way crossover in CamillaDSP** — LR4 ~3 kHz between the
+  5" and the ribbon, with a small passive HP cap (~3.3 µF film) on
+  the ribbon as DC-protection belt-and-braces. The TAS5825M can do
+  the crossover in its on-DSP biquads too, but doing it in CDSP
+  keeps the filter logic in one place and survives amp swaps.
+- **Ribbon protection** — ribbons are unforgiving against DC offset
+  and amp clipping. Need a safe boot sequence (analog gain low at
+  start), a brick-wall HP filter (subsonic + crossover), and a
+  clipping detector in CDSP.
+- **Light strip animations** in beat/idle modes — reuse the energy-
+  ring asymmetric envelope pattern (peak attack, slow release) so
+  the strip breathes with music in the same character as the AMOLED
+  ring. Bridge already pushes `LV:` peak; firmware just needs a
+  parallel render path for the strip.
+
+**Open questions before any cuts / orders:**
+- Single mono speaker (5" + ribbon both in one box) or stereo pair?
+  Profile schema needs to know — affects CamillaDSP routing.
+- LED count + placement: front-baffle accent ring around the
+  mid-bass? Top "halo"? Both? Determines LED budget + visual
+  vocabulary for the animation work.
+- Ribbon model + impedance — drives the crossover slope choice
+  (some ribbons want a steeper roll-off to avoid resonance excitation
+  near Fs).
+- Power supply: 5" + Class-D needs ~20-24 V PVDD, RGBW strip wants
+  5 V at up to a few amps. Single PSU with DC-DC for the strip, or
+  two rails?
+- Enclosure: ported / sealed / passive radiator? Ribbon needs a
+  rigid baffle to play nice with the mid-bass (no shared volume).
+
+**Order of work (not started):**
+1. Profile YAML: `beatpimini.yml` with the 2-way routing + crossover
+   filter chain
+2. CamillaDSP config: 2-way crossover + ribbon protection
+3. Firmware: add LED-strip render module to the AMOLED firmware,
+   reusing the energy envelope from screen_player
+4. Enclosure design / prototyping (out of scope for repo)
+
+Tracked here so future "what about a new speaker?" sessions have a
+spec to argue against instead of inventing one from scratch.
+
 ### Settings panel — multi-page swipe (planned 2026-05-27)
 
 Current state: swipe-down opens a single screen showing the QR code
