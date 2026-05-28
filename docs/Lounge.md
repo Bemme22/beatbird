@@ -19,10 +19,40 @@ Umbau eines gebrauchten Libratone Lounge zu einer aktiven 5-Kanal DSP-Soundbar f
 ## Hardware-Plattform
 
 ### Computer
-- **Raspberry Pi 5 (8 GB)** — geplant (Vorgängerplan war Pi 4; aufgegeben
-  zugunsten Pi 5 wegen mehr Headroom für CDSP + Web-UI + RP1-I/O-Subsystem
-  das I²S/PWM-Konflikte entzerrt)
+- **Raspberry Pi 5 (1 GB)** — vorhanden. Pi 4 war ursprünglich geplant,
+  wegen RP1-I/O-Entzerrung + besserer CPU-Reserve auf Pi 5 gewechselt
+  (selbst in der 1 GB-Variante).
 - OS: Raspberry Pi OS Lite (64-bit), SD mit Overlay Filesystem
+
+**Memory-Budget-Check für die 1 GB-Variante:**
+
+Lounge läuft mit den gleichen Services wie ein normaler Pi-Zero-2W-BeatBird
+plus zwei Extras: 5-Kanal-CDSP statt 2-Kanal, und das LED-Animations-
+Polling. Erwartetes RSS (Resident Set Size) im Idle:
+
+| Service | RSS ≈ |
+|---|---|
+| Kernel + systemd + base | 200 MB |
+| CamillaDSP (5-ch pipeline) | 100 MB |
+| beatbird-bridge (Python+FastAPI) | 100 MB |
+| beatbird-web (uvicorn) | 70 MB |
+| go-librespot | 40 MB |
+| snapclient | 20 MB |
+| BlueZ + bluealsa | 30 MB |
+| **Summe** | **~560 MB** |
+
+Bleibt ~400 MB für File-Cache, ALSA-Buffer und Cover-Art-Processing-Spitzen
+(JPEG-Decode + Pillow-Resize = +50-80 MB kurzzeitig). Das ist eng aber
+tragbar — solange Cover-Background-Rendering aus bleibt (sowieso parked
+über alle Speaker hinweg wegen ESP-Display-Stutter) gibt's keine größeren
+Speicher-Peaks.
+
+**Wenn Memory-Pressure auftritt** (zswap-Aktivität, OOM-Kills im Journal):
+- Spectrum-Bands auf 0 setzen falls die je wieder reanimiert werden (siehe
+  Memory `project_spectrum_dead.md`)
+- Cover-Processor weiterhin off (default)
+- `web.enabled: false` als letzte Eskalation — Web-UI zieht von allen
+  Services am meisten
 
 ### Verstärker (Sonocotta, Tindie)
 

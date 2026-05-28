@@ -1,6 +1,7 @@
 # Libratone Lounge — TV soundbar, true stereo
-# Pi 5 (8 GB) · 2× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus = 5 amp channels
+# Pi 5 (1 GB) · 2× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus = 5 amp channels
 # · existing LED + button interface
+# Memory budget on 1 GB is tight but workable — see docs/Lounge.md.
 #
 # Drivers per side: 1× 8" woofer (3.2Ω), 2× 4" mids (2.7Ω), 2× ribbon tweeters
 # (4.1Ω). No passive crossover — sealed enclosure, full active DSP.
@@ -14,7 +15,7 @@ identity:
   friendly_name: "Lounge"
   speaker_id: lounge
 
-platform: pi-5                     # 5-channel CDSP + web UI + LED handling needs the headroom
+platform: pi-5                     # 1 GB variant — Pi 5 RP1 + CPU is the win, not the RAM
 
 soundcard:
   driver: louder-hat-triple
