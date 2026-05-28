@@ -278,10 +278,12 @@ topology with the existing BeatBird stack on top.
 - **Mid-bass**: SB Acoustics SB13PFCR25-4 — 5", 4 Ω
 - **Tuning**: SB Acoustics SB13PFCR-00 passive radiator (no motor,
   just compliance + mass → tunes the box)
-- **Tweeter**: salvaged ribbon from a Libratone LT300 we threw out
-  (sounded bad in its original enclosure — worth retesting in
-  a proper baffle + crossover before discarding). 4.3 Ω, model
-  unknown, conservative LP-protect mandatory
+- **Tweeter**: salvaged ribbon from a Libratone LT300 we scrapped.
+  Confirmed functional in the original LT300 — the speaker as a
+  whole sounded bad (probably crossover / box tuning), not the
+  ribbon itself. 4.3 Ω at 1 kHz, model unknown so no datasheet to
+  reference for Fs / recommended cross frequency. Bench measurement
+  (impedance sweep) needed before we lock the crossover.
 - Compute: Pi Zero 2W
 - Soundcard: Louder Hat Plus 1X (single stereo TAS5825M)
 - Display: ESP32-S3 AMOLED 1.43" (same firmware as other beats)
@@ -351,18 +353,21 @@ topology with the existing BeatBird stack on top.
 
 **Remaining open items:**
 
-- Ribbon Fs measurement (impedance sweep) — bench test, off-repo
+- Ribbon Fs measurement (impedance sweep) — bench test, off-repo.
+  Determines minimum safe crossover frequency. Ribbon confirmed
+  working in the LT300 already, so this is "what's the safe
+  operating range", not "does it work".
 - Final crossover frequency + slope after the Fs is known
-- Box volume + PR mass tuning (offline modelling)
-- LED max-brightness cap value — empirical, dial in until the buck
-  doesn't droop under sustained full-bright animation
-- Whether the LT300 ribbon is actually rescuable or just bad-sounding
-  in any context — listening test in a temp baffle before committing
+- Box volume + PR mass tuning (offline modelling, WinISD)
+- LED max-brightness cap value — empirical, dial in until the
+  buck doesn't droop under sustained full-bright animation
 
 **Order of work:**
 
-1. Bench: ribbon impedance sweep + listening test in a known-good
-   baffle. Skip the rest if the ribbon is dead.
+1. Bench: ribbon impedance sweep → gives us Fs + minimum safe
+   crossover. Without that we'd pick a frequency by guess and
+   probably either get cone-modulation distortion (too low) or
+   waste the 5" upper range (too high).
 2. New CDSP config `config/camilladsp/beatpimini.yml.tpl` — mono
    mixdown + 2-way crossover + ribbon protection chain
 3. New profile YAML `profiles/beatpimini.yml` — references that
