@@ -274,60 +274,104 @@ A small, self-built two-way speaker — first one in the lineup that
 isn't a Libratone retrofit. Designed around a clean 2-way active
 topology with the existing BeatBird stack on top.
 
-**Hardware concept:**
-- 5" mid-bass driver (mains)
-- Ribbon tweeter (highs)
-- Compute: Pi Zero 2W (same as Beat / Zipp Mini family)
-- Soundcard: Louder Hat Plus 1X (single stereo TAS5825M, both
-  channels to the same enclosure — left = mid-bass, right = ribbon
-  via CamillaDSP routing, OR a stereo speaker pair if the build
-  becomes two satellites)
+**Hardware concept (locked 2026-05-28):**
+- **Mid-bass**: SB Acoustics SB13PFCR25-4 — 5", 4 Ω
+- **Tuning**: SB Acoustics SB13PFCR-00 passive radiator (no motor,
+  just compliance + mass → tunes the box)
+- **Tweeter**: salvaged ribbon from a Libratone LT300 we threw out
+  (sounded bad in its original enclosure — worth retesting in
+  a proper baffle + crossover before discarding). 4.3 Ω, model
+  unknown, conservative LP-protect mandatory
+- Compute: Pi Zero 2W
+- Soundcard: Louder Hat Plus 1X (single stereo TAS5825M)
 - Display: ESP32-S3 AMOLED 1.43" (same firmware as other beats)
-- Light strip: WS2812-style RGBW LEDs on the ESP32-S3 (LED count
-  TBD — see open questions). Driven via RMT peripheral so it's
-  non-blocking against the LVGL 60 Hz render loop. RAM headroom
-  on the ESP32-S3 is fine for a few hundred LEDs alongside the
-  existing display work; main constraints are power supply and
-  3.3 V → 5 V level shifting (74AHCT125), not compute.
+- **Light strips**: 2× HD-5V-SK6812-144L-W (warm-white RGBW,
+  144 LEDs/m, ~23 cm each → ~33 LEDs per strip, **~66 LEDs total**)
+  driven via RMT peripheral so it's non-blocking against the LVGL
+  60 Hz render loop. RAM cost on the ESP32-S3 is negligible
+  (~260 bytes for the strip buffer); main constraints are power
+  supply, level shifting and the LED-render integration with the
+  existing display task.
 
-**New design pieces vs the existing Libratone retrofits:**
-- **Active 2-way crossover in CamillaDSP** — LR4 ~3 kHz between the
-  5" and the ribbon, with a small passive HP cap (~3.3 µF film) on
-  the ribbon as DC-protection belt-and-braces. The TAS5825M can do
-  the crossover in its on-DSP biquads too, but doing it in CDSP
-  keeps the filter logic in one place and survives amp swaps.
-- **Ribbon protection** — ribbons are unforgiving against DC offset
-  and amp clipping. Need a safe boot sequence (analog gain low at
-  start), a brick-wall HP filter (subsonic + crossover), and a
-  clipping detector in CDSP.
-- **Light strip animations** in beat/idle modes — reuse the energy-
-  ring asymmetric envelope pattern (peak attack, slow release) so
-  the strip breathes with music in the same character as the AMOLED
-  ring. Bridge already pushes `LV:` peak; firmware just needs a
-  parallel render path for the strip.
+**Power & enclosure (locked):**
+- **PSU**: 19 V / 3.42 A laptop brick (65 W) into the Louder Hat,
+  Pi powered from there. Buck-down 5 V / 5 A for the LED strips.
+- **LED current budget**: 66 × ~60 mA full-white = ~4 A peak at
+  5 V. The 5 A buck is at the edge — animations should cap brightness
+  (e.g. ≤ 60 % at full white, or never light all channels max
+  simultaneously). Warm-white-only baseline draws ~1.3 A, plenty
+  of headroom.
+- **Level shifting**: 3.3 V → 5 V via 74AHCT125 on the data line
+  (SK6812 is more tolerant than WS2812 but the buffer is the
+  reliable solution; without it the first ~5 LEDs are flaky).
+- **Enclosure**: monoblock, trapezoidal base, visual cue from the
+  Libratone Beat. **Both LED strips on the sides, bottom-to-top**.
+  Mono signal (one speaker, no stereo pair) — see CamillaDSP impact
+  below.
 
-**Open questions before any cuts / orders:**
-- Single mono speaker (5" + ribbon both in one box) or stereo pair?
-  Profile schema needs to know — affects CamillaDSP routing.
-- LED count + placement: front-baffle accent ring around the
-  mid-bass? Top "halo"? Both? Determines LED budget + visual
-  vocabulary for the animation work.
-- Ribbon model + impedance — drives the crossover slope choice
-  (some ribbons want a steeper roll-off to avoid resonance excitation
-  near Fs).
-- Power supply: 5" + Class-D needs ~20-24 V PVDD, RGBW strip wants
-  5 V at up to a few amps. Single PSU with DC-DC for the strip, or
-  two rails?
-- Enclosure: ported / sealed / passive radiator? Ribbon needs a
-  rigid baffle to play nice with the mid-bass (no shared volume).
+**Audio chain (with the locked drivers):**
 
-**Order of work (not started):**
-1. Profile YAML: `beatpimini.yml` with the 2-way routing + crossover
-   filter chain
-2. CamillaDSP config: 2-way crossover + ribbon protection
-3. Firmware: add LED-strip render module to the AMOLED firmware,
-   reusing the energy envelope from screen_player
-4. Enclosure design / prototyping (out of scope for repo)
+- **Mono → 2-way active crossover in CamillaDSP**. The Louder Hat
+  Plus 1X normally carries stereo L/R for the same speaker; here
+  we repurpose:
+    `L_in + R_in → mono` (sum to one channel)
+    `mono → LP @ ~2.8 kHz → amp_out_L → 5" SB Acoustics`
+    `mono → HP @ ~2.8 kHz → amp_out_R → ribbon`
+  LR4 (24 dB/oct) is the starting point. Final frequency + slope
+  set after a ribbon impedance sweep — its Fs determines the
+  minimum safe crossover, and "salvaged from LT300 because it
+  sounded bad" is information worth a remeasure.
+- **Box tuning** — SB13PFCR25-4 + SB13PFCR-00 PR is a designed pair.
+  Internal volume + radiator mass per the SB Acoustics datasheets.
+  Offline modelling in WinISD / VituixCAD before any wood is cut;
+  not in repo scope but flagged so we don't ship before it's done.
+- **Ribbon protection** (in order of importance):
+    1. Brick-wall HP (LR8+) ~200-300 Hz below the crossover →
+       any DC / sub-bass through the ribbon path gets nuked
+    2. CDSP peak limiter at ~-3 dB to catch amp clipping
+    3. Physical series cap (3.3-4.7 µF film) in line with the
+       ribbon wires → unbypassable DC blocker for misconfig + boot
+    4. Lower `analog_gain_db` than the other speakers (-6 or -9 dB
+       at boot, ramp after CDSP loads)
+
+**Power, level shifting, LED render (locked):**
+
+- Animations cap at ~60 % bright + never light all four channels at
+  max → keeps peak under the 5 A buck's limit.
+- 74AHCT125 buffer for the 3.3 V → 5 V data line. SK6812 forgiving,
+  but the first few LEDs are unreliable without it.
+- **LED strip render**: two vertical strips on the side flanks,
+  bottom-to-top. Pattern: base brightness driven by
+  `State::app.energy` (same source as the AMOLED ring), peak
+  transients lift a "bubble" that travels up + fades. Same
+  asymmetric envelope (α=0.45 attack, α=0.08 release) — same
+  visual character as the energy ring.
+- New firmware module: `firmware/.../src/leds/strip_render.cpp`.
+  No new bridge protocol needed (reads existing `State::app.energy`).
+
+**Remaining open items:**
+
+- Ribbon Fs measurement (impedance sweep) — bench test, off-repo
+- Final crossover frequency + slope after the Fs is known
+- Box volume + PR mass tuning (offline modelling)
+- LED max-brightness cap value — empirical, dial in until the buck
+  doesn't droop under sustained full-bright animation
+- Whether the LT300 ribbon is actually rescuable or just bad-sounding
+  in any context — listening test in a temp baffle before committing
+
+**Order of work:**
+
+1. Bench: ribbon impedance sweep + listening test in a known-good
+   baffle. Skip the rest if the ribbon is dead.
+2. New CDSP config `config/camilladsp/beatpimini.yml.tpl` — mono
+   mixdown + 2-way crossover + ribbon protection chain
+3. New profile YAML `profiles/beatpimini.yml` — references that
+   CDSP config, conservative analog_gain_db, no sub
+4. Firmware LED strip module — drive 66× SK6812 via FastLED RMT,
+   bottom-to-top "VU bubble" coupled to the existing energy
+   envelope
+5. Box modelling (WinISD), enclosure CAD + build (off-repo)
+6. Final crossover tune by ear once the box is built
 
 Tracked here so future "what about a new speaker?" sessions have a
 spec to argue against instead of inventing one from scratch.
