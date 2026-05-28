@@ -1,5 +1,20 @@
 // =============================================================================
-// ui/screens/screen_settings.cpp — Quick-settings panel implementation
+// ui/screens/screen_settings.cpp — Swipeable quick-settings carousel
+// =============================================================================
+//
+// Swipe-down from the player / standby screen opens this panel; horizontal
+// swipes flip between pages (LVGL tileview snap-to-grid); vertical swipe-up
+// or the 12 s inactivity timer closes it.
+//
+// Page 1: QR code → speaker's web UI dashboard. Best for WLAN users —
+//         scan, get the full controls page.
+// Page 2: PAIR BLUETOOTH button — for guests who aren't on the WLAN, or
+//         anyone who prefers the classic flow. Sends CMD:BT_PAIR; bridge
+//         flips BlueZ into 60 s discoverable mode.
+//
+// Future pages slot in by adding more lv_tileview_add_tile() calls + a
+// dot to the page-indicator row at the bottom — no gesture-handling
+// changes needed. Candidates documented in STATUS.md::Roadmap.
 // =============================================================================
 #include "screens/screen_settings.h"
 #include "proto.h"
@@ -18,30 +33,42 @@ namespace ScreenSettings {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
-static lv_obj_t *scr           = nullptr;
-static lv_obj_t *prev_scr      = nullptr;   // remembered so close() can return to it
-static lv_obj_t *qr_code       = nullptr;
-static lv_obj_t *qr_caption    = nullptr;
-static lv_obj_t *lbl_hint      = nullptr;   // small "swipe up to close" line
-static bool      created       = false;
-static uint32_t  opened_at_ms  = 0;
+static lv_obj_t *scr            = nullptr;
+static lv_obj_t *prev_scr       = nullptr;   // remembered so close() can return to it
+static lv_obj_t *tileview       = nullptr;
+static lv_obj_t *tile_qr        = nullptr;
+static lv_obj_t *tile_pair      = nullptr;
+static lv_obj_t *qr_code        = nullptr;
+static lv_obj_t *qr_caption     = nullptr;
+static lv_obj_t *qr_title       = nullptr;
+static lv_obj_t *pair_btn       = nullptr;
+static lv_obj_t *pair_lbl       = nullptr;
+static lv_obj_t *pair_title     = nullptr;
+static lv_obj_t *dot_qr         = nullptr;   // page-indicator dots
+static lv_obj_t *dot_pair       = nullptr;
+static lv_obj_t *lbl_hint       = nullptr;   // "swipe up to close"
+static bool      created        = false;
+static uint32_t  opened_at_ms   = 0;
+
 // QR URL cache. ScreenStandby has its own copy on its own widget; the
 // protocol layer dispatches set_qr_url to both. We don't share a global
 // buffer because the LVGL widgets live in separate trees and each owns
 // its own render.
-static String    qr_url_cached = "";
-static bool      qr_url_applied= false;
+static String    qr_url_cached  = "";
+static bool      qr_url_applied = false;
+
 // Press-start tracker for the swipe-up-to-close gesture. Same pattern
 // as screen_standby; single-finger capacitive touch so file-scope is fine.
-static int       press_sx      = 0;
-static int       press_sy      = 0;
+static int       press_sx       = 0;
+static int       press_sy       = 0;
 
 // Inactivity timeout. Long enough to read the screen, short enough that
 // a forgotten-open panel doesn't sit there for hours blocking the
-// standby clock.
+// standby clock. Resets whenever the user swipes between tiles, so a
+// reader on page 2 doesn't get auto-closed while exploring.
 static constexpr uint32_t AUTO_CLOSE_MS = 12000;
 
-// ─── Build ──────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 static String short_caption_from_url(const String &url) {
     String s = url;
@@ -53,6 +80,19 @@ static String short_caption_from_url(const String &url) {
     return s;
 }
 
+static void refresh_dots(uint32_t active_col) {
+    // The currently-visible tile gets the accent fill; the other(s)
+    // stay at a muted accent_dim so the row reads as "you're on dot N
+    // of M". 8 px is large enough to see, small enough not to compete
+    // with the page content.
+    if (dot_qr)   lv_obj_set_style_bg_color(dot_qr,
+        active_col == 0 ? Theme::accent : Theme::accent_dim, 0);
+    if (dot_pair) lv_obj_set_style_bg_color(dot_pair,
+        active_col == 1 ? Theme::accent : Theme::accent_dim, 0);
+}
+
+// ─── Touch handling ─────────────────────────────────────────────────────────
+
 static void on_panel_pressed(lv_event_t * /*e*/) {
     lv_indev_t *indev = lv_indev_active();
     if (!indev) return;
@@ -61,21 +101,130 @@ static void on_panel_pressed(lv_event_t * /*e*/) {
 }
 
 static void on_panel_released(lv_event_t * /*e*/) {
-    // Swipe-up to dismiss. The previous lv_indev_get_vect approach
-    // returned the delta between the last two input samples (not
-    // press-to-release), which made the gesture all but impossible
-    // to trigger. Track press start in our own state, same way
-    // ScreenStandby does.
+    // Swipe-up to dismiss. The tileview eats horizontal swipes natively
+    // (snap-to-tile), so we only need to handle the vertical close
+    // gesture here. Threshold tuned with adx < ady so a diagonal
+    // horizontal-leaning swipe doesn't accidentally close.
     lv_indev_t *indev = lv_indev_active();
     if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     int dx = p.x - press_sx, dy = p.y - press_sy;
     int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
-    // Swipe-up — physically up. Direction multiplier flips per panel
-    // mount (Beat vs Zipp) so the gesture feels the same on both.
     if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY < 0) {
         close();
     }
+}
+
+static void on_tile_changed(lv_event_t * /*e*/) {
+    // Page indicator + inactivity reset. lv_tileview emits VALUE_CHANGED
+    // after a swipe lands on a new tile; we read the active tile to
+    // figure out which dot to highlight.
+    if (!tileview) return;
+    lv_obj_t *active = lv_tileview_get_tile_active(tileview);
+    uint32_t col = 0;
+    if (active == tile_pair) col = 1;
+    refresh_dots(col);
+    opened_at_ms = millis();   // reset auto-close timer on user interaction
+}
+
+static void on_pair_clicked(lv_event_t * /*e*/) {
+    // Send the existing BT_PAIR command — bridge handler still around
+    // (handle_display_command in bridge.py opens a 60 s discoverable
+    // window). Optimistic UI: swap the label to "PAIRING…" + close the
+    // panel so the user can watch their phone's BT picker. The bridge's
+    // SYS:bt=1 push lights the PAIRING badge on the player screen within
+    // ~5 s, giving the "is it working?" answer without staying on this
+    // panel.
+    Proto::send_command("BT_PAIR");
+    if (pair_lbl) lv_label_set_text(pair_lbl, "PAIRING…");
+    close();
+}
+
+// ─── Build ──────────────────────────────────────────────────────────────────
+
+static void build_tile_qr(lv_obj_t *parent) {
+    qr_title = lv_label_create(parent);
+    lv_label_set_text(qr_title, "SCAN ZUR STEUERUNG");
+    lv_obj_set_style_text_color       (qr_title, Theme::text_secondary,         0);
+    lv_obj_set_style_text_font        (qr_title, Theme::font_display_md(),      0);
+    lv_obj_set_style_text_letter_space(qr_title, Theme::LETTER_SPACE_LABEL,     0);
+    lv_obj_align(qr_title, LV_ALIGN_TOP_MID, 0, 25);
+    lv_obj_add_flag(qr_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(qr_title, LV_OBJ_FLAG_CLICKABLE);
+
+    qr_code = lv_qrcode_create(parent);
+    lv_qrcode_set_size(qr_code, 280);
+    lv_qrcode_set_dark_color (qr_code, lv_color_black());
+    lv_qrcode_set_light_color(qr_code, lv_color_white());
+    lv_qrcode_set_quiet_zone(qr_code, true);
+    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_add_flag(qr_code, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_CLICKABLE);
+
+    qr_caption = lv_label_create(parent);
+    lv_label_set_text(qr_caption, "");
+    lv_obj_set_style_text_color(qr_caption, Theme::accent, 0);
+    lv_obj_set_style_text_font (qr_caption, Theme::font_display_md(), 0);
+    lv_obj_set_style_text_letter_space(qr_caption, Theme::LETTER_SPACE_LABEL, 0);
+    lv_obj_set_style_text_align(qr_caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(qr_caption, LV_ALIGN_BOTTOM_MID, 0, -85);
+    lv_obj_add_flag(qr_caption, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(qr_caption, LV_OBJ_FLAG_CLICKABLE);
+
+    if (qr_url_cached.length() > 0 && !qr_url_applied) {
+        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
+        lv_label_set_text(qr_caption, short_caption_from_url(qr_url_cached).c_str());
+        qr_url_applied = true;
+    }
+}
+
+static void build_tile_pair(lv_obj_t *parent) {
+    pair_title = lv_label_create(parent);
+    lv_label_set_text(pair_title, "BLUETOOTH PAIREN");
+    lv_obj_set_style_text_color       (pair_title, Theme::text_secondary,       0);
+    lv_obj_set_style_text_font        (pair_title, Theme::font_display_md(),    0);
+    lv_obj_set_style_text_letter_space(pair_title, Theme::LETTER_SPACE_LABEL,   0);
+    lv_obj_align(pair_title, LV_ALIGN_TOP_MID, 0, 25);
+    lv_obj_add_flag(pair_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(pair_title, LV_OBJ_FLAG_CLICKABLE);
+
+    // Big circular button — accent fill, accent border, label centred.
+    // Sized to dominate the round display so guests know exactly where
+    // to tap without prior briefing.
+    pair_btn = lv_obj_create(parent);
+    lv_obj_remove_style_all(pair_btn);
+    lv_obj_set_size(pair_btn, 260, 260);
+    lv_obj_align(pair_btn, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_set_style_bg_color(pair_btn, Theme::accent_dim, 0);
+    lv_obj_set_style_bg_opa  (pair_btn, LV_OPA_COVER,      0);
+    lv_obj_set_style_radius  (pair_btn, LV_RADIUS_CIRCLE,  0);
+    lv_obj_set_style_border_color(pair_btn, Theme::accent, 0);
+    lv_obj_set_style_border_width(pair_btn, 3,             0);
+    lv_obj_add_flag(pair_btn, LV_OBJ_FLAG_CLICKABLE);
+    // Bubble gestures so a vertical swipe-up that starts on top of the
+    // button still triggers close. Tap-without-movement keeps firing
+    // CLICKED on the button itself.
+    lv_obj_add_flag(pair_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(pair_btn, on_pair_clicked, LV_EVENT_CLICKED, NULL);
+
+    pair_lbl = lv_label_create(pair_btn);
+    lv_label_set_text(pair_lbl, "TAP");
+    lv_obj_set_style_text_color       (pair_lbl, Theme::text_primary,           0);
+    lv_obj_set_style_text_font        (pair_lbl, Theme::font_display_lg(),      0);
+    lv_obj_set_style_text_letter_space(pair_lbl, Theme::LETTER_SPACE_DISPLAY,   0);
+    lv_obj_center(pair_lbl);
+    lv_obj_add_flag(pair_lbl, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(pair_lbl, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *sub = lv_label_create(parent);
+    lv_label_set_text(sub, "60 SEKUNDEN SICHTBAR");
+    lv_obj_set_style_text_color       (sub, Theme::accent,                      0);
+    lv_obj_set_style_text_font        (sub, Theme::font_display_md(),           0);
+    lv_obj_set_style_text_letter_space(sub, Theme::LETTER_SPACE_LABEL,          0);
+    lv_obj_set_style_text_align       (sub, LV_TEXT_ALIGN_CENTER,               0);
+    lv_obj_align(sub, LV_ALIGN_BOTTOM_MID, 0, -85);
+    lv_obj_add_flag(sub, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(sub, LV_OBJ_FLAG_CLICKABLE);
 }
 
 static void build() {
@@ -92,61 +241,58 @@ static void build() {
     lv_obj_add_event_cb(scr, on_panel_pressed,  LV_EVENT_PRESSED,  NULL);
     lv_obj_add_event_cb(scr, on_panel_released, LV_EVENT_RELEASED, NULL);
 
-    // ── Title ──────────────────────────────────────────────────────────────
-    // Caption stays generic — the QR routes to the speaker's web UI
-    // dashboard, which is the entry point for everything (pairing,
-    // volume, paired-devices management). Not BT-specific anymore.
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "SCAN ZUR STEUERUNG");
-    lv_obj_set_style_text_color       (title, Theme::text_secondary,         0);
-    lv_obj_set_style_text_font        (title, Theme::font_display_md(),      0);
-    lv_obj_set_style_text_letter_space(title, Theme::LETTER_SPACE_LABEL,     0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);
-    lv_obj_add_flag(title, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(title, LV_OBJ_FLAG_CLICKABLE);
+    // ── Tileview ───────────────────────────────────────────────────────────
+    // Fills the whole screen; tiles snap horizontally on swipe. The
+    // hint + page-dot row are siblings of the tileview, not children,
+    // so they stay anchored at the bottom while pages scroll past.
+    tileview = lv_tileview_create(scr);
+    lv_obj_remove_style_all(tileview);
+    lv_obj_set_size(tileview, 466, 466);
+    lv_obj_set_style_bg_opa(tileview, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(tileview, LV_OBJ_FLAG_CLICKABLE);
+    // First arg col_id=0,1; row_id=0; dir=LV_DIR_LEFT|RIGHT for the
+    // tiles that can be swiped to/from. tile_qr can only go right
+    // (to tile_pair); tile_pair can only go left (back to tile_qr).
+    tile_qr   = lv_tileview_add_tile(tileview, 0, 0, LV_DIR_RIGHT);
+    tile_pair = lv_tileview_add_tile(tileview, 1, 0, LV_DIR_LEFT);
+    lv_obj_add_event_cb(tileview, on_tile_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // ── QR code ────────────────────────────────────────────────────────────
-    // 300 px is a touch smaller than the standby QR (320) because we
-    // need room for the title + hint at top/bottom. quiet_zone must be
-    // explicit — LVGL 9.x leaves it off by default and phones won't
-    // scan without the ~4-module white margin (see
-    // feedback_lvgl_qrcode_quiet_zone in memory).
-    qr_code = lv_qrcode_create(scr);
-    lv_qrcode_set_size(qr_code, 300);
-    lv_qrcode_set_dark_color (qr_code, lv_color_black());
-    lv_qrcode_set_light_color(qr_code, lv_color_white());
-    lv_qrcode_set_quiet_zone(qr_code, true);
-    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(qr_code, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_CLICKABLE);
+    build_tile_qr  (tile_qr);
+    build_tile_pair(tile_pair);
 
-    qr_caption = lv_label_create(scr);
-    lv_label_set_text(qr_caption, "");
-    lv_obj_set_style_text_color(qr_caption, Theme::accent, 0);
-    lv_obj_set_style_text_font (qr_caption, Theme::font_display_md(), 0);
-    lv_obj_set_style_text_letter_space(qr_caption, Theme::LETTER_SPACE_LABEL, 0);
-    lv_obj_set_style_text_align(qr_caption, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(qr_caption, LV_ALIGN_BOTTOM_MID, 0, -90);
-    lv_obj_add_flag(qr_caption, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_clear_flag(qr_caption, LV_OBJ_FLAG_CLICKABLE);
+    // ── Page indicator dots ────────────────────────────────────────────────
+    // Two small accent dots ~30 px from the bottom edge. The active
+    // one is accent-coloured, the other accent_dim. Bigger displays
+    // would benefit from a tap-to-jump affordance; here the row is
+    // small enough that it reads as a status, not a control.
+    dot_qr = lv_obj_create(scr);
+    lv_obj_remove_style_all(dot_qr);
+    lv_obj_set_size(dot_qr, 8, 8);
+    lv_obj_set_style_radius(dot_qr, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot_qr, Theme::accent, 0);
+    lv_obj_set_style_bg_opa(dot_qr, LV_OPA_COVER, 0);
+    lv_obj_align(dot_qr, LV_ALIGN_BOTTOM_MID, -10, -35);
+    lv_obj_clear_flag(dot_qr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(dot_qr, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-    // Apply any URL the bridge pushed before build() ran (the bridge
-    // sends QR: once at start; if that arrived before show() built
-    // this screen the cache picks it up here).
-    if (qr_url_cached.length() > 0 && !qr_url_applied) {
-        lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
-        lv_label_set_text(qr_caption, short_caption_from_url(qr_url_cached).c_str());
-        qr_url_applied = true;
-    }
+    dot_pair = lv_obj_create(scr);
+    lv_obj_remove_style_all(dot_pair);
+    lv_obj_set_size(dot_pair, 8, 8);
+    lv_obj_set_style_radius(dot_pair, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot_pair, Theme::accent_dim, 0);
+    lv_obj_set_style_bg_opa(dot_pair, LV_OPA_COVER, 0);
+    lv_obj_align(dot_pair, LV_ALIGN_BOTTOM_MID, 10, -35);
+    lv_obj_clear_flag(dot_pair, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(dot_pair, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // ── Hint ──────────────────────────────────────────────────────────────
     lbl_hint = lv_label_create(scr);
-    lv_label_set_text(lbl_hint, "SWIPE UP TO CLOSE");
-    lv_obj_set_style_text_color       (lbl_hint, Theme::text_secondary,      0);
-    lv_obj_set_style_text_opa         (lbl_hint, (lv_opa_t)100,              0);
-    lv_obj_set_style_text_font        (lbl_hint, Theme::font_display_md(),   0);
-    lv_obj_set_style_text_letter_space(lbl_hint, Theme::LETTER_SPACE_LABEL,  0);
-    lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -55);
+    lv_label_set_text(lbl_hint, "WISCHEN ▸  ▴ SCHLIESSEN");
+    lv_obj_set_style_text_color       (lbl_hint, Theme::text_secondary,         0);
+    lv_obj_set_style_text_opa         (lbl_hint, (lv_opa_t)100,                 0);
+    lv_obj_set_style_text_font        (lbl_hint, Theme::font_display_md(),      0);
+    lv_obj_set_style_text_letter_space(lbl_hint, Theme::LETTER_SPACE_LABEL,     0);
+    lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -15);
     lv_obj_add_flag(lbl_hint, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_hint, LV_OBJ_FLAG_CLICKABLE);
 }
@@ -168,6 +314,13 @@ void set_qr_url(const char *url) {
 
 void show() {
     if (!created) build();
+    // Always open on page 1 (QR) — that's the entry point we want most
+    // users to see first. The PAIR page is a deliberate second step.
+    if (tileview && tile_qr) {
+        lv_tileview_set_tile(tileview, tile_qr, LV_ANIM_OFF);
+    }
+    if (pair_lbl) lv_label_set_text(pair_lbl, "TAP");   // reset after a previous PAIRING…
+    refresh_dots(0);
     prev_scr = lv_screen_active();
     opened_at_ms = millis();
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_OVER_TOP, 250, 0, false);

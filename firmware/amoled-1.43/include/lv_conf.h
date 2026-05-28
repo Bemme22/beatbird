@@ -85,6 +85,13 @@
 // RAM unless the widget is created.
 #define LV_USE_QRCODE 1
 
+// Tileview — used by the swipe-down settings panel to host multiple
+// pages (QR | PAIR | future settings) with native horizontal-swipe
+// snap. Without LV_USE_TILEVIEW the carousel falls back to manual
+// touch tracking, which never feels quite right against the round
+// display's edges.
+#define LV_USE_TILEVIEW 1
+
 // === Tick ===
 // LVGL 9.2 removed LV_TICK_CUSTOM — use lv_tick_set_cb() in setup() instead.
 
