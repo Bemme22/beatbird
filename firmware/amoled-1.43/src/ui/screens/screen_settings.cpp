@@ -245,11 +245,25 @@ static void build() {
     // Fills the whole screen; tiles snap horizontally on swipe. The
     // hint + page-dot row are siblings of the tileview, not children,
     // so they stay anchored at the bottom while pages scroll past.
+    //
+    // anim_time tuned down from the LVGL default (300 ms) to 120 ms:
+    // the QR's 280×280 1-bit canvas + DMA recompose during scroll
+    // looked choppy on the ESP32-S3 at the default duration. Faster
+    // snap means fewer mid-motion frames so the eye reads it as
+    // "snap" rather than "stutter".
     tileview = lv_tileview_create(scr);
     lv_obj_remove_style_all(tileview);
     lv_obj_set_size(tileview, 466, 466);
     lv_obj_set_style_bg_opa(tileview, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_anim_time(tileview, 120, 0);
     lv_obj_clear_flag(tileview, LV_OBJ_FLAG_CLICKABLE);
+    // Also catch press/release at the tileview level so the swipe-up-
+    // to-close gesture works regardless of which child the touch
+    // landed on. LV_EVENT_PRESSED / RELEASED don't bubble by default
+    // (only LV_EVENT_GESTURE does via GESTURE_BUBBLE) — without these
+    // handlers a touch starting inside the tileview never reached scr.
+    lv_obj_add_event_cb(tileview, on_panel_pressed,  LV_EVENT_PRESSED,  NULL);
+    lv_obj_add_event_cb(tileview, on_panel_released, LV_EVENT_RELEASED, NULL);
     // First arg col_id=0,1; row_id=0; dir=LV_DIR_LEFT|RIGHT for the
     // tiles that can be swiped to/from. tile_qr can only go right
     // (to tile_pair); tile_pair can only go left (back to tile_qr).
@@ -286,8 +300,12 @@ static void build() {
     lv_obj_add_flag(dot_pair, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // ── Hint ──────────────────────────────────────────────────────────────
+    // Pure ASCII — the Departure Mono font we use here doesn't have
+    // glyphs for the unicode arrow chars (▸ ▴ ↑). Earlier versions
+    // rendered them as missing-glyph boxes. "^ ZU" is short enough
+    // not to clip on the round display and reads as "up-arrow close".
     lbl_hint = lv_label_create(scr);
-    lv_label_set_text(lbl_hint, "WISCHEN ▸  ▴ SCHLIESSEN");
+    lv_label_set_text(lbl_hint, "^ ZU");
     lv_obj_set_style_text_color       (lbl_hint, Theme::text_secondary,         0);
     lv_obj_set_style_text_opa         (lbl_hint, (lv_opa_t)100,                 0);
     lv_obj_set_style_text_font        (lbl_hint, Theme::font_display_md(),      0);
