@@ -19,7 +19,7 @@ platform: pi-zero-2w                     # pi-zero-2w | pi-3b-plus | pi-4 | pi-5
 # ─── Soundcard ────────────────────────────────────────────────────────────────
 soundcard:
   driver: louder-hat-plus-1x             # louder-hat-plus-2x | louder-hat-plus-1x
-                                         # | louder-hat-triple | innomaker-amp-pro
+                                         # | louder-hat-triple
   # Driver-specific options follow — see install/10-soundcard/<driver>.sh for
   # the full list. Typical fields for TAS5825M-based boards:
 
@@ -34,7 +34,7 @@ soundcard:
 audio:
   camilladsp_config: _stub               # file name under config/camilladsp/ minus .yml
   sample_rate: 48000                     # TAS5825M only accepts 48000
-  format: S32LE                          # S32LE (TAS5825M) | S16LE | S24LE
+  format: S32_LE                          # S32LE (TAS5825M) | S16LE | S24LE
   loudness:
     enabled: true
     # Three filters that get boosted at low volume. Tune to taste.

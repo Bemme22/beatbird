@@ -18,7 +18,7 @@ soundcard:
 audio:
   camilladsp_config: beat          # same REW-tuned config as Beat #1 until re-measured
   sample_rate: 48000
-  format: S32LE
+  format: S32_LE
   loudness:
     enabled: true
     filters:

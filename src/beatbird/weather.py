@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Awaitable, Callable, Optional
+from typing import Callable, Optional
 
 log = logging.getLogger("beatbird.weather")
 

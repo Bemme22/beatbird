@@ -1,0 +1,64 @@
+name: python
+
+# Lints + tests for the Pi-side bridge / webserver code. Fast gate (~30 s
+# end-to-end) so every push / PR knows whether `pct_to_db`, the loudness
+# curve, the profile schema, and the serial-protocol escape still hold.
+#
+# Doesn't try to exercise the audio chain or hardware — those tests live
+# on a real Pi. This is the math + config layer only.
+
+on:
+  push:
+    branches: [main]
+    # Skip when only firmware / docs / install scripts changed — they
+    # have their own pipelines (firmware.yml) or don't need one.
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "profiles/**"
+      - "pyproject.toml"
+      - ".github/workflows/python.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "profiles/**"
+      - "pyproject.toml"
+      - ".github/workflows/python.yml"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          # Just the bits the tests need — no need to drag in fastapi,
+          # paho-mqtt, etc. for a pure-math + schema lint run. Anything
+          # the tests touch imports from beatbird.* which only pulls
+          # pydantic + pyyaml transitively.
+          pip install pydantic pyyaml pytest ruff
+
+      - name: ruff
+        # Linter only — formatter run is separate (and noisier).
+        # E,F,W is the baseline; B catches likely bugs (mutable
+        # defaults, etc).
+        # Ignored — pre-existing patterns across the codebase, would
+        # require a separate sweep PR to fix. New issues caught here.
+        #   E501 — line length (style); E701 — multi-stmt one-liners
+        #   B904 — `raise ... from err`; B007 — unused loop var
+        #   B027 — empty abstract method; E741 — `l`/`I` var names
+        #   F841 — unused local
+        run: ruff check src/ tests/ --select E,F,W,B
+             --ignore E501,E701,E741,B007,B027,B904,F841
+
+      - name: pytest
+        run: python -m pytest tests/ -v

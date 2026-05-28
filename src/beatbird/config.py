@@ -29,11 +29,16 @@ class Identity(BaseModel):
 
 
 class Soundcard(BaseModel):
+    # innomaker-amp-pro was the original Zipp Mini 2 amplifier (MA12070P);
+    # removed after the unit burned out and was replaced with the Louder
+    # Hat. The hardware module + driver entry are gone — if a stale
+    # profile YAML still references it, Pydantic will reject the load
+    # with a clear "Input should be 'louder-hat-...'" message at startup
+    # instead of crashing later when InnomakerAMPPro fails to instantiate.
     driver: Literal[
         "louder-hat-plus-2x",
         "louder-hat-plus-1x",
         "louder-hat-triple",
-        "innomaker-amp-pro",
     ]
     primary_i2c: Optional[int] = None
     secondary_i2c: Optional[int] = None
@@ -98,10 +103,26 @@ class Sfx(BaseModel):
 class Audio(BaseModel):
     camilladsp_config: str = "_stub"
     sample_rate: int = 48000
-    format: str = "S32LE"
+    # CamillaDSP 4 expects the underscored form (S32_LE), but historical
+    # profiles + the original _template were written without it (S32LE).
+    # Accept both spellings and canonicalise to the underscored form
+    # before any downstream consumer (the bridge passes this to the DSP
+    # YAML render). Without normalisation, CDSP rejects S32LE silently
+    # and the audio chain falls back to defaults.
+    format: Literal["S32_LE", "S24_LE", "S16_LE"] = "S32_LE"
     volume: VolumeConfig = Field(default_factory=VolumeConfig)
     loudness: Loudness = Field(default_factory=Loudness)
     sfx: Sfx = Field(default_factory=Sfx)
+
+    @field_validator("format", mode="before")
+    @classmethod
+    def _canonical_format(cls, v):
+        if isinstance(v, str):
+            up = v.upper().strip()
+            # Common legacy spellings without underscore — canonicalise.
+            legacy = {"S32LE": "S32_LE", "S24LE": "S24_LE", "S16LE": "S16_LE"}
+            return legacy.get(up, up)
+        return v
 
 
 class CoverBackground(BaseModel):

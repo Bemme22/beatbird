@@ -58,7 +58,8 @@ def sd_notify_local(msg: str) -> None:
     NOTIFY_SOCKET from the env (systemd sets it on Type=notify units);
     no-ops when run outside systemd (tests, dev, journal-less hosts).
     Used for READY=1 at boot and WATCHDOG=1 in the main loop."""
-    import os, socket
+    import os
+    import socket
     sock_path = os.environ.get("NOTIFY_SOCKET")
     if not sock_path:
         return
@@ -174,9 +175,9 @@ def _build_hardware(profile: Profile) -> HardwareInterface:
     if profile.soundcard.driver.startswith("louder-hat"):
         from beatbird.hardware.louder_hat import from_profile
         return from_profile(profile.soundcard)
-    if profile.soundcard.driver == "innomaker-amp-pro":
-        from beatbird.hardware.innomaker import InnomakerAMPPro
-        return InnomakerAMPPro()
+    # innomaker-amp-pro branch removed — driver no longer in the
+    # profile schema (Soundcard.driver Literal), Pydantic catches a
+    # stale YAML earlier than this code would.
     from beatbird.hardware.base import NullHardware
     return NullHardware()
 
@@ -731,7 +732,9 @@ class BeatBirdBridge:
         Atomic = write to a sibling .tmp, fsync, rename — survives a
         crash during the write."""
         try:
-            import json, os, tempfile
+            import json
+            import os
+            import tempfile
             data = {
                 "volume_pct":   int(self.current_volume),
                 "volume_db":    float(self.current_volume_db),

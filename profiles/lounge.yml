@@ -33,7 +33,7 @@ soundcard:
 audio:
   camilladsp_config: _stub         # to be built from driver T/S + in-situ measurements
   sample_rate: 48000
-  format: S32LE
+  format: S32_LE
   loudness:
     enabled: true
     filters:

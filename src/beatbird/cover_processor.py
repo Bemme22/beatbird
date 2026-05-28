@@ -125,7 +125,7 @@ class CoverProcessor:
             return None
 
     def _process(self, raw: bytes) -> bytes:
-        from PIL import Image, ImageDraw, ImageFilter
+        from PIL import Image, ImageFilter
 
         img = Image.open(io.BytesIO(raw)).convert("RGB")
         # Album covers are square; lanczos resize covers both up- and

@@ -20,7 +20,7 @@ audio:
   camilladsp_config: _stub         # placeholder — create config/camilladsp/zipp-2.yml
                                    # once drivers are measured in enclosure
   sample_rate: 48000
-  format: S32LE
+  format: S32_LE
   loudness:
     enabled: true
     filters:

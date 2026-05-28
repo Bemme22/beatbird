@@ -39,6 +39,13 @@ beatbird-firmware-update = "beatbird.firmware_updater:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+# Add src/ to the import path so tests don't require an editable install.
+# Keeps the pytest command portable: `python -m pytest tests/` works on a
+# fresh clone, no `pip install -e .` step needed.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

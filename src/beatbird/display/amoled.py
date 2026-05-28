@@ -213,11 +213,32 @@ class AmoledDisplay(DisplayInterface):
             self.ser = None
             self._palette_sent = False
 
+    @staticmethod
+    def _esc_field(text: str) -> str:
+        """Sanitise a state-line field value so it can't break the
+        pipe-separated, newline-terminated protocol the ESP32 parser
+        expects. Pathological cases that crashed (or would have
+        crashed) the parser before this:
+
+          - Track title contains '|' (e.g. "Killing In The Name | Live")
+            → ESP32 would split it as if the second half was a new
+            KEY:value field and ignore the rest.
+          - Title contains '\\n' (rare but possible from some podcast
+            feeds) → would terminate the line early and drop trailing
+            fields like LV: and TM:.
+
+        Both are replaced with U+2014 (em dash) — a printable
+        substitute that's already in the firmware's Departure Mono
+        font and visually conveys 'this was a separator'."""
+        if not text:
+            return ""
+        return text.replace("|", "—").replace("\n", " ").replace("\r", " ")
+
     def push_state(self, state: DisplayState) -> None:
         parts = [
             f"ST:{state.playback}",
-            f"TI:{state.title}",
-            f"AR:{state.artist}",
+            f"TI:{self._esc_field(state.title)}",
+            f"AR:{self._esc_field(state.artist)}",
             f"SO:{state.source}",
             f"VO:{state.volume}",
             f"PO:{state.position_ms}",
