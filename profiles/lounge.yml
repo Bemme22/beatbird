@@ -1,7 +1,7 @@
 # Libratone Lounge — TV soundbar, true stereo
 # Pi 5 (1 GB) · 2× Louder Hat Plus 2X + 1× Louder Hat 1X non-Plus = 5 amp channels
 # · existing LED + button interface
-# Memory budget on 1 GB is tight but workable — see docs/Lounge.md.
+# 1 GB is plenty: Beat / Zipp Mini 2 run the same stack on 512 MB Zero 2 W.
 #
 # Drivers per side: 1× 8" woofer (3.2Ω), 2× 4" mids (2.7Ω), 2× ribbon tweeters
 # (4.1Ω). No passive crossover — sealed enclosure, full active DSP.
