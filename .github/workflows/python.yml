@@ -41,11 +41,14 @@ jobs:
       - name: install deps
         run: |
           python -m pip install --upgrade pip
-          # Just the bits the tests need — no need to drag in fastapi,
-          # paho-mqtt, etc. for a pure-math + schema lint run. Anything
-          # the tests touch imports from beatbird.* which only pulls
-          # pydantic + pyyaml transitively.
-          pip install pydantic pyyaml pytest ruff
+          # Just the bits the tests touch transitively. AmoledDisplay
+          # (imported by test_serial_escape) needs pyserial even though
+          # the actual test only exercises a pure static method —
+          # importing the class still runs `import serial` at module
+          # load time. No need for fastapi/paho-mqtt/jinja2/websocket-
+          # client since none of the test modules touch the bridge,
+          # webserver, or DSP WS client.
+          pip install pydantic pyyaml pyserial pytest ruff
 
       - name: ruff
         # Linter only — formatter run is separate (and noisier).
