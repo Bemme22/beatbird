@@ -12,7 +12,7 @@ One repo, one installer, one profile per speaker.
 | `zipp-mini-2`   | Zipp Mini 2 / LTH200| Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43" |
 | `zipp-2`        | Zipp 2   / LTH300   | Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43" |
 | `zipp`          | Zipp      / LT300   | Pi Zero 2W    | Louder Hat Plus 1X       | LED + Button |
-| `lounge`        | Libratone Lounge    | Pi 4 (4 GB)   | 2× Plus 2X + 1× non-Plus | LED + Button |
+| `lounge`        | Libratone Lounge    | Pi 5 (8 GB)   | 2× Plus 2X + 1× non-Plus | LED + Button |
 
 ## Quick start (fresh Pi OS Bookworm Lite)
 

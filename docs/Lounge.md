@@ -19,7 +19,9 @@ Umbau eines gebrauchten Libratone Lounge zu einer aktiven 5-Kanal DSP-Soundbar f
 ## Hardware-Plattform
 
 ### Computer
-- **Raspberry Pi 4 (4 GB)** — bereits vorhanden
+- **Raspberry Pi 5 (8 GB)** — geplant (Vorgängerplan war Pi 4; aufgegeben
+  zugunsten Pi 5 wegen mehr Headroom für CDSP + Web-UI + RP1-I/O-Subsystem
+  das I²S/PWM-Konflikte entzerrt)
 - OS: Raspberry Pi OS Lite (64-bit), SD mit Overlay Filesystem
 
 ### Verstärker (Sonocotta, Tindie)
@@ -34,7 +36,7 @@ Umbau eines gebrauchten Libratone Lounge zu einer aktiven 5-Kanal DSP-Soundbar f
 
 | Ebene | Board | Begründung |
 |-------|-------|------------|
-| 1 (unten) | Raspberry Pi 4 | Basis |
+| 1 (unten) | Raspberry Pi 5 | Basis |
 | 2 | Louder Hat Plus 2X | DC-Eingang (24 V Barrel Jack) + Step-Down → 5 V an Pi über 40-Pin-Header. Muss direkt auf dem Pi sitzen für saubere Stromversorgung. |
 | 3 | Louder Hat 1X (non-Plus) | Zieht 5 V + 24 V über durchgeschleiften Header vom Plus-Board darunter. |
 | 4 (oben) | Lochrasterplatine | Verdrahtung UI-Board (Taste + LEDs) auf GPIO-Header-Pins. Keine aktiven Bauteile nötig — reine Kabelbrücke. |
@@ -71,9 +73,16 @@ Die physischen Header-Pins 4, 11, 14–18 liegen nah beieinander → kurze Lötb
 
 #### PWM-Dimming
 
-Hardware-PWM (GPIO 12/13) kollidiert auf dem Pi 4 mit dem I²S-Clock-Generator — **nicht verwenden**. Stattdessen Software-PWM über `pigpio` (DMA-basiert, CPU-schonend). Für LED-Dimming reichen 200–500 Hz — `pigpio` liefert das problemlos auf jedem GPIO.
+Hardware-PWM auf dem Pi 5 läuft über das RP1-Southbridge-IC und nicht mehr
+über den SoC direkt — die Pi-4-Faustregel "GPIO 12/13 kollidieren mit
+I²S-Clock-Generator" gilt nicht mehr 1:1, weil RP1 das I/O-Subsystem
+entkoppelt. Trotzdem ist `pigpio`-Software-PWM (DMA-basiert) hier weiterhin
+der pragmatische Weg: portabel zwischen Pi 4/5, jeder GPIO nutzbar, 200–
+500 Hz für LED-Dimming locker drin, CPU-Last vernachlässigbar. Hardware-
+PWM nur dann verwenden wenn ein Software-Pfad sich als zu unruhig erweist
+(unwahrscheinlich bei LED-Frequenzen).
 
-### GPIO-Gesamtbelegung — Raspberry Pi 4
+### GPIO-Gesamtbelegung — Raspberry Pi 5
 
 | GPIO | Phys. Pin | Funktion | Belegt durch |
 |------|-----------|----------|--------------|
@@ -164,5 +173,5 @@ Quellen (Spotify / TOSLINK / Snapcast / BT)
 
 - Custom DT Overlay ist der kritische Blocker — ohne das geht die 5-Kanal-Konfiguration nicht
 - Das Original-UI-Board ist elegant: Transistoren + Vorwiderstände on-board, Pi muss nur GPIOs schalten
-- Hardware-PWM (GPIO 12/13) ist auf dem Pi 4 nicht nutzbar (I²S-Konflikt) → `pigpio` Software-PWM
+- Hardware-PWM auf dem Pi 5 ist via RP1-Southbridge anders gelagert als beim Pi 4 (kein I²S-Konflikt mehr), aber `pigpio` Software-PWM bleibt der portable + risikoarme Weg für LED-Dimming
 - Einschaltstrom der MeanWell + HAT-Kapazitäten erfordert MOSFET Soft-Start (Lesson learned von Beat #1)
