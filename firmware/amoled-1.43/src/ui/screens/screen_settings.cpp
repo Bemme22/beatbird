@@ -20,7 +20,6 @@
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
-#include "touch_dirs.h"
 
 #ifdef ARDUINO
   #include <Arduino.h>
@@ -57,10 +56,9 @@ static uint32_t  opened_at_ms   = 0;
 static String    qr_url_cached  = "";
 static bool      qr_url_applied = false;
 
-// Press-start tracker for the swipe-up-to-close gesture. Same pattern
-// as screen_standby; single-finger capacitive touch so file-scope is fine.
-static int       press_sx       = 0;
-static int       press_sy       = 0;
+// Swipe-up to close is now driven by LV_EVENT_GESTURE on scr, so no
+// manual press-start tracking needed here anymore (LVGL does the
+// classification before firing the gesture event).
 
 // Inactivity timeout. Long enough to read the screen, short enough that
 // a forgotten-open panel doesn't sit there for hours blocking the
@@ -93,24 +91,20 @@ static void refresh_dots(uint32_t active_col) {
 
 // ─── Touch handling ─────────────────────────────────────────────────────────
 
-static void on_panel_pressed(lv_event_t * /*e*/) {
-    lv_indev_t *indev = lv_indev_active();
-    if (!indev) return;
-    lv_point_t p; lv_indev_get_point(indev, &p);
-    press_sx = p.x; press_sy = p.y;
-}
-
-static void on_panel_released(lv_event_t * /*e*/) {
-    // Swipe-up to dismiss. The tileview eats horizontal swipes natively
-    // (snap-to-tile), so we only need to handle the vertical close
-    // gesture here. Threshold tuned with adx < ady so a diagonal
-    // horizontal-leaning swipe doesn't accidentally close.
-    lv_indev_t *indev = lv_indev_active();
-    if (!indev) return;
-    lv_point_t p; lv_indev_get_point(indev, &p);
-    int dx = p.x - press_sx, dy = p.y - press_sy;
-    int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
-    if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY < 0) {
+static void on_panel_gesture(lv_event_t * /*e*/) {
+    // LVGL's LV_EVENT_GESTURE is the only event that survives the
+    // tileview's scroll handling — PRESSED/RELEASED get partially
+    // swallowed when the tileview decides to take the touch for its
+    // own snap logic. Gesture events fire AFTER the scroll classifier
+    // has already disambiguated, and the direction comes pre-classified
+    // by LVGL using the user's actual finger trajectory.
+    //
+    // We act only on LV_DIR_TOP (physical up) here. LV_DIR_LEFT/RIGHT
+    // are the tileview's domain and we don't want to interfere.
+    // LV_DIR_BOTTOM is ignored because there's no swipe-down meaning
+    // inside an already-open panel.
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+    if (dir == LV_DIR_TOP) {
         close();
     }
 }
@@ -238,8 +232,7 @@ static void build() {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, on_panel_pressed,  LV_EVENT_PRESSED,  NULL);
-    lv_obj_add_event_cb(scr, on_panel_released, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(scr, on_panel_gesture, LV_EVENT_GESTURE, NULL);
 
     // ── Tileview ───────────────────────────────────────────────────────────
     // Fills the whole screen; tiles snap horizontally on swipe. The
@@ -257,13 +250,11 @@ static void build() {
     lv_obj_set_style_bg_opa(tileview, LV_OPA_TRANSP, 0);
     lv_obj_set_style_anim_time(tileview, 120, 0);
     lv_obj_clear_flag(tileview, LV_OBJ_FLAG_CLICKABLE);
-    // Also catch press/release at the tileview level so the swipe-up-
-    // to-close gesture works regardless of which child the touch
-    // landed on. LV_EVENT_PRESSED / RELEASED don't bubble by default
-    // (only LV_EVENT_GESTURE does via GESTURE_BUBBLE) — without these
-    // handlers a touch starting inside the tileview never reached scr.
-    lv_obj_add_event_cb(tileview, on_panel_pressed,  LV_EVENT_PRESSED,  NULL);
-    lv_obj_add_event_cb(tileview, on_panel_released, LV_EVENT_RELEASED, NULL);
+    // Tileview eats horizontal swipes for its own snap logic; vertical
+    // gestures (close) are caught by scr's LV_EVENT_GESTURE handler.
+    // GESTURE events bubble by default, so we don't need a handler
+    // registered on the tileview itself.
+    lv_obj_add_flag(tileview, LV_OBJ_FLAG_GESTURE_BUBBLE);
     // First arg col_id=0,1; row_id=0; dir=LV_DIR_LEFT|RIGHT for the
     // tiles that can be swiped to/from. tile_qr can only go right
     // (to tile_pair); tile_pair can only go left (back to tile_qr).
