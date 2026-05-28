@@ -268,6 +268,112 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+### Identity split: model class vs per-unit instance vs user label (proposed 2026-05-28, parking-lot)
+
+Current state: the profile YAML `identity.friendly_name` doubles as
+both *device class* ("Zipp Mini 2") and *per-unit name*. You can't
+have two Zipp Mini 2s in the same house with names "Küche" and "Bad"
+without editing the YAML on disk — and the YAML conceptually wants
+to stay version-controlled / per-model.
+
+Goal: **friends-friendly setup** where the speaker can be individualised
+in the browser without SSH, without touching YAML, by anyone who can
+read.
+
+Three-layer model proposed:
+
+```
+┌─ HARDWARE-CLASS  (profile YAML, git-tracked, install-time)
+│   • model: beatpimini | beat-1 | beat-2 | ...
+│   • soundcard / DSP-chain / display / GPIO mapping
+│   • DEFAULT friendly_name (used until user changes it)
+│
+┌─ HARDWARE-INSTANCE  (intrinsic, read from the Pi at boot)
+│   • Pi CPU serial from /proc/cpuinfo (16 hex chars, unique)
+│   • or WLAN MAC, or /sys/firmware/devicetree/base/serial-number
+│   • becomes the speaker_id — survives SD-card reflash,
+│     stays stable for MQTT topics / HA entity IDs
+│
+┌─ USER-LABEL  (settings-overrides.json, web UI, runtime)
+│   • friendly_name: "Küche"           ← hero field
+│   • palette: {...}                   ← already implemented
+│   • idle: {...}                      ← already implemented
+│   • (future: room, EQ-preset, source-default, ...)
+```
+
+**What that buys us:**
+
+- Profile duplication goes away. `beat-1.yml` + `beat-2.yml` collapse
+  into one `beat.yml` — same hardware, no need for per-unit YAMLs.
+- SD-card reflash doesn't change identity (CPU serial stays).
+- SD-card *cloning* can't produce identity collisions (CPU differs per
+  Pi by definition → no two clones get the same MQTT topic).
+- Profiles become reusable *device definitions* rather than per-unit
+  configs.
+
+**Friend setup flow target:**
+
+1. Friend gets a ready-built BeatPiMini, puts it in the bathroom.
+2. WLAN setup is done before handover (or via first-boot wizard).
+3. Boot jingle, display shows QR.
+4. Friend scans → dashboard opens with "Welcome — name this speaker".
+5. Types "Bad", taps Save.
+6. Display header, BT picker, Spotify Connect entry, Web UI title
+   all read "Bad" within seconds.
+7. Friend pairs phone via BT using the on-display swipe-down PAIR
+   page (works without WLAN access — Phase 1+2 of the earlier
+   settings-carousel work).
+8. Plays music.
+
+No SSH, no YAML, no call to the maintainer.
+
+**Phased rollout:**
+
+1. **Schema split** — add top-level `model:` to Profile, make
+   `sources.spotify.device_name` optional (defaults to friendly_name).
+   Update existing 6 profiles (one line each). Mechanical, ~1h.
+2. **Hardware-ID source** — bridge reads CPU serial / WLAN MAC at
+   start, replaces the YAML `identity.speaker_id` field as
+   authoritative. Profile schema makes `speaker_id` optional /
+   deprecated. ~2h.
+3. **Bridge fallback layer** — helper `effective_friendly_name()`
+   that checks settings-overrides first, falls back to profile
+   default. Wired into BT alias, Spotify device name, display
+   header, web UI title. mtime poll already exists; just extend
+   the schema to include `friendly_name`. ~2h.
+4. **Web UI customisation card** — `/settings` gets a hero-position
+   "Speaker Name" input above the palette. POST writes
+   settings-overrides.json. ~1h.
+5. **First-run wizard** — dashboard `/` detects friendly_name ==
+   profile default, shows naming card before anything else.
+   Subsequent visits skip it. ~2h.
+6. **Hostname change (advanced)** — separate /settings section with
+   clear warnings (mDNS URL changes → QR breaks). Probably not
+   worth doing until Phase 1-5 has soaked. ~half a day.
+
+**Open decisions:**
+
+- **Hardware-ID source**: CPU serial (`/proc/cpuinfo`) or WLAN MAC
+  or `/sys/firmware/devicetree/base/serial-number`. CPU serial is
+  the most BIOS-native; MAC is user-recognisable. Suggest CPU serial
+  for the canonical ID, derive a short readable suffix (last 4-6
+  chars) for the human-facing hostname.
+- **Naming pattern**: Sonos-style (`beatpi-a7c9` visible alongside
+  "Küche"), Apple-style (opaque UUID, only friendly_name shown), or
+  hybrid. Suggest hybrid: hostname = `<model>-<short-id>` (stable
+  mDNS / QR target), friendly_name = user choice (everything else).
+- **`speaker_id` field**: keep in profile schema as override-able
+  for legacy / testing, or remove entirely? Probably keep but mark
+  as "advanced — set only for migration off the old system".
+- **MQTT base_topic stability**: with auto-derived speaker_id, the
+  MQTT topic for an existing speaker would change on first boot
+  after the rollout. Need a one-time migration script that pins
+  the existing speaker_ids before the switch (so HA entities don't
+  lose history).
+
+**Status**: idea parked, maturing. Don't execute until naming pattern
++ hardware-ID source are settled. Picked up from chat 2026-05-28.
+
 ### New speaker: BeatPiMini (proposed 2026-05-28)
 
 A small, self-built two-way speaker — first one in the lineup that
