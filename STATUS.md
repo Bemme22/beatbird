@@ -268,6 +268,99 @@ All five workarounds from Zipp Mini 2 first boot are now in the repo:
       `beatbird` repo~~ → **Done 2026-05-19 evening**, see session log
       above. Overlay reactivation + polish items pending.
 
+### Lounge bench bring-up — session 2026-05-29 (PAUSED, awaiting vendor reply)
+
+First hands-on session on the actual LoungePi hardware. Goal was the
+4-step bring-up (verify HW → map channels → flatten TAS → CamillaDSP
+6-ch crossover). Got as far as a hard architectural finding and paused
+on a vendor question. **No audio played, no resoldering, no driver
+built** — read-only diagnosis + minimal i2c enablement only.
+
+**LoungePi ground truth (verified, not assumed):**
+- Hostname `LoungePi`, reachable via `ssh -i ~/.ssh/id_ed25519 devusr@LoungePi.local`
+  (NOT the `~/.ssh/beatbird` key — that one's rejected here)
+- Raspberry Pi 5, **Debian Trixie 13.4**, kernel 6.12.75, NOT Bookworm
+- Was a bare fresh flash — no BeatBird, no overlay, stock config.txt
+- **Three amp chips enumerate on i2c-1 (GPIO2/3, RP1 bus):**
+  `0x4c` (TAS5825M, Mid L/R) · `0x4d` (TAS5825M, woofer PBTL) ·
+  **`0x2d`** (TAS5805M, ribbon) — **NOT 0x2e**. The docs + the
+  louder-hat-triple stub + `profiles/lounge.yml` (`tertiary_i2c: 0x4e`)
+  all have the wrong third address. Bus says **0x2d**. Fix when the
+  soundcard config is reworked.
+
+**What was changed on the Pi this session (all benign, persists):**
+- `git` + `i2c-tools` installed
+- repo cloned to `/home/devusr/beatbird`
+- config.txt: uncommented `dtparam=i2c_arm=on` + `dtparam=i2s=on`
+  (backup at `/boot/firmware/config.txt.bak-pre-i2c`)
+- `i2c-dev` loaded at **runtime only** (`modprobe`) — NOT persisted to
+  /etc/modules, so it's gone after reboot. Re-`modprobe i2c-dev` (or
+  let the install script's `ensure_module_loaded` handle it) next time
+  before `i2cdetect`.
+- Sonocotta driver repo cloned to `/tmp/son-inspect` for inspection
+  (gone on reboot — it's in /tmp)
+
+**The architectural wall (the real outcome):**
+
+Goal = 6 independent channels (woofer, mid-L, mid-R, ribbon-L, ribbon-R)
+out of one 6-slot TDM frame on the single shared DOUT line, with ALL
+crossover/EQ in CamillaDSP and the TAS chips flat. **The stock Sonocotta
+`tas5805m-driver-for-raspbian` cannot do this:**
+- DAI is hard `channels_max = 2`
+- The `tas58xx-dual` overlay drives the 2nd DAC as an `aux-dev` tapping
+  the primary's stream (`"0.1 DAC IN" ← "2.0 DAC"`) — both DACs see the
+  **same 2-channel stream**, not separate TDM slots
+- Driver has **zero** SAP/TDM register handling — no `set_fmt`,
+  `hw_params`, or `set_tdm_slot`; audio port runs on chip defaults
+- So multi-instance ≠ multi-channel: you get 2 program channels shared,
+  not 6 independent. This is exactly what Andriy described in the April
+  chat ("multiple instances share single I2S", "Pi3/4 fine") — that's
+  **Architecture 1**, not the 6-ch goal.
+
+**Why we're NOT going back to Architecture 1:** already tried it on a
+Pi 4 (2-ch shared, mid/ribbon crossover done in the TAS internal EQ).
+Dead-ended at the voicing/Abstimmung — coarse TAS-internal crossover
+couldn't be dialled in. That dead-end is *why* the Pi 5 + all-CDSP
+plan exists. Decision is firm: **Architecture 2 (6-ch TDM, all CDSP).**
+
+**Why TDM and not separate data lines (the resolder fallback):**
+separate DOUT lines → 3 separate ALSA cards → CamillaDSP plays to ONE
+device, so they'd need ALSA multi/dmix to combine = the same channel-
+sync hell we hit with the UCA222. **One 6-ch TDM card is the only
+topology CamillaDSP can drive cleanly.** TDM is technically correct;
+resoldering would make the CDSP side worse, not better.
+
+**What Architecture 2 actually requires (scoped honestly):** not a
+one-line patch — it's adding a whole audio-interface subsystem to a
+vendor driver that has none: SAP→TDM mode + per-instance RX slot
+offset register writes (book/page navigation), `set_tdm_slot` DAI op,
+`channels_max` raised, a new **multi-codec** device tree (real DAI
+link, not aux-dev, `dai-tdm-slot-num=6`, slot-width=32), and verifying
+the EQ/DSP config blobs don't clobber the SAP config. Needs the
+TAS5825M **and** TAS5805M register manuals (different maps). Real
+risk: a wrong SAP write to the flat ribbon amp.
+
+**PAUSED ON:** a targeted follow-up question to Andriy (Sonocotta) —
+distinct from April's. Asks specifically: can these chips do per-device
+TDM slot selection (which SAP book/page/reg sets TDM mode + RX slot
+start for 5825M and 5805M), does he have a TDM/`set_tdm_slot` branch,
+would the DSP-config blobs clobber a SAP/TDM config, any clocking/
+drive issue with a 6-slot frame on 3 parallel boards. Sent 2026-05-29.
+His answer collapses the biggest unknown (blind SAP register archaeology
+across two chip families) into one reply → implement with his guidance
+rather than reverse-engineering 588 KB of register blobs.
+
+**TOMORROW / next session:**
+1. Read Andriy's reply.
+2. If TDM slot selection is viable → craft the multi-codec overlay
+   (i2creg tertiary = **0x2d**) + the driver SAP/TDM bits. Test woofer
+   + mids FIRST at low volume with the fan running; ribbons last.
+3. If not viable on these chips → reconsider (driver fork effort vs a
+   different amp topology). Don't resolder without a separate decision.
+4. The `install/10-soundcard/louder-hat-triple.sh` stub is Architecture-1
+   (TAS internal 15-band-EQ crossover) — obsolete for Arch 2, will be
+   rewritten once the TDM path is confirmed.
+
 ### Identity split: model class vs per-unit instance vs user label (proposed 2026-05-28, parking-lot)
 
 Current state: the profile YAML `identity.friendly_name` doubles as
