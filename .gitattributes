@@ -1,0 +1,15 @@
+# Force LF on everything that breaks if it gets CRLF on a Windows checkout
+# and then lands on a Linux Pi. Patches must apply with `git apply`, shell
+# scripts run under bash, device-tree sources compile with dtc, and the
+# Python/YAML/config all target Linux. Repo is edited from Windows + deployed
+# to Raspberry Pi OS, so pin these to LF explicitly.
+*.patch  text eol=lf
+*.dts    text eol=lf
+*.dtbo   binary
+*.sh     text eol=lf
+*.py     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.conf   text eol=lf
+*.tpl    text eol=lf
+Makefile text eol=lf

@@ -1,0 +1,137 @@
+// Definitions for a Triple TAS58xx setup on ONE shared I2S data line (TDM).
+// BeatBird / Lounge — 3 amp boards wired side-by-side, common I2C + I2S + GND.
+//
+//   codec_mid    TAS5825M @ 0x4c  stereo  -> Mid L / Mid R   -> TDM slots 0,1  (offset 0)
+//   codec_woofer TAS5825M @ 0x4d  PBTL    -> 8" woofer (mono) -> TDM slot  2    (offset 64)
+//   codec_ribbon TAS5805M @ 0x2d  stereo  -> Ribbon L / R     -> TDM slots 4,5  (offset 128)
+//
+// ALL chips run FLAT (ti,eq-mode = 0): every crossover / EQ / delay / level
+// lives in CamillaDSP. This is the opposite of the old internal-EQ-crossover
+// approach — that one dead-ended at voicing on the Pi 4, which is why this
+// 6-channel-into-CamillaDSP design exists.
+//
+// 8 TDM slots x 32-bit = 256 fS SCLK @ 48 kHz, a valid TDM ratio (TAS5825M
+// datasheet Table 9-1). A 6-slot frame would be 192 fS, which is NOT a listed
+// ratio -> clock error. So the frame is 8 slots; slots 3/6/7 stay empty.
+//
+// Requires the TDM patch to the Sonocotta tas58xx driver
+// (install/patches/tas58xx-tdm-slots.patch): adds `ti,tdm-slot-offset` and
+// raises the DAI channel max to 8.
+//
+// !!! DRAFT — two things to confirm with Andriy (Sonocotta) before trusting
+//     amplifier output, especially the flat ribbon channel:
+//   1. The SAP_CTRL1 (0x33) TDM format value baked into the driver patch.
+//   2. The multi-codec DAI-link DAPM wiring below — whether listing all three
+//      codecs on one dai-link is the right way to get each chip to power up
+//      and decode its own slots, vs the dual overlay's aux-dev + DAC-IN tap.
+//      (The tap is deliberately NOT used here: in TDM each chip reads its own
+//      slots straight off the bus, it must not share the primary's stream.)
+//
+// dtc -I dts -O dtb -W no-unit_address_vs_reg -W no-graph_child_address \
+//     -o /boot/firmware/overlays/tas58xx-triple.dtbo tas58xx-triple-overlay.dts
+// config.txt: dtoverlay=tas58xx-triple<,i2creg_mid=0x4c><,i2creg_woofer=0x4d><,i2creg_ribbon=0x2d>
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2835";
+
+    fragment@0 {
+        target = <&i2s>;
+        __overlay__ {
+            status = "okay";
+        };
+    };
+
+    fragment@1 {
+        target = <&i2c1>;
+        __overlay__ {
+            status = "okay";
+            clock-frequency = <400000>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            /* ── Mid: TAS5825M @ 0x4c, stereo, slots 0/1 ────────────────── */
+            codec_mid: tas58xx@4c {
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x4c>;
+                pvdd-supply = <&vdd_3v3_reg>;
+                pdn-gpios = <&gpio 4 0>;
+                sound-name-prefix = "Mid";
+                ti,modulation-mode = <0>;   /* BD */
+                ti,switching-freq = <0>;    /* 768K */
+                ti,eq-mode = <0>;           /* OFF — flat, crossover is in CamillaDSP */
+                ti,mixer-mode = <0>;        /* Stereo: OUTA=L(slot0), OUTB=R(slot1) */
+                ti,tdm-slot-offset = <0>;   /* slots 0,1 */
+            };
+
+            /* ── Woofer: TAS5825M @ 0x4d, PBTL mono, slot 2 ─────────────── */
+            codec_woofer: tas58xx@4d {
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x4d>;
+                pvdd-supply = <&vdd_3v3_reg>;
+                pdn-gpios = <&gpio 5 0>;
+                sound-name-prefix = "Woofer";
+                ti,modulation-mode = <0>;
+                ti,switching-freq = <0>;
+                ti,bridge-mode;             /* PBTL — more power into the 8" */
+                ti,eq-mode = <0>;           /* OFF — flat; CamillaDSP does the LP */
+                ti,mixer-mode = <1>;        /* Mono — its slot carries the woofer feed */
+                ti,tdm-slot-offset = <64>;  /* slot 2 (slots 2,3; uses 2) */
+            };
+
+            /* ── Ribbon: TAS5805M @ 0x2d, stereo, slots 4/5 ─────────────── */
+            codec_ribbon: tas58xx@2d {
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x2d>;
+                pvdd-supply = <&vdd_3v3_reg>;
+                pdn-gpios = <&gpio 6 0>;
+                sound-name-prefix = "Ribbon";
+                ti,modulation-mode = <0>;
+                ti,switching-freq = <0>;
+                ti,eq-mode = <0>;           /* OFF — flat; CamillaDSP does the HP */
+                ti,mixer-mode = <0>;        /* Stereo: OUTA=L(slot4), OUTB=R(slot5) */
+                ti,tdm-slot-offset = <128>; /* slots 4,5 */
+                /* No fault-monitor: TAS5805M phantom thermal faults in multi-DAC */
+            };
+        };
+    };
+
+    fragment@2 {
+        target = <&sound>;
+        __overlay__ {
+            status = "okay";
+            compatible = "simple-audio-card";
+            label = "Louder-Raspberry-Triple";
+            simple-audio-card,dai-link {
+                /* TDM frame: 8 slots x 32-bit, dsp_a framing. */
+                format = "dsp_a";
+                bitclock-master = <&dailink_master>;
+                frame-master = <&dailink_master>;
+                dailink_master: cpu {
+                    sound-dai = <&i2s>;
+                    dai-tdm-slot-num = <8>;
+                    dai-tdm-slot-width = <32>;
+                };
+                /* Multi-codec link: all three chips receive the TDM frame;
+                 * each decodes its own slots (set per codec via the driver
+                 * patch from ti,tdm-slot-offset). DRAFT — confirm wiring. */
+                codec {
+                    sound-dai = <&codec_mid>, <&codec_woofer>, <&codec_ribbon>;
+                };
+            };
+        };
+    };
+
+    __overrides__ {
+        i2creg_mid    = <&codec_mid>,"reg:<>";
+        i2creg_woofer = <&codec_woofer>,"reg:<>";
+        i2creg_ribbon = <&codec_ribbon>,"reg:<>";
+        firmware_mid    = <&codec_mid>,"ti,dsp-config-name";
+        firmware_woofer = <&codec_woofer>,"ti,dsp-config-name";
+        firmware_ribbon = <&codec_ribbon>,"ti,dsp-config-name";
+    };
+};

@@ -1,52 +1,62 @@
 #!/usr/bin/env bash
 # install/10-soundcard/louder-hat-triple.sh
-# Lounge: 1× Louder Hat Plus 2X (2× TAS5825M) + 1× Louder Hat 1X non-Plus (1× TAS5805M)
+# Lounge — 1× Louder Hat Plus 2X (2× TAS5825M) + 1× Louder Hat 1X non-Plus
+# (1× TAS5805M), three boards on ONE shared I2S/I2C line, driven as a
+# 6-channel TDM stack.
 #
-# Stack: Pi 4 → Plus 2X → non-Plus 1X → Lochrasterplatine
-# DT Overlay: Sonocotta tas58xx-triple (bereits im Treiber enthalten)
+# ARCHITECTURE 2 (all-CamillaDSP): the TAS chips run FLAT — no internal EQ,
+# no internal crossover. Every crossover/EQ/delay/level is in CamillaDSP
+# (config/camilladsp/lounge.yml, 8-channel TDM). This replaces the earlier
+# Architecture-1 approach (TAS internal 15-band-EQ crossover) which dead-ended
+# at voicing on the Pi 4 — that's why the Pi 5 + all-CDSP plan exists.
 #
-# Kanal-Mapping (verifiziert 09.05.2026):
-#   0x4C (TAS5825M, Stereo)  → Mid L / Mid R
-#   0x4D (TAS5825M, PBTL)    → Woofer 8"
-#   0x2E (TAS5805M, Stereo)  → Ribbon L / Ribbon R
+# Channel / address / slot map (verified on the bench 2026-05-29):
+#   0x4C TAS5825M stereo  Mid L / Mid R   TDM slots 0,1  (offset 0)
+#   0x4D TAS5825M PBTL    8" woofer       TDM slot  2    (offset 64)
+#   0x2D TAS5805M stereo  Ribbon L / R    TDM slots 4,5  (offset 128)
 #
-# Non-Plus hat Default-Adresse 0x2D, wird auf 0x2E überschrieben.
+# The 6-ch-TDM driver + overlay come from install/05-tas-driver.sh (TDM patch
+# + tas58xx-triple overlay). This script does config.txt + gain staging only.
 
 source "$(dirname "$0")/../_lib.sh"
 
-log_step "config.txt overlay (Triple DAC Stack)"
+log_step "config.txt (Triple TDM DAC Stack)"
 ensure_line_in_config_txt "dtparam=i2c_arm=on"
 ensure_line_in_config_txt "dtparam=i2s=on"
 
-# Sonocotta tas58xx-triple Overlay — Primary-Adresse auf 0x2E überschreiben
-# weil der non-Plus auf 0x2E statt Default 0x2D konfiguriert ist.
-ensure_line_in_config_txt "dtoverlay=tas58xx-triple,i2creg_primary=0x2e"
+# Triple TDM overlay. Addresses pinned to the verified bus values
+# (mid 0x4c, woofer 0x4d, ribbon 0x2d — the ribbon is 0x2d, NOT the 0x2e
+# the old docs claimed). The .dtbo is built by 05-tas-driver.sh.
+ensure_line_in_config_txt \
+  "dtoverlay=tas58xx-triple,i2creg_mid=0x4c,i2creg_woofer=0x4d,i2creg_ribbon=0x2d"
 
-# WICHTIG: ti,fault-monitor NICHT aktivieren im Multi-DAC-Modus —
-# periodisches I2C-Polling stört den geteilten I2S-Bus
-# (GLOBAL1=0x04 Clock-Faults und Sub-Dropouts)
-
+# i2c-dev for /dev/i2c-1 (i2cdetect / debugging), persistent across reboots.
+ensure_module_loaded i2c-dev
+# ALSA loopback — go-librespot / snapcast / BT write here, CamillaDSP captures.
 ensure_module_loaded snd-aloop
 
+# WICHTIG: ti,fault-monitor bleibt im Multi-DAC-Modus AUS (im Overlay so
+# gesetzt) — periodisches I2C-Polling stört den geteilten Bus.
+
 if ! modinfo snd-soc-tas58xx >/dev/null 2>&1; then
-  log_warn "snd-soc-tas58xx kernel module not found — install per Sonocotta docs."
+  log_warn "snd-soc-tas58xx kernel module not found — run install/05-tas-driver.sh first."
 fi
 
-# ─── amixer-init: Gain-Staging + Crossover ───────────────────────────────────
+# ─── amixer-init: reines Gain-Staging (KEIN EQ/Crossover — der liegt in CDSP) ─
+# Conservative levels; the ribbon (flat TAS5805M) starts low and the real
+# protection is the CamillaDSP HP + limiter + the in-line series cap. The
+# profile's analog_gain_db is the canonical safe-boot value; this mirrors it
+# per chip. Control names use the overlay's sound-name-prefix (Mid/Woofer/
+# Ribbon); guarded with || true since exact names can drift between driver
+# versions.
 AMIXER_PATH=/usr/local/sbin/beatbird-louder-hat-init
 cat > "$AMIXER_PATH" <<'AMIXER_EOF'
 #!/bin/bash
-# beatbird-louder-hat-init — Triple DAC Stack (Lounge)
-# Setzt Gain-Staging und EQ-Crossover für alle drei TAS-Chips.
-#
-# Kanal-Mapping:
-#   Mid    (0x4C): Stereo, 15-Band-EQ als Bandpass ~200–3150 Hz
-#   Woofer (0x4D): PBTL, interner Crossover LP @ 150 Hz
-#   Ribbon (0x2E): Stereo, 15-Band-EQ als Highpass ~3150 Hz
+# beatbird-louder-hat-init — Triple TDM DAC Stack (Lounge), FLAT mode.
+# Gain-staging only. All crossover/EQ is in CamillaDSP.
 
 CARD=LouderRaspberry
 MAX_TRIES=60
-
 for i in $(seq 1 $MAX_TRIES); do
   amixer -c "$CARD" scontents >/dev/null 2>&1 && break
   sleep 0.5
@@ -54,79 +64,34 @@ done
 amixer -c "$CARD" scontents >/dev/null 2>&1 || {
   echo "louder-hat-init: $CARD not found after $MAX_TRIES tries" >&2; exit 1; }
 
-echo "louder-hat-init: Konfiguriere Triple DAC Stack..."
+echo "louder-hat-init: Triple TDM stack — flat gain staging"
 
-# ─── Gain-Staging ────────────────────────────────────────────────────────────
-# Ribbon (0x2E, TAS5805M): Digital Volume 50, Analog Gain 20
-# ACHTUNG: TAS5805M Overcurrent ab ~60% Digital Volume bei Fullrange!
-amixer -c "$CARD" -q sset 'Ribbon Digital Volume' 50 2>/dev/null || true
-amixer -c "$CARD" -q sset 'Ribbon Analog Gain' 20 2>/dev/null || true
-
-# Mid (0x4C, TAS5825M): Digital Volume 70, Analog Gain 25 (= -3 dB)
+# Digital volume / analog gain per chip. Ribbon conservative (flat amp).
+# Mid (0x4c):
 amixer -c "$CARD" -q sset 'Mid Digital Volume' 70 2>/dev/null || true
-amixer -c "$CARD" -q sset 'Mid Analog Gain' 25 2>/dev/null || true
-
-# Woofer (0x4D, TAS5825M, PBTL): Digital Volume 70, Analog Gain 20
+amixer -c "$CARD" -q sset 'Mid Analog Gain'    25 2>/dev/null || true
+# Woofer (0x4d, PBTL):
 amixer -c "$CARD" -q sset 'Woofer Digital Volume' 70 2>/dev/null || true
-amixer -c "$CARD" -q sset 'Woofer Analog Gain' 20 2>/dev/null || true
+amixer -c "$CARD" -q sset 'Woofer Analog Gain'    20 2>/dev/null || true
+# Ribbon (0x2d) — start low, it's flat and fragile:
+amixer -c "$CARD" -q sset 'Ribbon Digital Volume' 50 2>/dev/null || true
+amixer -c "$CARD" -q sset 'Ribbon Analog Gain'    15 2>/dev/null || true
 
-# ─── EQ aktivieren ───────────────────────────────────────────────────────────
-amixer -c "$CARD" -q sset 'Mid Equalizer' 1 2>/dev/null || true
-amixer -c "$CARD" -q sset 'Ribbon Equalizer' 1 2>/dev/null || true
-amixer -c "$CARD" -q sset 'Woofer Equalizer' 1 2>/dev/null || true
+# Make sure internal EQ is OFF on all three (flat). Overlay sets ti,eq-mode=0
+# already; this is belt-and-braces if a control exists.
+amixer -c "$CARD" -q sset 'Mid Equalizer'    0 2>/dev/null || true
+amixer -c "$CARD" -q sset 'Woofer Equalizer' 0 2>/dev/null || true
+amixer -c "$CARD" -q sset 'Ribbon Equalizer' 0 2>/dev/null || true
 
-# ─── Woofer: interner LP @ 150 Hz ───────────────────────────────────────────
-amixer -c "$CARD" -q sset 'Woofer Crossover Frequency' 150 2>/dev/null || true
-
-# ─── Mid: Bandpass ~200 Hz – 3150 Hz (15-Band-EQ) ───────────────────────────
-# Werte: 0 = -15dB, 3 = -12dB, 9 = -6dB, 15 = 0dB
-set_band() { amixer -c "$CARD" -q sset "$1 $2 Hz" "$3" 2>/dev/null || true; }
-
-set_band "Mid" "00020"  0    # -15 dB
-set_band "Mid" "00032"  0    # -15 dB
-set_band "Mid" "00050"  0    # -15 dB
-set_band "Mid" "00080"  3    # -12 dB
-set_band "Mid" "00125"  9    #  -6 dB
-set_band "Mid" "00200" 15    #   0 dB  ← Passband
-set_band "Mid" "00315" 15    #   0 dB
-set_band "Mid" "00500" 15    #   0 dB
-set_band "Mid" "00800" 15    #   0 dB
-set_band "Mid" "01250" 15    #   0 dB
-set_band "Mid" "02000" 15    #   0 dB
-set_band "Mid" "03150" 15    #   0 dB  ← Passband Ende
-set_band "Mid" "05000"  9    #  -6 dB
-set_band "Mid" "08000"  3    # -12 dB
-set_band "Mid" "16000"  0    # -15 dB
-
-# ─── Ribbon: Highpass ~3150 Hz (15-Band-EQ) ──────────────────────────────────
-set_band "Ribbon" "00020"  0    # -15 dB
-set_band "Ribbon" "00032"  0    # -15 dB
-set_band "Ribbon" "00050"  0    # -15 dB
-set_band "Ribbon" "00080"  0    # -15 dB
-set_band "Ribbon" "00125"  0    # -15 dB
-set_band "Ribbon" "00200"  0    # -15 dB
-set_band "Ribbon" "00315"  0    # -15 dB
-set_band "Ribbon" "00500"  0    # -15 dB
-set_band "Ribbon" "00800"  0    # -15 dB
-set_band "Ribbon" "01250"  0    # -15 dB
-set_band "Ribbon" "02000"  3    # -12 dB
-set_band "Ribbon" "03150"  9    #  -6 dB
-set_band "Ribbon" "05000" 15    #   0 dB  ← Passband
-set_band "Ribbon" "08000" 15    #   0 dB
-set_band "Ribbon" "16000" 15    #   0 dB
-
-echo "louder-hat-init: Triple DAC Stack konfiguriert"
-echo "  Woofer: LP @ 150 Hz (intern), DV=70, AG=20"
-echo "  Mid:    BP ~200–3150 Hz (EQ), DV=70, AG=25"
-echo "  Ribbon: HP ~3150 Hz (EQ), DV=50, AG=20"
+echo "louder-hat-init: done — Mid DV70/AG25, Woofer DV70/AG20, Ribbon DV50/AG15, EQ off"
 AMIXER_EOF
 chmod 755 "$AMIXER_PATH"
-log_ok "wrote $AMIXER_PATH (Triple DAC Crossover + Gain-Staging)"
+log_ok "wrote $AMIXER_PATH (Triple TDM — flat gain staging)"
 
 # ─── systemd service ─────────────────────────────────────────────────────────
 cat > /etc/systemd/system/louder-hat-init.service <<EOF
 [Unit]
-Description=Louder Hat amplifier level init (Triple DAC — Lounge)
+Description=Louder Hat amplifier level init (Triple TDM — Lounge, flat)
 After=sound.target
 Wants=sound.target
 

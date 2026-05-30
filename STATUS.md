@@ -350,16 +350,58 @@ His answer collapses the biggest unknown (blind SAP register archaeology
 across two chip families) into one reply → implement with his guidance
 rather than reverse-engineering 588 KB of register blobs.
 
-**TOMORROW / next session:**
-1. Read Andriy's reply.
-2. If TDM slot selection is viable → craft the multi-codec overlay
-   (i2creg tertiary = **0x2d**) + the driver SAP/TDM bits. Test woofer
-   + mids FIRST at low volume with the fan running; ribbons last.
-3. If not viable on these chips → reconsider (driver fork effort vs a
-   different amp topology). Don't resolder without a separate decision.
-4. The `install/10-soundcard/louder-hat-triple.sh` stub is Architecture-1
-   (TAS internal 15-band-EQ crossover) — obsolete for Arch 2, will be
-   rewritten once the TDM path is confirmed.
+**UPDATE 2026-05-30 — Andriy answered + the full branch draft is prepared.**
+
+Andriy's reply gave the two registers: **SAP_CTRL1 (0x33)** = switch I2S→TDM,
+**SAP_CTRL2 (0x34)** = RX slot offset in BCLKs (`0` main, `64` second, `128`
+third = slot pairs 0/1, 2/3, 4/5). Confirmed multi-instance on one shared
+line works; we craft the device tree. Datasheet (Table 9-1) added the key
+catch: a 6-slot×32-bit frame = 192 fS is NOT a valid TDM SCLK ratio →
+**use 8 slots** (256 fS), use slots 0/1/2/4/5, leave 3/6/7 empty.
+
+**Everything is now drafted + validated, committed, NOT yet built/loaded on
+the Pi** (no audio, no module build — pending one constant):
+- `install/patches/tas58xx-tdm-slots.patch` — driver patch: adds
+  `ti,tdm-slot-offset` (read in probe), writes SAP_CTRL1/2 in do_work after
+  the DSP blob, raises DAI `channels_max` 2→8. Verified `git apply --check`
+  clean against a fresh upstream clone.
+- `install/overlays/tas58xx-triple-overlay.dts` — 8-slot TDM, all 3 codecs
+  on one multi-codec dai-link, `ti,eq-mode=0` (flat), offsets 0/64/128,
+  ribbon @ 0x2d. Compiles clean with `dtc`.
+- `config/camilladsp/lounge.yml` — rewritten: 8-ch playback, stereo→TDM8
+  mixer, full 3-way LR4 crossover (placeholder freqs), woofer subsonic +
+  ribbon HP/limiter, empty per-driver REW-EQ slots. YAML + pipeline refs
+  validated.
+- `install/05-tas-driver.sh` — applies the TDM patch (idempotent) +
+  compiles the triple overlay, triple-only.
+- `install/10-soundcard/louder-hat-triple.sh` — rewritten Arch-2: flat
+  gain-staging only (no internal EQ crossover), correct overlay line with
+  0x2d, conservative ribbon levels.
+- `profiles/lounge.yml` — tertiary 0x2d, `camilladsp_config: lounge`,
+  `analog_gain_db: -9` safe boot. 52 tests green.
+
+**THE ONE BLOCKER before build+flash:** the exact **SAP_CTRL1 (0x33) value
+for TDM/32-bit**. Datasheet 9.3.6 gives the field layout (D[5:4]=format,
+D[1:0]=word length) but not the D[5:4] enumeration; the driver patch uses
+a best-guess `TAS58XX_SAP_FMT_TDM = 0x1<<4` with a loud TODO + a runtime
+`dev_warn`. Asked Andriy for the confirmed byte (and whether 5825M vs
+5805M differ) + the multi-codec DAPM wiring confirmation. **Do NOT build/
+flash until that value is confirmed — a wrong SAP format = garbage to the
+flat ribbon amp.**
+
+**NEXT SESSION (once 0x33 confirmed):**
+1. Fill the value in `tas58xx.h` (`TAS58XX_SAP_FMT_TDM`), regenerate the
+   patch.
+2. On LoungePi: `make profile PROFILE=lounge` → run `install/05-tas-driver.sh`
+   + `install/10-soundcard.sh` → reboot.
+3. Verify: `aplay -l` shows a LouderRaspberry card with **8 channels**;
+   `dmesg | grep tas` shows all three codecs + the TDM-slot log lines.
+   NO audio yet.
+4. Channel-ID at low volume, **fan running**: `speaker-test -D hw:<card>
+   -c 8 -t pink`, one channel at a time — confirm slot→driver. **Woofer +
+   mids first, ribbons LAST.**
+5. Then CamillaDSP: `make dsp-reload`, confirm each driver plays its band,
+   rough level match → baseline for REW.
 
 ### Identity split: model class vs per-unit instance vs user label (proposed 2026-05-28, parking-lot)
 

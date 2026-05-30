@@ -1,0 +1,128 @@
+diff --git a/tas58xx.c b/tas58xx.c
+index cd50670..b8b0324 100644
+--- a/tas58xx.c
++++ b/tas58xx.c
+@@ -164,6 +164,9 @@ struct tas58xx_priv {
+ 	bool					is_muted;
+ 	bool					dsp_initialized;
+ 
++	bool					tdm_mode;          /* true if ti,tdm-slot-offset present */
++	unsigned int			tdm_slot_offset;   /* RX data offset in BCLKs (0/64/128/...) */
++
+ 	struct work_struct		work;
+ 	struct mutex			lock;
+ 	struct list_head		list;  /* Linked list of all TAS58XX devices */
+@@ -1333,7 +1336,28 @@ static void do_work(struct work_struct *work)
+ 				 __func__, tas58xx->modulation_mode, tas58xx->bridge_mode,
+ 				 tas58xx->bridge_mode ? "Bridge/PBTL" : "Normal/Stereo",
+ 				 tas58xx->switch_freq);
+-		
++
++		/* TDM multi-DAC: put the serial audio port in TDM mode and tell this
++		 * chip which slot pair to read. We're still on book 0 / page 0 (the
++		 * SET_BOOK_AND_PAGE above), where SAP_CTRL1 (0x33) and SAP_CTRL2
++		 * (0x34) live. Written AFTER send_cfg so the DSP-config blob can't
++		 * clobber it. Each codec instance runs its own do_work and configures
++		 * its own offset (0 / 64 / 128 = slots 0-1 / 2-3 / 4-5 in a 32-bit
++		 * frame), so N DACs on one shared I2S line each decode their slots.
++		 *
++		 * WARNING: TAS58XX_SAP_FMT_TDM (the 0x33 D[5:4] value) is UNCONFIRMED
++		 * — see the TODO in tas58xx.h. Until verified, treat amplifier output
++		 * (especially a flat ribbon channel) as untrusted.
++		 */
++		if (tas58xx->tdm_mode) {
++			regmap_write(rm, TAS58XX_REG_SAP_CTRL1, TAS58XX_SAP_CTRL1_TDM_32);
++			regmap_write(rm, TAS58XX_REG_SAP_CTRL2,
++				     tas58xx->tdm_slot_offset & 0xff);
++			dev_warn(&tas58xx->i2c->dev,
++				 "%s: TDM enabled, slot offset=%u BCLKs — SAP_CTRL1 format value is UNCONFIRMED, verify before trusting output\n",
++				 __func__, tas58xx->tdm_slot_offset);
++		}
++
+ 		tas58xx->dsp_initialized = true;
+ 	} else {
+ 		dev_dbg(&tas58xx->i2c->dev, "%s: DSP already initialized, skipping preboot config\n", __func__);
+@@ -1427,7 +1451,16 @@ static struct snd_soc_dai_driver tas58xx_dai = {
+ 	.playback	= {
+ 		.stream_name	= "Playback",
+ 		.channels_min	= 2,
+-		.channels_max	= 2,
++		/* Up to 8 TDM slots on one shared I2S data line. Each codec
++		 * instance still only drives its own 2 output channels (its
++		 * assigned slot pair, set via ti,tdm-slot-offset); raising the
++		 * DAI max lets the Pi transmit the full multi-slot frame so the
++		 * other DACs on the bus have their slots to read. A 2-channel
++		 * I2S config (no tdm-slot-offset) still negotiates 2 and is
++		 * unaffected. 8 slots x 32-bit = 256 fS SCLK @ 48 kHz, a valid
++		 * TDM ratio (Table 9-1); 6 slots (192 fS) is NOT valid, hence 8.
++		 */
++		.channels_max	= 8,
+ 		.rates		= SNDRV_PCM_RATE_48000,
+ 		.formats	= SNDRV_PCM_FMTBIT_S32_LE,
+ 	},
+@@ -1712,6 +1745,20 @@ static int tas58xx_i2c_probe(struct i2c_client *i2c)
+ 		dev_dbg(dev, "%s: Fault monitoring disabled\n", __func__);
+ 	}
+ 
++	/* TDM slot offset (in BCLK cycles) for multi-DAC TDM. Presence of the
++	 * property switches this codec instance into TDM mode and tells it which
++	 * slot pair to read from the shared frame: 0 = slots 0/1, 64 = slots 2/3,
++	 * 128 = slots 4/5 (with 32-bit slots). Absent = classic I2S (default),
++	 * so existing single/dual configs are unaffected.
++	 */
++	tas58xx->tdm_slot_offset = 0;
++	tas58xx->tdm_mode =
++		!device_property_read_u32(dev, "ti,tdm-slot-offset",
++					  &tas58xx->tdm_slot_offset);
++	if (tas58xx->tdm_mode)
++		dev_info(dev, "%s: TDM mode, slot offset=%u BCLKs (from device tree)\n",
++			 __func__, tas58xx->tdm_slot_offset);
++
+ 	ret = regulator_enable(tas58xx->pvdd);
+ 	if (ret < 0) {
+ 		dev_err(dev, "%s: failed to enable pvdd: %d\n", 
+diff --git a/tas58xx.h b/tas58xx.h
+index 414e561..ee64bc3 100644
+--- a/tas58xx.h
++++ b/tas58xx.h
+@@ -24,6 +24,8 @@
+ #define TAS58XX_REG_DEVICE_CTRL_1   0x02
+ #define TAS58XX_REG_DEVICE_CTRL_2   0x03
+ #define TAS58XX_REG_SDOUT_SEL       0x30
++#define TAS58XX_REG_SAP_CTRL1       0x33
++#define TAS58XX_REG_SAP_CTRL2       0x34
+ #define TAS58XX_REG_CLKDET_STATUS   0x39
+ #define TAS58XX_REG_UNDOCUMENTED_0  0x46
+ #define TAS58XX_REG_VOL_CTRL        0x4c
+@@ -89,6 +91,31 @@
+ #define TAS58XX_DCTRL1_FSW480KHZ    GENMASK(5,4)
+ #define TAS58XX_DCTRL1_FSW576KHZ    BIT(6)
+ 
++/* TAS58XX_REG_SAP_CTRL1 (0x33) field encodings — Serial Audio Port format.
++ *   D[7]   : data-offset MSB (paired with SAP_CTRL2 D[7:0] for the full offset)
++ *   D[5:4] : data format select (I2S / LJ / RJ / TDM-DSP)
++ *   D[3:2] : set 0b01 if the LRCLK/FS high width in TDM mode is < 8 SCLK cycles
++ *   D[1:0] : word length (16 / 20 / 24 / 32 bit)
++ * Default (chip reset) is I2S, 24-bit.
++ *
++ * !!! TODO(andriy) — the exact D[5:4] code for TDM/DSP mode is UNCONFIRMED. !!!
++ * The TAS5825M datasheet (9.3.6) names the field but the register-map table
++ * that enumerates the D[5:4] values wasn't on hand. The value below is a
++ * best guess (D[5:4]=0b01). It is also unverified whether TAS5805M and
++ * TAS5825M use the same code. DO NOT trust amplifier output — especially the
++ * flat ribbon channel — until this byte is confirmed against the datasheet
++ * register table or by Sonocotta. tas58xx_do_work() logs a dev_warn while the
++ * value is unconfirmed.
++ */
++#define TAS58XX_SAP_FMT_I2S        (0x0 << 4)
++#define TAS58XX_SAP_FMT_TDM        (0x1 << 4)   /* UNCONFIRMED — see TODO */
++#define TAS58XX_SAP_WLEN_16        0x0
++#define TAS58XX_SAP_WLEN_20        0x1
++#define TAS58XX_SAP_WLEN_24        0x2
++#define TAS58XX_SAP_WLEN_32        0x3
++/* Composite value written to SAP_CTRL1 for a 32-bit TDM slot frame. */
++#define TAS58XX_SAP_CTRL1_TDM_32   (TAS58XX_SAP_FMT_TDM | TAS58XX_SAP_WLEN_32)
++
+ /* TAS58XX_REG_DEVICE_CTRL_2 register values */
+ #define TAS58XX_DCTRL2_MODE_DEEP_SLEEP 0x00
+ #define TAS58XX_DCTRL2_MODE_SLEEP      0x01

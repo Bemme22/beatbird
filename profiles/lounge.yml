@@ -19,20 +19,25 @@ platform: pi-5                     # 1 GB variant — Pi 5 RP1 + CPU is the win,
 
 soundcard:
   driver: louder-hat-triple
-  # Three TAS5825M chips. Plus boards have fixed addresses and cannot stack
-  # with each other; non-Plus has separate address range.
-  primary_i2c:   0x4c              # left channel  (Plus 2X → 2-ch)
-  secondary_i2c: 0x4d              # right channel (Plus 2X → 2-ch)  → TBD
-  tertiary_i2c:  0x4e              # center/sub    (non-Plus 1X)     → TBD
-  # These addresses are placeholders — confirm with Sonocotta (Andrey) when
-  # hardware arrives and the custom DT overlay is finalised.
+  # Addresses VERIFIED on the bench 2026-05-29 via i2cdetect (not placeholders):
+  #   0x4c TAS5825M stereo → Mid L/R      (TDM slots 0,1)
+  #   0x4d TAS5825M PBTL   → 8" woofer     (TDM slot  2)
+  #   0x2d TAS5805M stereo → Ribbon L/R    (TDM slots 4,5)
+  # The ribbon DAC is 0x2d — NOT the 0x2e the old docs assumed.
+  primary_i2c:   0x4c
+  secondary_i2c: 0x4d
+  tertiary_i2c:  0x2d
+  # Crossover is NOT internal anymore — TAS chips run flat, all crossover is
+  # in CamillaDSP. sub_crossover_hz / sub_digital_volume here are legacy and
+  # unused by the flat triple init; left for schema compatibility.
   sub_enabled: true
   sub_crossover_hz: 120
   sub_digital_volume: 110
-  analog_gain_db: -3
+  # Conservative safe-boot analog gain — matters most for the flat ribbon amp.
+  analog_gain_db: -9
 
 audio:
-  camilladsp_config: _stub         # to be built from driver T/S + in-situ measurements
+  camilladsp_config: lounge        # config/camilladsp/lounge.yml — 8-ch TDM, all-active
   sample_rate: 48000
   format: S32_LE
   loudness:
