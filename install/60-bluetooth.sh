@@ -67,6 +67,23 @@ ExecStart=
 ExecStart=$BLUEALSA_BIN -p a2dp-sink
 EOF
 
+# Route BT audio into the same mixer the other sources use. bluealsa.service
+# only speaks the A2DP protocol + exposes PCMs over D-Bus; bluealsa-aplay.
+# service is what actually plays those PCMs to an ALSA device. The distro
+# default is `bluealsa-aplay -S` (no -D), which plays to the DEFAULT ALSA
+# device — NOT beatbird_mix. So a phone could connect and stream, but the
+# audio went to the void: CamillaDSP captures hw:Loopback,1 and never heard
+# it (go-librespot + snapclient write to beatbird_mix, BT didn't). Symptom:
+# "BT plays but no sound, no info." Point it at beatbird_mix (the dmix-on-
+# Loopback, ipc_key 4242 / 0666 so cross-user sharing works) so BT joins
+# the same pipeline as Spotify + Snapcast.
+mkdir -p /etc/systemd/system/bluealsa-aplay.service.d
+cat > /etc/systemd/system/bluealsa-aplay.service.d/override.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/bluealsa-aplay -S -D beatbird_mix
+EOF
+
 # Headless pairing agent. bt-agent runs forever, registers itself as
 # the default agent with BlueZ, and auto-accepts pair requests with
 # NoInputNoOutput capability — the right capability for a speaker
@@ -125,7 +142,9 @@ ln -sf /etc/systemd/system/beatbird-bt-unblock.service \
        /etc/systemd/system/bluetooth.service.wants/beatbird-bt-unblock.service
 
 systemctl daemon-reload 2>/dev/null || true
-systemctl enable --now bluetooth bluealsa beatbird-bt-agent beatbird-bt-unblock 2>/dev/null || true
+systemctl enable --now bluetooth bluealsa bluealsa-aplay beatbird-bt-agent beatbird-bt-unblock 2>/dev/null || true
+# Restart bluealsa-aplay explicitly so a re-run picks up a changed -D target.
+systemctl restart bluealsa-aplay 2>/dev/null || true
 
 # Final live nudge — if the install ran from outside chroot the
 # unblock-service may not have fired yet, so do it explicitly.
