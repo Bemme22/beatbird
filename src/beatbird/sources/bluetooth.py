@@ -662,6 +662,14 @@ class BluetoothSource:
     # legitimate phone-side changes forever.
     ECHO_GUARD_S = 5.0
 
+    # Handoff debounce. A connected phone briefly opens the A2DP transport
+    # ("active") for notification sounds, keyboard clicks, etc. — not just
+    # for music. Without a debounce, every such blip fires the Spotify→BT
+    # handoff, which closes the Spotify session and pauses whatever was
+    # playing — the "phantom pause" with no touch. Require the transport
+    # to stay active for this long before treating BT as the real source.
+    STREAM_DEBOUNCE_S = 4.0
+
     def __init__(self, on_became_active=None, on_volume_from_phone=None,
                  get_bridge_volume=None, on_newly_connected=None):
         self.on_became_active = on_became_active
@@ -682,6 +690,11 @@ class BluetoothSource:
         self._last_pushed_volume: int | None = None
         self._last_pushed_at: float = 0.0
         self._initial_sync_done: dict[str, bool] = {}   # mac → bool
+        # Handoff debounce state: when the A2DP transport first went active,
+        # and whether we've already fired on_became_active for this run of
+        # streaming. See STREAM_DEBOUNCE_S.
+        self._stream_active_since: float | None = None
+        self._handoff_fired: bool = False
         # First-poll suppression for on_newly_connected: at bridge start,
         # _last_state.devices is empty so any already-connected phone would
         # look "new" and fire a spurious "PAIRED" toast after every reboot.
@@ -732,13 +745,31 @@ class BluetoothSource:
                 d.position_ms = _get_avrcp_uint_prop(d.mac, "Position")
 
         new_state = BTState(devices=devices)
-        was_active = self._last_state.is_active
         is_active = new_state.is_active
 
-        # Handoff: inactive → active
-        if is_active and not was_active:
+        # Handoff: debounced inactive → active. The raw transport "active"
+        # flag flips on for notification sounds / UI blips too, so we wait
+        # until it's been sustained for STREAM_DEBOUNCE_S before treating BT
+        # as the source (and closing Spotify). A single non-streaming poll
+        # resets the timer + re-arms the one-shot, so a new real playback
+        # session still hands off.
+        if is_active:
+            if self._stream_active_since is None:
+                self._stream_active_since = now
+        else:
+            self._stream_active_since = None
+            self._handoff_fired = False
+
+        debounced_active = (
+            self._stream_active_since is not None
+            and now - self._stream_active_since >= self.STREAM_DEBOUNCE_S
+        )
+        if debounced_active and not self._handoff_fired:
+            self._handoff_fired = True
             active = new_state.streaming_device
-            log.info("BT source became active: %s", active.alias if active else "?")
+            log.info("BT source became active (streaming sustained %.0fs): %s",
+                     now - self._stream_active_since,
+                     active.alias if active else "?")
             if self.on_became_active:
                 try:
                     self.on_became_active(active.alias if active else "Bluetooth")
