@@ -258,14 +258,19 @@ static void lvgl_touchpad_cb(lv_indev_t *indev, lv_indev_data_t *data)
         data->point.x = raw_x;
         data->point.y = raw_y;
 #elif DISPLAY_ROTATE_DEG ==  90
-        // Zipp Mini 2 (and any other DEG=90 mount) reports y mirrored
-        // relative to the visual frame: a touch on the visual TOP of the
-        // panel comes in at raw_x ≈ LCD_WIDTH (so the previous
-        // (LCD_WIDTH-1) - raw_x gave y_data ≈ 464 = visual BOTTOM in
-        // LVGL's coord system). Plain transpose (no second flip) lines
-        // up. Verified with on-device DEBUG:dx/dy logging: SY≈464 at
-        // visual top, SY≈5 at visual bottom under the old map.
-        data->point.x = raw_y;
+        // Zipp Mini 2 (and any other DEG=90 mount). Y comes from raw_x and
+        // is correct (verified: SY≈464 visual top, SY≈5 visual bottom). X
+        // needs a FLIP, not just a transpose: a plain `point.x = raw_y` left
+        // the X axis mirrored relative to the visual frame. That was
+        // tolerable for centered tap targets and was compensated for swipe/
+        // rotary gestures via TOUCH_DIR_RIGHT_IS_POS_DX = -1 — but LVGL's
+        // own gestures (the settings-carousel tileview scroll) use the raw
+        // point and so scrolled backwards on the Zipp. Flipping X here
+        // un-mirrors it for everything (taps + native LVGL gestures), and
+        // TOUCH_DIR_RIGHT_IS_POS_DX flips to +1 in lockstep so the gesture
+        // math that already used the multiplier (skip, rotary) nets to no
+        // change. Net effect: carousel + taps fixed, skip + rotary unchanged.
+        data->point.x = (LCD_WIDTH - 1) - raw_y;
         data->point.y = raw_x;
 #elif DISPLAY_ROTATE_DEG == 180
         data->point.x = (LCD_WIDTH  - 1) - raw_x;

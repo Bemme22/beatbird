@@ -36,8 +36,11 @@
     constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
     constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
 #else
-    // Zipp DEG=90 — X axis reads mirrored after the touch-cb transpose
-    // in main.cpp. Y is fine.
-    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = -1;
+    // Zipp DEG=90 — as of the main.cpp touch-cb X-flip
+    // (point.x = (LCD_WIDTH-1) - raw_y), X is no longer mirrored, so the
+    // gesture math needs +1 like Beat. The flip in main.cpp + this +1 move
+    // in lockstep: skip/rotary (which use this multiplier) net to no change,
+    // while taps + LVGL-native gestures (carousel tileview) are now correct.
+    constexpr int TOUCH_DIR_RIGHT_IS_POS_DX = +1;
     constexpr int TOUCH_DIR_DOWN_IS_POS_DY  = +1;
 #endif
