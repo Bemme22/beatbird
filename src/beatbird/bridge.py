@@ -79,6 +79,12 @@ STANDBY_TIMEOUT_S = 60.0
 # At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
 SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
 IDLE_MESSAGE_INTERVAL = 45.0  # how often to flip the standby flap text
+# Driver/amp longevity: when a TAS amp reports OT (over-temperature) in its
+# CHAN_FAULT register, hard-cap the volume to this level until it cools. The
+# fault bit was already read every STATUS_INTERVAL but previously only
+# displayed — now it actually backs the volume off so the chip + voice coils
+# get thermal relief instead of cooking at whatever level triggered it.
+AMP_OT_VOLUME_CAP_PCT = 60
 
 # Short German airport-board-style lines shown on the standby screen via the
 # split-flap label. Picked at random every IDLE_MESSAGE_INTERVAL while idle,
@@ -384,6 +390,10 @@ class BeatBirdBridge:
 
         # ── System stats ──
         self.sys_amp: dict[str, str] = {}
+        # Amp over-temperature latch — see _handle_amp_thermal(). Edge-tracked
+        # so we cap + emit once on the rising edge, hold the cap while hot, and
+        # lift it on the falling edge.
+        self._amp_ot_active = False
         self.sys_cpu = 0.0
         self.sys_wifi = 0
         self.sys_dsp = False
@@ -1291,10 +1301,47 @@ class BeatBirdBridge:
                 self.song_artist = ""
         self._snapcast_playing = playing
 
+    def _handle_amp_thermal(self) -> None:
+        """Back the volume off when a TAS amp reports over-temperature.
+
+        The CHAN_FAULT OT bit is read every STATUS_INTERVAL; here we act on
+        it. Rising edge → cap to AMP_OT_VOLUME_CAP_PCT + emit an HA error
+        event so the thermal episode is in the timeline. While hot, hold the
+        cap (re-apply if the user tries to push back up). Falling edge → lift
+        the limit (but leave the volume where it is — don't auto-slam back to
+        a level that just overheated the chip)."""
+        ot = any("OT" in v for v in self.sys_amp.values())
+        if ot and not self._amp_ot_active:
+            self._amp_ot_active = True
+            hot = [k for k, v in self.sys_amp.items() if "OT" in v]
+            log.warning(
+                "AMP OVER-TEMPERATURE on %s — capping volume to %d%%",
+                hot, AMP_OT_VOLUME_CAP_PCT,
+            )
+            self.mqtt.publish_event(
+                "error", "amp over-temperature",
+                subsystem="amp", channels=hot,
+                action=f"volume capped to {AMP_OT_VOLUME_CAP_PCT}%",
+            )
+            if self.current_volume > AMP_OT_VOLUME_CAP_PCT:
+                self.set_volume(AMP_OT_VOLUME_CAP_PCT)
+        elif ot and self._amp_ot_active:
+            # Sustained over-temp — hold the ceiling if the user cranked it.
+            if self.current_volume > AMP_OT_VOLUME_CAP_PCT:
+                self.set_volume(AMP_OT_VOLUME_CAP_PCT)
+        elif not ot and self._amp_ot_active:
+            self._amp_ot_active = False
+            log.info("AMP over-temperature cleared — volume limit lifted")
+            self.mqtt.publish_event(
+                "error", "amp over-temperature cleared",
+                subsystem="amp", action="volume limit lifted",
+            )
+
     def _refresh_system(self) -> None:
         self.sys_cpu = system.cpu_temp()
         self.sys_wifi = system.wifi_rssi()
         self.sys_amp = self.hardware.read_status()
+        self._handle_amp_thermal()
         self.sys_dsp = system.service_active("camilladsp")
         self.sys_spotify = system.service_active("go-librespot")
         # gateway_reachable does one ping with 1.5s timeout — fine at the
