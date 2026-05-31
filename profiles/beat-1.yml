@@ -41,6 +41,12 @@ audio:
       # Treble side of the Fletcher-Munson curve — bass and air both
       # need lifting at low volumes for a balanced perception.
       - {name: air_lift,     max_boost_db: 2.5}
+  # Idle power save: after 10 min quiet, drop BOTH TAS amps (0x4c + 0x4d) into
+  # I2C deep-sleep. Proven on the Zipp single chip (4 W → 2 W); the 2X driver
+  # sleeps both addresses. Woken on play/touch/volume.
+  amp_deep_sleep:
+    enabled: true
+    timeout_s: 600
 
 display:
   type: amoled
