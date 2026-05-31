@@ -304,6 +304,11 @@ class BeatBirdBridge:
         self.song_dur_ms = 1
         self.signal_level = 0
         self.bt_device_alias = ""
+        # MQTT event diffing — see _emit_state_events(). None until the first
+        # post-connect pulse seeds a baseline (so we don't emit a change storm
+        # for state that was already true at boot).
+        self._evt_prev: dict | None = None
+        self._evt_booted = False
         self._sp_volume_steps = 65535
         self._prev_track_uri = ""
         self._stopped_since: float | None = None
@@ -1542,6 +1547,57 @@ class BeatBirdBridge:
             "wifi_rssi":   self.sys_wifi,
             "bt_device":   self.bt_device_alias or "—",
         })
+        self._emit_state_events()
+
+    def _emit_state_events(self) -> None:
+        """Ship discrete state-transition events to HA for the bug hunt.
+
+        The Pi runs overlayroot=tmpfs — the journal is wiped on every reboot,
+        so intermittent failures (the phantom pause, BT flaps) leave no trace
+        locally. This diffs the key state on each system pulse and publishes a
+        timestamped event whenever it changes; HA keeps the history. A
+        Playing→Paused transition with source=spotify and no matching user
+        action is exactly the phantom-pause signature we're chasing.
+
+        Event-driven by design: nothing is published while state is steady.
+        """
+        snap = {
+            "playback": self.playback.value,
+            "source":   self.source.value,
+            "bt":       self.bt_device_alias or "",
+        }
+        prev = self._evt_prev
+        if prev is None:
+            # First pulse after (re)connect — seed baseline, don't diff against
+            # nothing. Announce boot exactly once for a timeline anchor.
+            self._evt_prev = snap
+            if not self._evt_booted:
+                self._evt_booted = True
+                self.mqtt.publish_event(
+                    "boot", "bridge online",
+                    source=snap["source"], playback=snap["playback"],
+                )
+            return
+
+        if snap["source"] != prev["source"]:
+            self.mqtt.publish_event(
+                "source_change", f'{prev["source"]} → {snap["source"]}',
+                old=prev["source"], new=snap["source"],
+            )
+        if snap["playback"] != prev["playback"]:
+            self.mqtt.publish_event(
+                "playback_change", f'{prev["playback"]} → {snap["playback"]}',
+                old=prev["playback"], new=snap["playback"],
+                source=snap["source"], song=self.song_title,
+            )
+        if snap["bt"] != prev["bt"]:
+            if snap["bt"]:
+                self.mqtt.publish_event("bt_connect", snap["bt"], device=snap["bt"])
+            else:
+                self.mqtt.publish_event(
+                    "bt_disconnect", prev["bt"] or "—", device=prev["bt"],
+                )
+        self._evt_prev = snap
 
     # ─── Main loop ──────────────────────────────────────────────────────────
 

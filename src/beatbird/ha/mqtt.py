@@ -37,6 +37,7 @@ class MqttBridge:
 
         self.topic_base = profile.mqtt_topic_base
         self.topic_status = f"{self.topic_base}/status"
+        self.topic_event = f"{self.topic_base}/event"
         self.topic_availability = f"{self.topic_base}/availability"
         self.topic_set_volume = f"{self.topic_base}/set/volume"
         self.topic_set_playback = f"{self.topic_base}/set/playback"
@@ -125,6 +126,26 @@ class MqttBridge:
         except Exception as e:
             log.error("publish: %s", e)
 
+    # Discrete, NON-retained event for the HA logbook/timeline. The Pi runs
+    # overlayroot=tmpfs, so its journal is wiped on every reboot — this MQTT
+    # event stream is where intermittent-bug evidence (phantom pause, BT
+    # flaps) actually persists, because HA keeps the history. ``kind`` must
+    # match one of the event_types enumerated in _publish_discovery() or HA's
+    # MQTT event entity silently drops it; everything else lands as attributes.
+    EVENT_TYPES = [
+        "boot", "source_change", "playback_change",
+        "bt_connect", "bt_disconnect", "bt_handoff", "error",
+    ]
+
+    def publish_event(self, kind: str, message: str = "", **fields) -> None:
+        if not (self.client and self.available):
+            return
+        payload = {"kind": kind, "message": message, **fields}
+        try:
+            self.client.publish(self.topic_event, json.dumps(payload), qos=1, retain=False)
+        except Exception as e:
+            log.error("publish_event: %s", e)
+
     # ─── HA auto-discovery ──────────────────────────────────────────────────
 
     def _device_block(self) -> dict:
@@ -210,4 +231,23 @@ class MqttBridge:
             }), qos=1, retain=True,
         )
 
-        log.info("HA discovery: %d sensors + volume + playback published", len(sensors))
+        # Event entity — a proper timeline in HA for the bug hunt. The Pi's
+        # journal is volatile (overlayroot=tmpfs), so this is the only place a
+        # phantom pause / BT flap leaves a durable, timestamped trace. The
+        # rendered event_type (value_json.kind) must be in event_types; the
+        # rest of the payload rides along as attributes via json_attributes.
+        self.client.publish(
+            f"{prefix}/event/{did}/{did}_events/config",
+            json.dumps({
+                "unique_id": f"{did}_events",
+                "name": "Events",
+                "state_topic": self.topic_event,
+                "event_types": self.EVENT_TYPES,
+                "value_template": "{{ value_json.kind }}",
+                "json_attributes_topic": self.topic_event,
+                "icon": "mdi:bug-outline",
+                "device": device, **avail,
+            }), qos=1, retain=True,
+        )
+
+        log.info("HA discovery: %d sensors + volume + playback + events published", len(sensors))

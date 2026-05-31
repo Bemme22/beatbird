@@ -60,7 +60,10 @@ wifi:
 
 mqtt:
   enabled: true
-  host: 192.168.1.10
+  # host + user are LAN/deployment-specific — real values come from
+  # secrets/mqtt.host + secrets/mqtt.user (out of this public repo) and
+  # override these placeholders at install time. See install/00-base.sh.
+  host: mqtt.local
   port: 1883
   user: beatbird
   discovery_prefix: homeassistant

@@ -332,4 +332,15 @@ def load_profile(path: Optional[str | Path] = None) -> Profile:
         raise FileNotFoundError(f"Profile not found: {path}")
     with path.open() as f:
         raw = yaml.safe_load(f)
-    return Profile.model_validate(raw)
+    prof = Profile.model_validate(raw)
+
+    # Per-deployment broker details are LAN-specific (and the repo is public),
+    # so they don't live in the profile YAML. install/00-base.sh renders them
+    # into the service EnvironmentFile from gitignored secrets/ (secrets/mqtt.host,
+    # secrets/mqtt.user, secrets/mqtt.pass). Override the profile placeholders
+    # here when the env carries real values; empty/unset leaves the profile.
+    if env_host := os.environ.get("MQTT_BROKER", "").strip():
+        prof.mqtt.host = env_host
+    if env_user := os.environ.get("MQTT_USER", "").strip():
+        prof.mqtt.user = env_user
+    return prof

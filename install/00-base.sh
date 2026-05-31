@@ -44,9 +44,21 @@ for s in wifi.pass mqtt.pass; do
 done
 
 # /etc/beatbird/env  — shell-style env for systemd EnvironmentFile=
+# Broker host + user are LAN-specific and kept out of the (public) profile
+# YAML — same out-of-repo treatment as weather coords + snapcast.host. Sourced
+# from secrets/mqtt.host / secrets/mqtt.user (one line each) when present,
+# otherwise fall back to whatever the profile placeholder carries.
 MQTT_HOST="$(pq mqtt.host)"
+MQTT_HOST_FILE="$SECRETS_DIR/mqtt.host"
+if [[ -s "$MQTT_HOST_FILE" ]]; then
+  MQTT_HOST="$(head -1 "$MQTT_HOST_FILE" | tr -d '[:space:]')"
+fi
 MQTT_PORT="$(pq_or mqtt.port 1883)"
 MQTT_USER="$(pq mqtt.user)"
+MQTT_USER_FILE="$SECRETS_DIR/mqtt.user"
+if [[ -s "$MQTT_USER_FILE" ]]; then
+  MQTT_USER="$(head -1 "$MQTT_USER_FILE" | tr -d '[:space:]')"
+fi
 MQTT_PASS="$( [[ -f "$ETC_DIR/mqtt.pass" ]] && cat "$ETC_DIR/mqtt.pass" || echo "" )"
 SPEAKER_ID="$(pq identity.speaker_id)"
 FRIENDLY_NAME="$(pq identity.friendly_name)"
