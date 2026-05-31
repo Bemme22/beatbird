@@ -87,3 +87,22 @@ def test_louder_hat_drivers_accepted():
     for drv in ("louder-hat-plus-2x", "louder-hat-plus-1x", "louder-hat-triple"):
         p = Profile.model_validate({"soundcard": {"driver": drv}})
         assert p.soundcard.driver == drv
+
+
+# ─── Amp deep-sleep (idle power save) ───────────────────────────────────────
+
+def test_amp_deep_sleep_default_off():
+    """Power-save must be opt-in: an unconfigured profile leaves the amp
+    awake (no surprise behaviour on speakers that haven't been verified)."""
+    p = Profile.model_validate({"soundcard": {"driver": "louder-hat-plus-1x"}})
+    assert p.audio.amp_deep_sleep.enabled is False
+    assert p.audio.amp_deep_sleep.timeout_s == 600
+
+
+def test_amp_deep_sleep_enable_parses():
+    p = Profile.model_validate({
+        "soundcard": {"driver": "louder-hat-plus-1x"},
+        "audio": {"amp_deep_sleep": {"enabled": True, "timeout_s": 300}},
+    })
+    assert p.audio.amp_deep_sleep.enabled is True
+    assert p.audio.amp_deep_sleep.timeout_s == 300

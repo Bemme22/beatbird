@@ -100,6 +100,20 @@ class Sfx(BaseModel):
     device:  str  = "beatbird_mix"
 
 
+class AmpDeepSleep(BaseModel):
+    """Put the TAS amp(s) into I2C deep-sleep (DEVICE_CTRL2 CTRL_STATE=0) after
+    a long idle spell, woken on the next playback/interaction. Measured ~2 W
+    saved per amp on a Louder Hat Plus (4 W → 2 W with no signal). Off by
+    default — enable per speaker once the wake behaviour is verified, since
+    the first audio after a deep-idle wake can clip a fraction of a second
+    while the source-state poll catches up."""
+    enabled: bool = False
+    # Idle seconds (measured from the last PLAYING observation, i.e. ~the same
+    # clock standby uses) before the amp is put to sleep. Comfortably longer
+    # than the standby timeout so the screen sleeps first.
+    timeout_s: int = 600
+
+
 class Audio(BaseModel):
     camilladsp_config: str = "_stub"
     sample_rate: int = 48000
@@ -113,6 +127,7 @@ class Audio(BaseModel):
     volume: VolumeConfig = Field(default_factory=VolumeConfig)
     loudness: Loudness = Field(default_factory=Loudness)
     sfx: Sfx = Field(default_factory=Sfx)
+    amp_deep_sleep: AmpDeepSleep = Field(default_factory=AmpDeepSleep)
 
     @field_validator("format", mode="before")
     @classmethod

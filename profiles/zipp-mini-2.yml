@@ -33,6 +33,11 @@ audio:
     filters:
       - {name: bass_shelf,   max_boost_db: 6.0}
       - {name: timpani_body, max_boost_db: 3.0}
+  # Idle power save: after 10 min quiet, drop the TAS amp into I2C deep-sleep
+  # (measured 4 W → 2 W on this Louder Hat Plus 1X). Woken on play/touch/volume.
+  amp_deep_sleep:
+    enabled: true
+    timeout_s: 600
 
 display:
   type: amoled

@@ -394,6 +394,11 @@ class BeatBirdBridge:
         # so we cap + emit once on the rising edge, hold the cap while hot, and
         # lift it on the falling edge.
         self._amp_ot_active = False
+        # Amp deep-sleep (idle power save) — see _enter_amp_sleep()/_wake_amp().
+        _ads = profile.audio.amp_deep_sleep
+        self._amp_idle_enabled = _ads.enabled
+        self._amp_idle_timeout = float(_ads.timeout_s)
+        self._amp_asleep = False
         self.sys_cpu = 0.0
         self.sys_wifi = 0
         self.sys_dsp = False
@@ -595,6 +600,14 @@ class BeatBirdBridge:
             self.profile.soundcard.driver,
             self.profile.display.type,
         )
+        # Force the amp(s) to a known-awake state at every start. Deep-sleep is
+        # a latched I2C state that survives a bridge restart/crash; without this
+        # an amp left asleep by a previous run would stay silent (our in-memory
+        # _amp_asleep resets to False on start, so _wake_amp() would no-op).
+        try:
+            self.hardware.wake()
+        except Exception as e:
+            log.debug("startup amp wake: %s", e)
         if self.display:
             self.display.setup(
                 on_command=self._handle_display_command,
@@ -772,6 +785,9 @@ class BeatBirdBridge:
     # ─── Volume (single source of truth: CamillaDSP) ────────────────────────
 
     def set_volume(self, pct: int) -> None:
+        # A volume change is user intent — wake a sleeping amp so the change
+        # (and its SFX tick) is actually audible. No-op while awake.
+        self._wake_amp()
         pct = max(0, min(100, pct))
         db = pct_to_db(pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
         self.dsp.set_volume_db(db)
@@ -1337,6 +1353,34 @@ class BeatBirdBridge:
                 subsystem="amp", action="volume limit lifted",
             )
 
+    def _enter_amp_sleep(self) -> None:
+        """Put the amp(s) into I2C deep-sleep after a long idle spell. Measured
+        ~2 W saved per amp on a Louder Hat. Decoupled from CamillaDSP (which
+        keeps streaming into the sleeping chip — harmless) so there's no audio
+        device reopen on the way back. Woken by _wake_amp()."""
+        if self.hardware.sleep():
+            self._amp_asleep = True
+            idle_s = time.monotonic() - self.last_playback_time
+            log.info("amp(s) → deep-sleep (idle %.0fs)", idle_s)
+            self.mqtt.publish_event("amp_sleep", "amp(s) into deep-sleep",
+                                    reason="deep idle", idle_s=round(idle_s))
+        else:
+            # Hardware can't sleep (Null driver / i2c error) — don't spin on it.
+            self._amp_idle_enabled = False
+            log.info("amp deep-sleep unsupported on this hardware — disabling")
+
+    def _wake_amp(self) -> None:
+        """Restore the amp(s) to play. Cheap no-op while already awake, so it's
+        safe to call from every wake path (standby exit, volume change, etc.)."""
+        if not self._amp_asleep:
+            return
+        if self.hardware.wake():
+            self._amp_asleep = False
+            log.info("amp(s) woken from deep-sleep")
+            self.mqtt.publish_event("amp_wake", "amp(s) woken from deep-sleep")
+        else:
+            log.error("amp wake failed — retrying next wake event")
+
     def _refresh_system(self) -> None:
         self.sys_cpu = system.cpu_temp()
         self.sys_wifi = system.wifi_rssi()
@@ -1516,6 +1560,9 @@ class BeatBirdBridge:
 
     def _exit_standby(self, reason: str) -> None:
         log.info("exit standby (%s)", reason)
+        # Wake the amp first thing — before any SFX or audio for this wake
+        # routes into a sleeping chip. Cheap no-op if it wasn't asleep.
+        self._wake_amp()
         self.in_standby = False
         self.last_playback_time = time.monotonic()
 
@@ -1726,6 +1773,20 @@ class BeatBirdBridge:
                         and now - self._idle_msg_t >= IDLE_MESSAGE_INTERVAL
                     ):
                         self._send_idle_message()
+
+                    # Deep idle: after a long quiet spell, drop the amp(s) into
+                    # I2C deep-sleep (~2 W each, measured). Only in standby and
+                    # only once; woken by _exit_standby / set_volume.
+                    if (
+                        self._amp_idle_enabled
+                        and self.in_standby
+                        and not self._amp_asleep
+                        and now - self.last_playback_time >= self._amp_idle_timeout
+                    ):
+                        try:
+                            self._enter_amp_sleep()
+                        except Exception as e:
+                            log.error("amp deep-sleep enter: %s", e)
 
                 # Signal level
                 level_interval = (

@@ -135,6 +135,7 @@ class MqttBridge:
     EVENT_TYPES = [
         "boot", "source_change", "playback_change",
         "bt_connect", "bt_disconnect", "bt_handoff", "error",
+        "amp_sleep", "amp_wake",
     ]
 
     def publish_event(self, kind: str, message: str = "", **fields) -> None:

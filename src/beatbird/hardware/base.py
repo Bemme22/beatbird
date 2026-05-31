@@ -30,6 +30,20 @@ class HardwareInterface(ABC):
         The bridge just passes them through to MQTT/display.
         """
 
+    # ── Optional power management ────────────────────────────────────────────
+    # Default to no-ops so hardware without a controllable low-power state
+    # (or the Null driver) just ignores the bridge's deep-idle requests.
+
+    def sleep(self) -> bool:
+        """Put the amp(s) into a low-power deep-sleep state. Returns True on
+        success. No-op (False) if the hardware can't be power-managed."""
+        return False
+
+    def wake(self) -> bool:
+        """Restore the amp(s) to the active play state. Returns True on
+        success. No-op (False) if unsupported."""
+        return False
+
 
 class NullHardware(HardwareInterface):
     """No-op implementation for speakers without queryable amps."""
