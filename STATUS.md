@@ -143,6 +143,18 @@ overlay via `install/05-tas-driver.sh`, config.txt + modules via
   host is `loungepi.local` (the `lounge` SSH-config alias points at the wrong
   `lounge.local`), key `~/.ssh/id_ed25519`, NOPASSWD sudo.
 
+**✅ AUDIO DATA PATH FIXED (2026-06-01, scope on the bench, drivers disconnected).**
+First audio attempt was broken: a level-INDEPENDENT distorted square (~10 V),
+pitch followed the input but amplitude didn't — the chips were reading only the
+sign bits because the TDM data window was misaligned. Found the fix with the
+OWON scope by sweeping SAP_CTRL2 live during a continuous tone: the Pi's TDM
+frame places the data **+4 BCLKs** after the nominal slot boundary. At offset+4
+the output became a clean sine whose amplitude tracks the digital level. So all
+slot offsets get +4: **mid 4, woofer 68, ribbon 132** (overlay updated + dtbo
+recompiled, dmesg confirms, mid output scope-verified clean + level-tracking).
+This is exactly the bit-alignment Andriy couldn't verify without hardware.
+Ribbons measured 4.3 Ω and survived the debugging (disconnected during it).
+
 **Remaining (needs the chassis physically connected — user does this "wenn alles
 da ist"):** channel-ID (which TDM slot drives which driver) at **minimal**
 volume, **fan running**, woofer+mids first / **ribbons LAST** → CamillaDSP

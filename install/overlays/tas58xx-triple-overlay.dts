@@ -63,7 +63,7 @@
                 ti,switching-freq = <0>;    /* 768K */
                 ti,eq-mode = <0>;           /* OFF — flat, crossover is in CamillaDSP */
                 ti,mixer-mode = <0>;        /* Stereo: OUTA=L(slot0), OUTB=R(slot1) */
-                ti,tdm-slot-offset = <0>;   /* slots 0,1 */
+                ti,tdm-slot-offset = <4>;   /* slot 0 data @ BCLK 4 — see +4 note below */
             };
 
             /* ── Woofer: TAS5825M @ 0x4d, PBTL mono, slot 2 ─────────────── */
@@ -79,7 +79,7 @@
                 ti,bridge-mode;             /* PBTL — more power into the 8" */
                 ti,eq-mode = <0>;           /* OFF — flat; CamillaDSP does the LP */
                 ti,mixer-mode = <1>;        /* Mono — its slot carries the woofer feed */
-                ti,tdm-slot-offset = <64>;  /* slot 2 (slots 2,3; uses 2) */
+                ti,tdm-slot-offset = <68>;  /* slot 2 (64) + 4 frame offset */
             };
 
             /* ── Ribbon: TAS5805M @ 0x2d, stereo, slots 4/5 ─────────────── */
@@ -94,8 +94,15 @@
                 ti,switching-freq = <0>;
                 ti,eq-mode = <0>;           /* OFF — flat; CamillaDSP does the HP */
                 ti,mixer-mode = <0>;        /* Stereo: OUTA=L(slot4), OUTB=R(slot5) */
-                ti,tdm-slot-offset = <128>; /* slots 4,5 */
+                ti,tdm-slot-offset = <132>; /* slots 4,5 (128) + 4 frame offset */
                 /* No fault-monitor: TAS5805M phantom thermal faults in multi-DAC */
+                /* +4 FRAME OFFSET (all slots): the Pi's TDM frame puts the data
+                 * 4 BCLKs after the nominal slot boundary. Found on the bench
+                 * 2026-06-01 with a scope: at the nominal offsets (0/64/128) the
+                 * amp output was a level-INDEPENDENT square (chip read only the
+                 * sign bits); sweeping SAP_CTRL2 live, offset+4 gave a clean sine
+                 * whose amplitude tracks the digital level. So slot N data lives
+                 * at N*32 + 4. Hence 4 / 68 / 132. */
             };
         };
     };
