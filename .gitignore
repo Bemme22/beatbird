@@ -45,3 +45,6 @@ dist/
 *.bak
 *.backup
 *.corrupted
+
+# TI datasheets — local reference only, not in the public repo (bloat + copyright)
+docs/TI/*.pdf
