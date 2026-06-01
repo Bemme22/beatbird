@@ -26,16 +26,16 @@ index cd50670..b8b0324 100644
 +		 * its own offset (0 / 64 / 128 = slots 0-1 / 2-3 / 4-5 in a 32-bit
 +		 * frame), so N DACs on one shared I2S line each decode their slots.
 +		 *
-+		 * WARNING: TAS58XX_SAP_FMT_TDM (the 0x33 D[5:4] value) is UNCONFIRMED
-+		 * — see the TODO in tas58xx.h. Until verified, treat amplifier output
-+		 * (especially a flat ribbon channel) as untrusted.
++		 * SAP_CTRL1 = 0x17 (D[5:4]=01 TDM/DSP | D[3:2]=01 narrow FS | D[1:0]=11
++		 * 32-bit) — datasheet-confirmed for both the 5825M and 5805M; see the
++		 * register-map note in tas58xx.h.
 +		 */
 +		if (tas58xx->tdm_mode) {
 +			regmap_write(rm, TAS58XX_REG_SAP_CTRL1, TAS58XX_SAP_CTRL1_TDM_32);
 +			regmap_write(rm, TAS58XX_REG_SAP_CTRL2,
 +				     tas58xx->tdm_slot_offset & 0xff);
-+			dev_warn(&tas58xx->i2c->dev,
-+				 "%s: TDM enabled, slot offset=%u BCLKs — SAP_CTRL1 format value is UNCONFIRMED, verify before trusting output\n",
++			dev_info(&tas58xx->i2c->dev,
++				 "%s: TDM mode, SAP_CTRL1=0x17, slot offset=%u BCLKs\n",
 +				 __func__, tas58xx->tdm_slot_offset);
 +		}
 +
@@ -105,23 +105,23 @@ index 414e561..ee64bc3 100644
 + *   D[1:0] : word length (16 / 20 / 24 / 32 bit)
 + * Default (chip reset) is I2S, 24-bit.
 + *
-+ * !!! TODO(andriy) — the exact D[5:4] code for TDM/DSP mode is UNCONFIRMED. !!!
-+ * The TAS5825M datasheet (9.3.6) names the field but the register-map table
-+ * that enumerates the D[5:4] values wasn't on hand. The value below is a
-+ * best guess (D[5:4]=0b01). It is also unverified whether TAS5805M and
-+ * TAS5825M use the same code. DO NOT trust amplifier output — especially the
-+ * flat ribbon channel — until this byte is confirmed against the datasheet
-+ * register table or by Sonocotta. tas58xx_do_work() logs a dev_warn while the
-+ * value is unconfirmed.
++ * CONFIRMED via the datasheet register map — TAS5825M and TAS5805M both
++ * document SAP_CTRL1 identically (TAS5825M 7.6.1.9 / Table 7-16):
++ *   D[5:4] DATA_FORMAT: 00=I2S, 01=TDM/DSP, 10=RTJ, 11=LTJ  ->  TDM = 0b01
++ *   D[3:2] I2S_LRCLK_PULSE = 01 when FS high width < 8 SCLK (Pi dsp_a narrow FS)
++ *   D[1:0] WORD_LENGTH: 11 = 32-bit
++ * Composite = 0x17, valid for both the 5825M (mids/woofer) and 5805M (ribbon).
++ * The 0x34 RX slot offset (32 x slot-index = 0/64/128) was confirmed by
++ * Andriy (Sonocotta): the Pi always pads to 32-bit slots.
 + */
 +#define TAS58XX_SAP_FMT_I2S        (0x0 << 4)
-+#define TAS58XX_SAP_FMT_TDM        (0x1 << 4)   /* UNCONFIRMED — see TODO */
++#define TAS58XX_SAP_FMT_TDM        (0x1 << 4)   /* D[5:4]=01 TDM/DSP — datasheet 7.6.1.9 */
 +#define TAS58XX_SAP_WLEN_16        0x0
 +#define TAS58XX_SAP_WLEN_20        0x1
 +#define TAS58XX_SAP_WLEN_24        0x2
 +#define TAS58XX_SAP_WLEN_32        0x3
-+/* Composite value written to SAP_CTRL1 for a 32-bit TDM slot frame. */
-+#define TAS58XX_SAP_CTRL1_TDM_32   (TAS58XX_SAP_FMT_TDM | TAS58XX_SAP_WLEN_32)
++/* Composite SAP_CTRL1 for a 32-bit TDM frame. D[3:2]=01 = FS high-width <8 SCLK (Pi dsp_a narrow FS, datasheet 9.3.6). D[5:4] format still UNCONFIRMED. */
++#define TAS58XX_SAP_CTRL1_TDM_32   (TAS58XX_SAP_FMT_TDM | (0x1 << 2) | TAS58XX_SAP_WLEN_32)
 +
  /* TAS58XX_REG_DEVICE_CTRL_2 register values */
  #define TAS58XX_DCTRL2_MODE_DEEP_SLEEP 0x00

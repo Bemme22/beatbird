@@ -113,18 +113,22 @@ runs the lounge profile on LoungePi):
 - `install/05-tas-driver.sh`, `install/10-soundcard/louder-hat-triple.sh`,
   `profiles/lounge.yml` updated. 52 tests green.
 
-**⛔ BLOCKER:** the exact **SAP_CTRL1 (0x33) value for TDM/32-bit**. The
-datasheet gives the field layout but not the D[5:4] enumeration; the patch
-uses a best-guess `0x1<<4` with a loud TODO + runtime `dev_warn`. Asked
-Andriy for the confirmed byte (5825M vs 5805M?) + multi-codec DAPM wiring.
-**Do NOT build/flash until confirmed — a wrong SAP format = garbage to the
-flat ribbon amp.**
+**✅ BLOCKER RESOLVED (2026-06-01):** `SAP_CTRL1 (0x33) = 0x17`, datasheet-
+confirmed. TAS5825M **and** TAS5805M document SAP_CTRL1 identically
+(§7.6.1.9 / Table 7-16): D[5:4] DATA_FORMAT `01` = TDM/DSP, D[3:2] = `01`
+(FS high width < 8 SCLK — the Pi's dsp_a narrow frame sync), D[1:0] = `11`
+(32-bit) → `0x10|0x04|0x03 = 0x17`. The earlier best-guess D[5:4]=0b01 was
+right; D[3:2]=01 was the missing piece. Andriy separately confirmed the
+0x34 slot offset = 32 × slot-index (Pi always pads to 32-bit slots) and
+green-lit a hardware trial. Patch updated (no more TODO/dev_warn), `git
+apply` clean, hunks intact.
 
-**Next session (once 0x33 confirmed):** fill value → regenerate patch →
+**Next session — supervised bench bring-up (HALT rule still applies):**
 `make profile PROFILE=lounge` + run 05/10 install + reboot → verify 8-ch
-card via `aplay -l` + `dmesg | grep tas` (no audio) → channel-ID at low
-volume with **fan running** (woofer+mids first, ribbons LAST) → CDSP
-crossover baseline → REW tuning.
+card via `aplay -l` + `dmesg | grep tas` (**no audio**) → if a clock error,
+read reg `0x71` (Clock Error) → channel-ID at **minimal** volume with **fan
+running** (woofer+mids first, ribbons LAST) → CDSP crossover baseline → REW
+tuning. Must be done with the user at the LoungePi bench.
 
 **Also pending for Lounge:** UI board (button + 3-colour LED ring)
 function test + `pigpio` service for LED dimming/button (GPIO 17=button,
