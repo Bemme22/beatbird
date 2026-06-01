@@ -78,7 +78,7 @@ overlayroot re-enabled, snapclient via `beatbird_mix`, BT on.
 
 ## Roadmap — active
 
-### 🔧 LoungePi — 3-DAC TDM, all-active CamillaDSP (IN PROGRESS, blocked)
+### 🔧 LoungePi — 3-DAC TDM, all-active CamillaDSP (TDM STACK UP, awaiting chassis)
 
 Fully-active 3-way (8" woofer mono + 2× 4" mid L/R + 2× ribbon L/R) on a
 Pi 5 with 3 Louder Hat boards on **one shared I²S line via 6-channel TDM**,
@@ -123,12 +123,32 @@ right; D[3:2]=01 was the missing piece. Andriy separately confirmed the
 green-lit a hardware trial. Patch updated (no more TODO/dev_warn), `git
 apply` clean, hunks intact.
 
-**Next session — supervised bench bring-up (HALT rule still applies):**
-`make profile PROFILE=lounge` + run 05/10 install + reboot → verify 8-ch
-card via `aplay -l` + `dmesg | grep tas` (**no audio**) → if a clock error,
-read reg `0x71` (Clock Error) → channel-ID at **minimal** volume with **fan
-running** (woofer+mids first, ribbons LAST) → CDSP crossover baseline → REW
-tuning. Must be done with the user at the LoungePi bench.
+**✅ TDM STACK BROUGHT UP + REGISTER-VERIFIED (2026-06-01, chassis disconnected
+— zero acoustic risk).** Built the driver (0x17 patch) + compiled the triple
+overlay via `install/05-tas-driver.sh`, config.txt + modules via
+`install/10-soundcard/louder-hat-triple.sh`, reboot. Result on the bench:
+- All 3 codecs bind, **8-ch card `Louder-Raspberry-Triple` (card 3)** enumerates,
+  an 8-ch S32_LE stream opens + plays.
+- Per-chip slot offsets read from DT at probe: 0x4c→0, 0x4d→64, 0x2d→128.
+- After a stream triggers `do_work`, **SAP_CTRL1 = 0x17 confirmed on all 3
+  chips** (i2cget), SAP_CTRL2 = 0x00 / 0x40 / 0x80. dmesg: `do_work: TDM mode,
+  SAP_CTRL1=0x17, slot offset=0/64/128`. EQ off (flat), fault-monitor off.
+- The `Clock fault` logged after a stream STOPS is expected (Pi halts the I²S
+  clock when idle — datasheet §9.3.4, chip auto-recovers on clock return), NOT
+  a bug. `do_work` (and thus the SAP writes) only runs on stream start, not at
+  probe — a silent `aplay -c 8` is enough to apply + verify them.
+- Skipped `00-base.sh` deliberately: its hostname rename (lounge.yml id=`lounge`)
+  would break `loungepi.local` SSH; 10-soundcard already enables i2c_arm/i2s.
+- Bench is plain rw root (NOT overlayroot) — changes persist directly. SSH
+  host is `loungepi.local` (the `lounge` SSH-config alias points at the wrong
+  `lounge.local`), key `~/.ssh/id_ed25519`, NOPASSWD sudo.
+
+**Remaining (needs the chassis physically connected — user does this "wenn alles
+da ist"):** channel-ID (which TDM slot drives which driver) at **minimal**
+volume, **fan running**, woofer+mids first / **ribbons LAST** → CamillaDSP
+crossover baseline (`config/camilladsp/lounge.yml`, placeholder freqs) → REW
+per-driver measurement → final crossover + per-driver EQ. HALT rule still
+applies the moment a driver is connected.
 
 **Also pending for Lounge:** UI board (button + 3-colour LED ring)
 function test + `pigpio` service for LED dimming/button (GPIO 17=button,
