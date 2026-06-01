@@ -78,6 +78,63 @@ overlayroot re-enabled, snapclient via `beatbird_mix`, BT on.
 
 ## Roadmap — active
 
+### 🔌 Playback click/pop on Beat #1 + Zipp Mini 2 — DSP headroom (NEXT: 2026-06-02)
+
+**Symptom:** both Beat #1 (Pi Zero 2W, Louder Hat Plus 2X, dual TAS5825M
+0x4C/0x4D) and Zipp Mini 2 occasionally click/pop on playback — suspected on
+loud / bass-heavy passages. **Likely cause: DSP output clipping** (the loudness
+bass filters add positive gain → 0 dBFS overflow). Plan below; diagnose first.
+
+**SSH:** Zipp `zipp2minipi` (`~/.ssh/beatbird`), Beat **`beatpi.local`**
+(`~/.ssh/beatbird`). NOTE: Zipp is on `id_ed25519` from this dev box per the
+LoungePi notes, but the committed SSH-config alias uses `~/.ssh/beatbird`.
+
+**Phase 1 — DIAGNOSE ONLY, change nothing:**
+1. Read `config/camilladsp/beat.yml` + `zipp-mini-2.yml`; sum the positive filter
+   gains in 40–200 Hz to estimate headroom loss.
+2. On each speaker:
+   - CamillaDSP WS API (port 1234) `GetClippedSamples` — once idle, once during
+     loud playback.
+   - `journalctl -u camilladsp` + bridge log grep for `clip|xrun|buffer|underrun`.
+   - `vcgencmd get_throttled` (undervoltage).
+   - Beat only: is `ti,fault-monitor` active (config.txt + init script)? In dual-
+     DAC it disturbs the shared I²S bus.
+3. Conclude most-likely cause (clipping / xrun / fault-monitor / undervoltage)
+   with the concrete numbers. No fixes yet.
+
+**Phase 2 — FIX the clipping in CamillaDSP without changing tonality** (branch
+`fix/dsp-headroom`):
+- `beat.yml`: a static `headroom` Gain filter (`type: Gain, gain: -12`) as the
+  FIRST filter in BOTH channel pipelines, before `bass_shelf`.
+- `zipp-mini-2.yml`: same `headroom` (`gain: -6`) first in the broadband + tweeter
+  pipelines.
+- Optional safety net: a `brickwall` Limiter (`type: Limiter, soft_clip: true,
+  clip_limit: -0.5`) at the END of each pipeline.
+
+**Constraints (do NOT violate):**
+- `headroom` + limiter must NOT be in the bridge's loudness filter list (else they
+  get runtime-patched). Verify in `src/beatbird/audio/loudness.py` / profile YAML
+  that only the tonality filters are listed (bass_shelf, sub_punch, timpani_body,
+  fullness). [[feedback-loudness-feedback-loop]]
+- `capture_samplerate: 44100` + `resampler: Synchronous` unchanged.
+- `sub_protect` freqs unchanged.
+- Do NOT reduce the tonality filters' `base_gain` (the bridge reads those from the
+  live config) — headroom comes ONLY via the separate Gain filter.
+- Show the diff. Compensate the level loss via the TAS5825M analog gain (Beat is at
+  analog gain 25) — PROPOSE the value, do NOT change hardware gains automatically.
+
+**If Beat's `ti,fault-monitor` is active: remove it.**
+- Adjust overlay/address params ONLY in config.txt — NEVER edit the DTS.
+- In the init script address controls by NAME, not numid (numids shifted with the
+  snd-soc-tas58xx driver). [[feedback-verify-external-lib-features]]
+- Show the diff + the reload steps (reboot or module reload).
+
+**Zipp playback device:** ✅ ALREADY MIGRATED — verified 2026-06-01 that
+`zipp-mini-2.yml` already targets `hw:LouderRaspberry,0` / `S32_LE` (the old
+InnoMaker `plughw:sndrpihifiberry,0` / `S16_LE` premise is stale; the Louder Hat
+Plus 1X conversion is done). `capture_samplerate 44100` + Synchronous already in
+place. So this part = confirm only, no change.
+
 ### 🔧 LoungePi — 3-DAC TDM, all-active CamillaDSP (TDM STACK UP, awaiting chassis)
 
 Fully-active 3-way (8" woofer mono + 2× 4" mid L/R + 2× ribbon L/R) on a
