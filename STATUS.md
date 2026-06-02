@@ -224,6 +224,41 @@ function test + `pigpio` service for LED dimming/button (GPIO 17=button,
 22/23/24=LEDs, documented in `docs/Lounge.md`). MOSFET soft-start for the
 PSU inrush. REW per-driver measurement → final crossover + per-driver EQ.
 
+### 🧩 TAS chip features under flat-TDM — what stays relevant (decision record)
+
+LoungePi runs all 3 chips flat in TDM (EQ off, crossover + mono-sum + loudness
+all in CamillaDSP). The chip DSP is deliberately bypassed; recorded so we don't
+re-add it:
+
+**Not used, on purpose — CamillaDSP owns it:** internal 15-band EQ, biquad
+crossover, dynamic EQ/DPEQ, bass enhancement, spatializer, THD manager,
+internal mixer/mono-sum. Re-introducing any in-chip just fights the Camilla
+pipeline. → Also shrinks the driver scope: exposing raw biquad coefficients via
+ALSA is now **obsolete**; only protection registers (if any) are worth a patch.
+
+**Still relevant — only what CamillaDSP physically can't do** (needs the chip's
+own sensors / sits at the amp output, after the whole pipeline):
+- **Thermal foldback** — junction temp monitored continuously; internal AGL
+  applies *gradual* gain reduction keyed to the 4 OTW warning bands (reg 0x73
+  b0–3), auto-restored on cooldown. The "4 levels" = warning thresholds, not
+  4 coarse volume steps. (TI SLAA846)
+- **PVDD tracking (dynamic headroom)** — clips against the real supply rail;
+  clean behaviour on 24 V sag (inrush / bass transients).
+- **AGL / multi-band DRC as last-resort output limiter** — fail-safe behind the
+  whole chain, esp. the ribbon (TAS5805M overcurrent, measured 4.3 Ω). Not for
+  voicing — purely a protection wall.
+
+**Telemetry readback (I²C):** PVDD is readable as an absolute value (PVDD_ADC
+reg 0x5E, 8-bit). Die temperature is **not** — only the 4-level OTW band (0x73
+b0–3) + OTSD shutdown flag, no °C register. Real temp logging needs an external
+sensor.
+
+**Caveats:** keep `ti,fault-monitor` OFF in TDM (I²C polling disturbs the shared
+bus) — these protections run autonomously in-chip, no polling needed. Feature
+availability depends on the loaded process flow (TI SLAA846), and snd-soc-tas58xx
+would need to expose the SAP/AGL/thermal registers — open whether that beats
+chip defaults. [[feedback-verify-external-lib-features]]
+
 ### 📐 BeatPiMini — self-built 2-way (designed, not built)
 
 5" SB Acoustics SB13PFCR25-4 + SB13PFCR-00 passive radiator + salvaged
