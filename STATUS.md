@@ -314,6 +314,14 @@ to avoid losing HA history.
 - [ ] **dead `dma_done_count`** in firmware `main.cpp` — remove.
 
 ### Web UI / polish
+- [ ] **"Persist settings" button** — on overlayroot=tmpfs the settings-overrides
+  (palette / idle / **loudness voicing**) are written to tmpfs, so browser tweaks
+  apply live but DON'T survive a reboot without an `overlayroot-chroot` write. Add
+  a one-shot helper (sudoers-allowed script) that copies the live
+  `/var/lib/beatbird/settings-overrides.json` onto the persistent disk, exposed as
+  a button in `/advanced`. Do this together with the Web UI prettifying pass below.
+  (The loudness voicing UI shipped 2026-06-02, commit 6687921, but each retune
+  currently needs a manual chroot-persist — this button closes that gap.)
 - [ ] Migrate `/health`, `/settings`, `/bluetooth` to the Pico+htmx
   template stack (still inline HTML).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
