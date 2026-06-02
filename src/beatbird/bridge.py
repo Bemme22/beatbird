@@ -24,7 +24,7 @@ import time
 from enum import Enum
 
 from beatbird.audio.camilladsp import CamillaDSP, pct_to_db, db_to_pct
-from beatbird.audio.loudness import LoudnessController, LoudnessFilter
+from beatbird.audio.loudness import LoudnessController, build_loudness
 from beatbird.audio.sfx import SoundEffects
 from beatbird.audio.spectrum import SpectrumAnalyzer
 from beatbird.cover_processor import CoverProcessor
@@ -191,30 +191,18 @@ def _build_hardware(profile: Profile) -> HardwareInterface:
 def _build_loudness(profile: Profile, dsp: CamillaDSP) -> LoudnessController | None:
     if not profile.audio.loudness.enabled or not profile.audio.loudness.filters:
         return None
-    # Hardcoded canonical base gains. NEVER read these from the live
-    # CamillaDSP config — that path created a positive-feedback loop
-    # because what's stored in CDSP is `base + offset * max_boost`,
-    # not `base`. Each bridge restart re-read the boosted value as
-    # the new base, so the bass crept up a few dB every reboot. Field
-    # reports of 'Bass auf max' were exactly this.
-    known_base = {
-        "bass_shelf":   {"type": "Lowshelf",  "freq": 120,  "base_gain": 10, "q": 0.6},
-        "sub_punch":    {"type": "Peaking",   "freq": 45,   "base_gain": 5,  "q": 0.7},
-        "timpani_body": {"type": "Peaking",   "freq": 70,   "base_gain": 3,  "q": 1.0},
-        "fullness":     {"type": "Peaking",   "freq": 200,  "base_gain": 3,  "q": 1.0},
-        "air_lift":     {"type": "Highshelf", "freq": 8000, "base_gain": 0,  "q": 0.7},
-    }
-
-    filters: list[LoudnessFilter] = []
-    for f in profile.audio.loudness.filters:
-        base = known_base.get(f.name)
-        if not base:
-            log.warning("loudness: unknown filter %r, skipping", f.name)
-            continue
-        filters.append(LoudnessFilter(name=f.name, max_boost=f.max_boost_db, **base))
+    # Defaults (base_gain) + the profile (which filters + max_boost) + any
+    # web-UI settings-overrides are merged in loudness.build_loudness — one
+    # shared definition so the webserver shows exactly what the bridge runs.
+    # The base gains are STILL never read back from the live CamillaDSP config
+    # (that path created the bass-creep feedback loop); they come from
+    # DEFAULT_BASE / the overrides file, both stable across restarts.
+    filters, curve, knee_low, knee_high = build_loudness(
+        profile, settings_overrides.load())
     if not filters:
         return None
-    return LoudnessController(dsp, filters, curve=profile.audio.loudness.curve)
+    return LoudnessController(dsp, filters, curve=curve,
+                              knee_low=knee_low, knee_high=knee_high)
 
 
 def _build_bluetooth(profile: Profile, on_active, on_volume, get_bridge_volume,
@@ -1143,6 +1131,24 @@ class BeatBirdBridge:
         self._apply_idle_settings(rss_url, rss_refresh, rss_weight)
         if idle and not initial:
             log.info("overrides: idle updated %s", idle)
+
+        # Loudness voicing — the web UI tunes base_gain / max_boost / curve /
+        # knees. Rebuild the definition from profile + override and re-apply at
+        # the current volume. Skipped on initial: the controller was already
+        # built with overrides in _build_loudness, and the first real apply()
+        # happens in start() once the DSP socket is up.
+        if not initial and self.loudness is not None:
+            try:
+                filters, curve, knee_low, knee_high = build_loudness(self.profile, data)
+                self.loudness.set_params(filters, curve, knee_low, knee_high)
+                self.loudness.apply(self.current_volume)
+                if data.get("loudness"):
+                    log.info("overrides: loudness retuned curve=%s knees=%d/%d  %s",
+                             curve, knee_low, knee_high,
+                             " ".join(f"{f.name}:{f.base_gain:g}+{f.max_boost:g}"
+                                      for f in filters))
+            except Exception as e:
+                log.warning("overrides loudness apply failed: %s", e)
 
     def _poll_overrides(self) -> None:
         """File-mtime check, applies if changed. Called from main loop

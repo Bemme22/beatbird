@@ -1,0 +1,39 @@
+<!-- Voicing panel — "Bass laut" = base_gain (gain at high volume),
+     "Bass leise" = base+max_boost (gain at the lowest volume). Saved to
+     settings-overrides; the bridge applies it live (≤5 s) and it survives
+     reboot. saveLoudness()/resetLoudness() live in advanced.html so they
+     survive the htmx innerHTML swap (inline <script> here would not run). -->
+{% if not l.enabled %}
+  <span style="color:var(--pico-muted-color)">Loudness ist im Profil deaktiviert.</span>
+{% else %}
+  {% for f in l.filters %}
+  <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:0.6rem;align-items:center;margin:0.4rem 0">
+    <label style="color:var(--pico-muted-color);font-size:0.8rem">{{ f.name }}<br><small>@{{ f.freq }} Hz</small></label>
+    <label style="margin:0;font-size:0.78rem">laut (dB)
+      <input class="l-laut" data-filter="{{ f.name }}" type="number" step="0.5" min="-20" max="20" value="{{ f.base_gain }}">
+    </label>
+    <label style="margin:0;font-size:0.78rem">leise (dB)
+      <input class="l-leise" data-filter="{{ f.name }}" type="number" step="0.5" min="-20" max="20" value="{{ f.quiet }}">
+    </label>
+  </div>
+  {% endfor %}
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.5rem">
+    <label style="margin:0;font-size:0.78rem">Kurve
+      <select id="l-curve">
+        <option value="smoothstep" {% if l.curve == 'smoothstep' %}selected{% endif %}>smoothstep</option>
+        <option value="legacy" {% if l.curve == 'legacy' %}selected{% endif %}>legacy</option>
+      </select>
+    </label>
+    <label style="margin:0;font-size:0.78rem">voller Boost bis Vol
+      <input id="l-knee-low" type="number" min="0" max="100" value="{{ l.knee_low }}">
+    </label>
+    <label style="margin:0;font-size:0.78rem">kein Boost ab Vol
+      <input id="l-knee-high" type="number" min="0" max="100" value="{{ l.knee_high }}">
+    </label>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.6rem">
+    <button onclick="saveLoudness()">Speichern</button>
+    <button class="secondary outline" onclick="resetLoudness()">Auf Profil zurücksetzen</button>
+  </div>
+  <p id="loudness-status" style="color:var(--pico-muted-color);font-size:0.85rem;margin:0.4rem 0 0"></p>
+{% endif %}

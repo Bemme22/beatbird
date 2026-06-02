@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from beatbird import settings_overrides, system
 from beatbird.sources import bluetooth as bt
 from beatbird.audio.camilladsp import CamillaDSP, db_to_pct, pct_to_db
+from beatbird.audio import loudness
 from beatbird.config import load_profile
 from beatbird.hardware import louder_hat
 from beatbird.sources.spotify import SpotifyClient
@@ -406,6 +407,98 @@ def set_settings(req: SettingsReq):
     except Exception as e:
         raise HTTPException(500, f"settings save failed: {e}")
     return {"ok": True, "overrides": out}
+
+
+# ─── Loudness voicing (Bass laut / Bass leise / Kurve) ───────────────────────
+
+class LoudnessReq(BaseModel):
+    curve: str | None = None
+    knee_low: int | None = None
+    knee_high: int | None = None
+    # {"bass_shelf": {"base_gain": 3, "max_boost": 8}, …}
+    filters: dict | None = None
+    reset: bool | None = None
+
+
+@app.get("/api/loudness")
+def get_loudness():
+    """Effective loudness voicing — DEFAULT_BASE + profile (which filters +
+    max_boost) + overrides, i.e. exactly what the bridge runs. Per filter:
+    base_gain = 'Bass laut' (gain at high volume), quiet = base+max_boost =
+    'Bass leise' (gain at the lowest volume)."""
+    p = _get_profile()
+    if not p.audio.loudness.enabled or not p.audio.loudness.filters:
+        return {"enabled": False, "filters": [], "curve": "smoothstep",
+                "knee_low": loudness.DEFAULT_KNEE_LOW,
+                "knee_high": loudness.DEFAULT_KNEE_HIGH}
+    filters, curve, knee_low, knee_high = loudness.build_loudness(
+        p, settings_overrides.load())
+    return {
+        "enabled": True, "curve": curve,
+        "knee_low": knee_low, "knee_high": knee_high,
+        "filters": [{
+            "name": f.name, "freq": f.freq,
+            "base_gain": round(f.base_gain, 1),
+            "max_boost": round(f.max_boost, 1),
+            "quiet": round(f.base_gain + f.max_boost, 1),
+        } for f in filters],
+    }
+
+
+@app.post("/api/loudness")
+def set_loudness(req: LoudnessReq):
+    """Persist the loudness voicing override. PATCH semantics — only the
+    filters present are touched. The bridge applies it live on its next
+    mtime poll (≤ 5 s); it survives reboot. POST {"reset": true} clears it."""
+    out = settings_overrides.load()
+    if req.reset:
+        out["loudness"] = None
+        try:
+            settings_overrides.save(out)
+        except Exception as e:
+            raise HTTPException(500, f"loudness save failed: {e}")
+        return {"ok": True, "overrides": None}
+
+    p = _get_profile()
+    allowed = {f.name for f in p.audio.loudness.filters}
+    cur = out.get("loudness") or {}
+    cur_filters = dict(cur.get("filters") or {})
+    if req.filters:
+        for name, vals in req.filters.items():
+            if name not in allowed or not isinstance(vals, dict):
+                continue
+            entry = dict(cur_filters.get(name) or {})
+            for key in ("base_gain", "max_boost"):
+                if key in vals:
+                    try:
+                        entry[key] = max(-20.0, min(20.0, float(vals[key])))
+                    except (TypeError, ValueError):
+                        pass
+            cur_filters[name] = entry
+
+    curve = req.curve or cur.get("curve") or p.audio.loudness.curve
+    if curve not in ("smoothstep", "legacy"):
+        curve = "smoothstep"
+    knee_low = int(req.knee_low if req.knee_low is not None
+                   else cur.get("knee_low", loudness.DEFAULT_KNEE_LOW))
+    knee_high = int(req.knee_high if req.knee_high is not None
+                    else cur.get("knee_high", loudness.DEFAULT_KNEE_HIGH))
+    knee_low = max(0, min(100, knee_low))
+    knee_high = max(knee_low + 1, min(100, knee_high))
+
+    out["loudness"] = {"curve": curve, "knee_low": knee_low,
+                       "knee_high": knee_high, "filters": cur_filters}
+    try:
+        settings_overrides.save(out)
+    except Exception as e:
+        raise HTTPException(500, f"loudness save failed: {e}")
+    return {"ok": True, "overrides": out["loudness"]}
+
+
+@app.get("/ui/advanced/loudness", response_class=HTMLResponse)
+def ui_advanced_loudness(request: Request):
+    return templates.TemplateResponse(request, "_advanced_loudness.html",
+                                      {"l": get_loudness()})
 
 
 # ─── Bluetooth pairing & device management ──────────────────────────────────

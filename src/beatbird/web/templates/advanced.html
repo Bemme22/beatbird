@@ -33,6 +33,20 @@
   </div>
 </article>
 
+<!-- Voicing — persistent loudness tuning (Bass laut/leise + Kurve). Unlike the
+     live sliders above, this edits the loudness DEFINITION (base_gain +
+     max_boost + curve) and survives reboot. -->
+<article id="loudness-card">
+  <header><strong>Voicing — Bass laut / leise + Kurve</strong></header>
+  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
+    Persistent (überlebt Reboot). „laut" = Grundpegel, „leise" = bei kleiner
+    Lautstärke. Wird ~5 s nach Speichern aktiv.
+  </p>
+  <div id="loudness-panel" hx-get="/ui/advanced/loudness" hx-trigger="load" hx-swap="innerHTML">
+    <span style="color:var(--pico-muted-color)">Lade…</span>
+  </div>
+</article>
+
 <!-- Service control + reboot -->
 <article id="service-card">
   <header><strong>Services</strong></header>
@@ -93,5 +107,38 @@
     logBox.scrollTop = logBox.scrollHeight;
   };
   ev.onerror = () => { logBox.textContent += '(stream lost — reconnecting…)\n'; };
+
+  // Voicing panel — defined here (page-level) so they survive the htmx
+  // innerHTML swap of #loudness-panel. "leise" is base+max, so the UI sends
+  // max_boost = leise - laut.
+  function saveLoudness() {
+    const filters = {};
+    document.querySelectorAll('#loudness-panel .l-laut').forEach(el => {
+      const n = el.dataset.filter;
+      const laut = parseFloat(el.value);
+      const leiseEl = document.querySelector('#loudness-panel .l-leise[data-filter="' + n + '"]');
+      const leise = parseFloat(leiseEl.value);
+      filters[n] = { base_gain: laut, max_boost: Math.round((leise - laut) * 10) / 10 };
+    });
+    const body = {
+      curve: document.getElementById('l-curve').value,
+      knee_low: parseInt(document.getElementById('l-knee-low').value, 10),
+      knee_high: parseInt(document.getElementById('l-knee-high').value, 10),
+      filters: filters,
+    };
+    const s = document.getElementById('loudness-status');
+    s.textContent = 'Speichere…';
+    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(r => r.json())
+      .then(d => { s.textContent = d.ok ? 'Gespeichert — in ein paar Sekunden aktiv.' : ('Fehler: ' + JSON.stringify(d)); })
+      .catch(e => { s.textContent = 'Fehler: ' + e; });
+  }
+  function resetLoudness() {
+    if (!confirm('Voicing auf Profil-Default zurücksetzen?')) return;
+    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reset: true }) })
+      .then(r => r.json())
+      .then(() => { htmx.ajax('GET', '/ui/advanced/loudness', '#loudness-panel'); })
+      .catch(e => { alert('Fehler: ' + e); });
+  }
 </script>
 {% endblock %}

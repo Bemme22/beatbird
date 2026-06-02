@@ -78,3 +78,77 @@ def test_unknown_curve_defaults_to_legacy():
     silently fall through to legacy so a typo'd profile still plays."""
     for v in (0, 50, 100):
         assert offset_curve(v, "doesnotexist") == offset_curve(v, "legacy")
+
+
+# ─── Web-tunable knees ──────────────────────────────────────────────────────
+
+def test_smoothstep_custom_knees():
+    """The web UI moves the knees ('voller Boost bis' / 'kein Boost ab')."""
+    assert offset_curve(20, "smoothstep", knee_low=20, knee_high=60) == 1.0
+    assert offset_curve(60, "smoothstep", knee_low=20, knee_high=60) == 0.0
+    # midpoint of 20..60 = 40 → smoothstep 0.5 → boost 0.5
+    assert abs(offset_curve(40, "smoothstep", 20, 60) - 0.5) < 1e-9
+
+
+def test_smoothstep_knee_guard_hi_le_lo():
+    """hi <= lo must not divide-by-zero or invert — guarded to lo+1."""
+    for v in (0, 30, 100):
+        x = offset_curve(v, "smoothstep", knee_low=50, knee_high=50)
+        assert 0.0 <= x <= 1.0
+
+
+# ─── build_loudness merge (defaults + profile + overrides) ──────────────────
+
+class _F:
+    def __init__(self, name, max_boost_db):
+        self.name = name
+        self.max_boost_db = max_boost_db
+
+
+class _Loud:
+    enabled = True
+    curve = "smoothstep"
+
+    def __init__(self, filters):
+        self.filters = filters
+
+
+class _Audio:
+    def __init__(self, loud):
+        self.loudness = loud
+
+
+class _Profile:
+    def __init__(self, filters):
+        self.audio = _Audio(_Loud(filters))
+
+
+def test_build_loudness_defaults():
+    from beatbird.audio.loudness import build_loudness
+    p = _Profile([_F("bass_shelf", 6.0), _F("timpani_body", 3.0)])
+    filters, curve, lo, hi = build_loudness(p, {})
+    by = {f.name: f for f in filters}
+    assert by["bass_shelf"].base_gain == 10  # from DEFAULT_BASE
+    assert by["bass_shelf"].max_boost == 6.0  # from profile
+    assert by["bass_shelf"].freq == 120
+    assert (curve, lo, hi) == ("smoothstep", 10, 75)
+
+
+def test_build_loudness_override_wins():
+    from beatbird.audio.loudness import build_loudness
+    p = _Profile([_F("bass_shelf", 6.0), _F("timpani_body", 3.0)])
+    ov = {"loudness": {"curve": "legacy", "knee_low": 5, "knee_high": 70,
+                       "filters": {"bass_shelf": {"base_gain": 2, "max_boost": 11}}}}
+    filters, curve, lo, hi = build_loudness(p, ov)
+    by = {f.name: f for f in filters}
+    assert (by["bass_shelf"].base_gain, by["bass_shelf"].max_boost) == (2.0, 11.0)
+    # untouched filter keeps profile/default
+    assert (by["timpani_body"].base_gain, by["timpani_body"].max_boost) == (3.0, 3.0)
+    assert (curve, lo, hi) == ("legacy", 5, 70)
+
+
+def test_build_loudness_skips_unknown_filter():
+    from beatbird.audio.loudness import build_loudness
+    p = _Profile([_F("bass_shelf", 6.0), _F("not_a_real_filter", 5.0)])
+    filters, *_ = build_loudness(p, {})
+    assert [f.name for f in filters] == ["bass_shelf"]

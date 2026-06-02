@@ -28,7 +28,9 @@ OVERRIDES_PATH = "/var/lib/beatbird/settings-overrides.json"
 # the profile YAML. All fields optional; missing = no override.
 
 def empty() -> dict:
-    return {"palette": None, "idle": None}
+    # loudness: {"curve": "smoothstep", "knee_low": 10, "knee_high": 75,
+    #            "filters": {"bass_shelf": {"base_gain": 3, "max_boost": 8}, …}}
+    return {"palette": None, "idle": None, "loudness": None}
 
 
 def load(path: str = OVERRIDES_PATH) -> dict:
