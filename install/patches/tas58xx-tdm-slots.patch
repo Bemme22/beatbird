@@ -101,9 +101,17 @@ index cd50670..b8b0324 100644
 +	tas58xx->has_analog_gain =
 +		!device_property_read_u32(dev, "ti,analog-gain",
 +					  &tas58xx->analog_gain);
-+	if (tas58xx->has_analog_gain)
++	if (tas58xx->has_analog_gain) {
++		tas58xx->analog_gain &= 0x1f;
++		/* Seed the driver's stored again value (tas58xx->gain) so its
++		 * normal gain-apply — which runs at stream start AFTER do_work —
++		 * writes OUR value instead of the 0 dB default. A do_work
++		 * regmap_write alone gets clobbered by that apply on codecs whose
++		 * mixer control never reaches userspace (the multi-codec case). */
++		tas58xx->gain = tas58xx->analog_gain;
 +		dev_info(dev, "%s: analog gain=0x%02x (from device tree)\n",
-+			 __func__, tas58xx->analog_gain & 0x1f);
++			 __func__, tas58xx->analog_gain);
++	}
 +
  	ret = regulator_enable(tas58xx->pvdd);
  	if (ret < 0) {
