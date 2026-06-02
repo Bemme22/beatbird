@@ -212,6 +212,18 @@ recompiled, dmesg confirms, mid output scope-verified clean + level-tracking).
 This is exactly the bit-alignment Andriy couldn't verify without hardware.
 Ribbons measured 4.3 Ω and survived the debugging (disconnected during it).
 
+**✅ PER-CODEC ANALOG GAIN SOLVED (2026-06-02, commits 4ef6b30 + 33e17b9).** The
+multi-codec `simple-audio-card` link only surfaces ONE codec's mixer controls
+(Mid), so the woofer/ribbon AGAIN (reg 0x54) had no ALSA control and the driver
+reset it to 0x00 (MAX) on every stream start — a flat-ribbon hazard. Fixed in the
+driver patch: an optional per-codec `ti,analog-gain` DT property, **seeded into
+`tas58xx->gain` at probe** so the driver's normal gain-apply writes it (a do_work
+regmap_write alone got clobbered by that apply). Bench-verified holding during a
+live stream: **Mid 0x06 (−3 dB) · Woofer 0x0b (−5.5 dB) · Ribbon 0x10 (−8 dB)**.
+Race-free, no bridge polling. The ribbon is now capped at −8 dB analog before any
+chassis is connected. `05-tas-driver.sh` now resets the source + applies with
+`--recount` so the patch can grow without hand-fixing @@ offsets.
+
 **Remaining (needs the chassis physically connected — user does this "wenn alles
 da ist"):** channel-ID (which TDM slot drives which driver) at **minimal**
 volume, **fan running**, woofer+mids first / **ribbons LAST** → CamillaDSP
