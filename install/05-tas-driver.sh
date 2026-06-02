@@ -50,10 +50,14 @@ if [[ "$IS_TRIPLE" == true ]]; then
   PATCH="$REPO_DIR/install/patches/tas58xx-tdm-slots.patch"
   if [[ -f "$PATCH" ]]; then
     cd "$SRC"
-    if git apply --reverse --check "$PATCH" 2>/dev/null; then
-      log_ok "TDM patch bereits angewendet"
-    elif git apply --check "$PATCH" 2>/dev/null; then
-      git apply "$PATCH"
+    # Reset the working tree first so a CHANGED patch re-applies cleanly. The
+    # source carries the previous patch un-committed; without the reset a stale
+    # partial state makes both the reverse- and forward-check fail and the old
+    # code gets built silently. Reset → apply makes the step idempotent.
+    git checkout -- . 2>/dev/null || true
+    # --recount: trust the +/-/context lines, not the @@ counts, so we can add
+    # hunks to the patch without hand-fixing every header offset.
+    if git apply --recount "$PATCH"; then
       log_ok "TDM patch angewendet"
     else
       log_warn "TDM patch passt nicht (Upstream geändert?) — manuell prüfen: $PATCH"

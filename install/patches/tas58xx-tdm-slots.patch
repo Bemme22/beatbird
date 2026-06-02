@@ -8,6 +8,8 @@ index cd50670..b8b0324 100644
  
 +	bool					tdm_mode;          /* true if ti,tdm-slot-offset present */
 +	unsigned int			tdm_slot_offset;   /* RX data offset in BCLKs (0/64/128/...) */
++	bool					has_analog_gain;   /* true if ti,analog-gain present */
++	unsigned int			analog_gain;       /* AGAIN reg 0x54 value, 0..0x1f */
 +
  	struct work_struct		work;
  	struct mutex			lock;
@@ -37,6 +39,20 @@ index cd50670..b8b0324 100644
 +			dev_info(&tas58xx->i2c->dev,
 +				 "%s: TDM mode, SAP_CTRL1=0x17, slot offset=%u BCLKs\n",
 +				 __func__, tas58xx->tdm_slot_offset);
++			/* Per-codec analog gain (AGAIN 0x54). In a multi-codec
++			 * simple-audio-card link only ONE codec's mixer controls
++			 * reach userspace, so the woofer/ribbon AGAIN can't be set
++			 * via ALSA and the driver resets it to 0x00 (max) on every
++			 * stream start — dangerous for the flat ribbon. Setting it
++			 * here, from the device tree, is race-free: it lands with
++			 * the SAP writes at stream start, before any audio. */
++			if (tas58xx->has_analog_gain) {
++				regmap_write(rm, TAS58XX_REG_AGAIN,
++					     tas58xx->analog_gain & 0x1f);
++				dev_info(&tas58xx->i2c->dev,
++					 "%s: analog gain AGAIN=0x%02x (from device tree)\n",
++					 __func__, tas58xx->analog_gain & 0x1f);
++			}
 +		}
 +
  		tas58xx->dsp_initialized = true;
@@ -78,6 +94,17 @@ index cd50670..b8b0324 100644
 +		dev_info(dev, "%s: TDM mode, slot offset=%u BCLKs (from device tree)\n",
 +			 __func__, tas58xx->tdm_slot_offset);
 +
++	/* Optional per-codec analog gain (AGAIN reg 0x54, value 0..0x1f =
++	 * 0dB..-15.5dB in 0.5dB steps). Used for flat-TDM gain staging where the
++	 * woofer/ribbon have no reachable ALSA gain control. Absent = leave the
++	 * driver/chip default. */
++	tas58xx->has_analog_gain =
++		!device_property_read_u32(dev, "ti,analog-gain",
++					  &tas58xx->analog_gain);
++	if (tas58xx->has_analog_gain)
++		dev_info(dev, "%s: analog gain=0x%02x (from device tree)\n",
++			 __func__, tas58xx->analog_gain & 0x1f);
++
  	ret = regulator_enable(tas58xx->pvdd);
  	if (ret < 0) {
  		dev_err(dev, "%s: failed to enable pvdd: %d\n", 
@@ -91,6 +118,7 @@ index 414e561..ee64bc3 100644
  #define TAS58XX_REG_SDOUT_SEL       0x30
 +#define TAS58XX_REG_SAP_CTRL1       0x33
 +#define TAS58XX_REG_SAP_CTRL2       0x34
++#define TAS58XX_REG_AGAIN           0x54   /* Analog gain AGAIN[4:0], datasheet 0x54 */
  #define TAS58XX_REG_CLKDET_STATUS   0x39
  #define TAS58XX_REG_UNDOCUMENTED_0  0x46
  #define TAS58XX_REG_VOL_CTRL        0x4c
