@@ -43,6 +43,16 @@ display:
   type: amoled
   variant: waveshare-1.43
   serial_device: auto
+  # Petrol/cream enclosure → warm gold accent (Teal+Gold complement). The
+  # five extended slots are the firmware theme.h defaults (cream/linen/rust),
+  # pinned explicitly so display + web UI read identically. Drives both the
+  # AMOLED (PAL:) and the web UI theme().
+  accent_color:   "E8C07D"   # champagne gold, a touch warmer than the F0CB7B default
+  accent_glow:    "FFE6B3"   # brighter champagne
+  accent_dim:     "3C321E"   # ~25% accent on black
+  text_primary:   "F4EFE0"   # cream
+  text_secondary: "A89E89"   # linen
+  accent_alert:   "C73E2C"   # rust
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback subs; firmware uses LV:-driven energy ring instead
   cover_background:
     enabled: false       # parked: 466×466 JPEG decode + composite is too heavy for ESP32-S3, full display stutters during cover swap
