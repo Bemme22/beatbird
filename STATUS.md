@@ -340,8 +340,16 @@ to avoid losing HA history.
   accent (overrides Pico azure), subtle top glow + card shadow/radius, header
   bird-mark + online dot, per-source coloured badges (Spotify/BT/Snapcast),
   current-page nav highlight. Deployed + render-verified on the Zipp.
-- [ ] Migrate `/health`, `/settings`, `/bluetooth` to the Pico+htmx
-  template stack (still inline HTML — they don't yet inherit the new accent).
+- [x] **Display-matched theme** (2026-06-03, commit 22d3327) — the web UI now
+  echoes the AMOLED's Nothing-Glyph look: bundles Departure Mono (OFL, the same
+  display font) as a webfont, and a `theme()` Jinja global mirrors firmware
+  `theme.h` (pure-black bg, cream/linen text, champagne accent + glow + rust,
+  source colours 1:1). The accent is the *effective* speaker palette (profile +
+  overrides) so a colour set for the display retints the browser. Replaces the
+  earlier amber brand pass.
+- [x] Migrate `/settings` + `/bluetooth` to the Pico+htmx base template
+  (2026-06-03, commit 22d3327) — dead inline-HTML constants deleted; both now
+  inherit the display theme. `/health` still inline (diagnostics-only, not in nav).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
