@@ -20,6 +20,39 @@ if [[ "$WEB_ENABLED" != "true" ]]; then
   exit 0
 fi
 
+# ─── Persist-overrides helper ────────────────────────────────────────────────
+# On overlayroot=tmpfs (Beat, Zipp) the settings-overrides.json the web UI
+# writes lands in tmpfs — browser tweaks (palette / idle / loudness voicing)
+# apply live but vanish on reboot. This helper copies the live file onto the
+# persistent lower (/media/root-ro) by briefly remounting it rw, so a one-click
+# "persist" survives reboot without a manual overlayroot-chroot. No-op on a
+# plain rw root (the file already persists there). Run as root via sudo.
+log_step "installing beatbird-persist-overrides helper"
+PERSIST_HELPER=/usr/local/sbin/beatbird-persist-overrides
+cat > "$PERSIST_HELPER" <<'HELP'
+#!/bin/bash
+set -e
+SRC=/var/lib/beatbird/settings-overrides.json
+LOWER=/media/root-ro
+[ -f "$SRC" ] || { echo "no overrides file — nothing to persist"; exit 0; }
+# Plain rw root (no overlayroot overlay on /): already persistent.
+if ! mount | grep -q "overlayroot on / "; then
+  echo "plain rw root — overrides already persistent"
+  exit 0
+fi
+[ -d "$LOWER" ] || { echo "no $LOWER — cannot persist" >&2; exit 1; }
+DST="$LOWER/var/lib/beatbird/settings-overrides.json"
+mount -o remount,rw "$LOWER"
+trap 'mount -o remount,ro "$LOWER" 2>/dev/null || true' EXIT
+mkdir -p "$(dirname "$DST")"
+cp "$SRC" "$DST"
+chown "$(stat -c '%U:%G' "$SRC")" "$DST" 2>/dev/null || true
+sync
+echo "persisted $SRC -> $DST"
+HELP
+chmod 0755 "$PERSIST_HELPER"
+log_ok "wrote $PERSIST_HELPER"
+
 log_step "installing sudoers rule for web UI system buttons"
 
 SUDOERS_FILE=/etc/sudoers.d/beatbird-web
@@ -44,6 +77,7 @@ $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl start snapclient
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl stop snapclient
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/local/sbin/beatbird-persist-overrides
 EOF
 chmod 0440 "$SUDOERS_FILE"
 

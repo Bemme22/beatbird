@@ -45,6 +45,15 @@
   <div id="loudness-panel" hx-get="/ui/advanced/loudness" hx-trigger="load" hx-swap="innerHTML">
     <span style="color:var(--pico-muted-color)">Lade…</span>
   </div>
+  <hr style="margin:0.8rem 0 0.6rem">
+  <button class="secondary" onclick="persistSettings()" style="width:100%">
+    💾 Einstellungen dauerhaft sichern (Reboot-fest)
+  </button>
+  <p style="margin:0.3rem 0 0;color:var(--pico-muted-color);font-size:0.8rem">
+    Auf overlayroot=tmpfs-Speakern landen Browser-Änderungen sonst nur im RAM und
+    sind nach dem Reboot weg. Dieser Knopf schreibt sie auf die persistente Platte.
+  </p>
+  <p id="persist-status" style="color:var(--pico-muted-color);font-size:0.85rem;margin:0.4rem 0 0"></p>
 </article>
 
 <!-- Service control + reboot -->
@@ -139,6 +148,17 @@
       .then(r => r.json())
       .then(() => { htmx.ajax('GET', '/ui/advanced/loudness', '#loudness-panel'); })
       .catch(e => { alert('Fehler: ' + e); });
+  }
+  function persistSettings() {
+    const s = document.getElementById('persist-status');
+    s.textContent = 'Sichere auf Platte…';
+    fetch('/api/persist', { method: 'POST' })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        s.textContent = ok ? ('✓ ' + (d.msg || 'gesichert — überlebt jetzt den Reboot.'))
+                           : ('Fehler: ' + (d.detail || JSON.stringify(d)));
+      })
+      .catch(e => { s.textContent = 'Fehler: ' + e; });
   }
 </script>
 {% endblock %}

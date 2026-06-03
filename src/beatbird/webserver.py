@@ -501,6 +501,24 @@ def ui_advanced_loudness(request: Request):
                                       {"l": get_loudness()})
 
 
+@app.post("/api/persist")
+def persist_overrides():
+    """Copy the live settings-overrides (palette / idle / loudness voicing) onto
+    the persistent disk so browser tweaks survive a reboot on overlayroot=tmpfs.
+    No-op on a plain rw root. Calls the sudoers-allowed helper installed by
+    install/55-web-sudo.sh."""
+    try:
+        r = subprocess.run(
+            ["sudo", "/usr/local/sbin/beatbird-persist-overrides"],
+            check=False, timeout=25, capture_output=True, text=True,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"persist failed: {e}")
+    if r.returncode != 0:
+        raise HTTPException(500, f"persist failed: {(r.stderr or r.stdout).strip()}")
+    return {"ok": True, "msg": (r.stdout.strip() or "persisted")}
+
+
 # ─── Bluetooth pairing & device management ──────────────────────────────────
 # The bridge owns the BluetoothSource runtime; this controller just talks
 # to bluez via the same bluetoothctl helpers so the web UI and bridge see
