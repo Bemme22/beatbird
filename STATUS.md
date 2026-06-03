@@ -307,10 +307,12 @@ to avoid losing HA history.
 ## Backlog — open
 
 ### Code-review leftovers
-- [ ] **Web vol-mapping ignores profile gamma** — `webserver.py` uses
-  default min/max/gamma in `db_to_pct`/`pct_to_db`, so on `curve_gamma>1`
-  speakers the dashboard % differs from the display + bypasses loudness.
-  Load profile gamma or route through the bridge.
+- [x] **Web vol-mapping ignores profile gamma** (2026-06-03, commit 779a640) —
+  `webserver.py` called `db_to_pct`/`pct_to_db` with library defaults (min -60,
+  max 0, gamma 1.0), so on `curve_gamma>1` speakers the dashboard % differed from
+  the display AND a 100% drag pushed past `max_db` (zipp-mini-2: hit 0 dB vs the
+  −10 dB ceiling). New `_vol_params()` reads `profile.audio.volume` and is spread
+  into all three call sites. Verified on the Zipp: 100% → −10 dB (was 0 dB).
 - [ ] **`_refresh_system()` can overwrite a live volume drag** (5 s tick) —
   add a ~1.5 s last-user-touch guard after `set_volume`.
 - [ ] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** → move to
