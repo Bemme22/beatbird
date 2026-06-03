@@ -30,7 +30,11 @@ OVERRIDES_PATH = "/var/lib/beatbird/settings-overrides.json"
 def empty() -> dict:
     # loudness: {"curve": "smoothstep", "knee_low": 10, "knee_high": 75,
     #            "filters": {"bass_shelf": {"base_gain": 3, "max_boost": 8}, …}}
-    return {"palette": None, "idle": None, "loudness": None}
+    # dsp_config: name of a non-production CamillaDSP config to hot-swap to
+    #            (e.g. "<speaker>-meas" for REW). None = the profile's
+    #            production config. While non-None the bridge suspends loudness
+    #            patching so the flat/variant config isn't re-EQ'd underneath.
+    return {"palette": None, "idle": None, "loudness": None, "dsp_config": None}
 
 
 def load(path: str = OVERRIDES_PATH) -> dict:

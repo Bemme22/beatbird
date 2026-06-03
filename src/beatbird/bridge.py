@@ -24,6 +24,7 @@ import time
 from enum import Enum
 
 from beatbird.audio.camilladsp import CamillaDSP, pct_to_db, db_to_pct
+from beatbird.audio import dsp_configs
 from beatbird.audio.loudness import LoudnessController, build_loudness
 from beatbird.audio.sfx import SoundEffects
 from beatbird.audio.spectrum import SpectrumAnalyzer
@@ -255,6 +256,12 @@ class BeatBirdBridge:
         self.hardware = _build_hardware(profile)
         self.display = _build_display(profile)
         self.loudness = _build_loudness(profile, self.dsp)
+        # DSP config hot-swap state. _active_dsp_config tracks what CamillaDSP
+        # is currently running; _dsp_flat_mode is True while a non-production
+        # (measurement / variant) config is active, during which loudness
+        # patching is suspended so the flat config isn't re-EQ'd underneath.
+        self._active_dsp_config = profile.audio.camilladsp_config
+        self._dsp_flat_mode = False
 
         # UI sound effects — short blips for boot, volume, play/pause,
         # skip, BT-connect, standby. Routes through CamillaDSP via the
@@ -711,8 +718,7 @@ class BeatBirdBridge:
         # the filters stay at their YAML base_gain until the first volume
         # change, which means quiet listening sounds thin until the user
         # nudges the volume.
-        if self.loudness:
-            self.loudness.apply(self.current_volume)
+        self._apply_loudness(self.current_volume)
 
         # Welcome jingle. Plays through CamillaDSP at the restored
         # master volume so a quiet startup stays quiet — the signature
@@ -784,8 +790,7 @@ class BeatBirdBridge:
         self.current_volume = pct
         self.current_volume_db = db
         log.info("Volume → %d%% (%.1f dB)", pct, db)
-        if self.loudness:
-            self.loudness.apply(pct)
+        self._apply_loudness(pct)
         # Volume tick — throttled inside the sfx module so a rotary
         # gesture (which fires many set_volume calls per second) plays
         # at most ~10 ticks/sec instead of buzzing.
@@ -972,8 +977,7 @@ class BeatBirdBridge:
                 self.dsp.set_volume_db(db)
                 self.current_volume = sp_pct
                 self.current_volume_db = db
-                if self.loudness:
-                    self.loudness.apply(sp_pct)
+                self._apply_loudness(sp_pct)
 
         # State + metadata
         if state.stopped:
@@ -1095,6 +1099,14 @@ class BeatBirdBridge:
             log.info("rss idle source: %s", rss_url)
         self._rss_weight = rss_weight
 
+    def _apply_loudness(self, pct: int) -> None:
+        """Apply loudness compensation at ``pct`` — unless a flat/measurement
+        DSP config is active, in which case there are no loudness filters to
+        patch and we'd just log PatchConfig errors. Single choke point so the
+        flat-mode guard lives in one place, not at every volume change."""
+        if self.loudness and not self._dsp_flat_mode:
+            self.loudness.apply(pct)
+
     def _apply_overrides(self, data: dict, initial: bool = False) -> None:
         """Layer web-UI overrides on top of profile defaults. Called once
         at startup (initial=True) and again whenever the overrides file
@@ -1134,12 +1146,39 @@ class BeatBirdBridge:
         if idle and not initial:
             log.info("overrides: idle updated %s", idle)
 
+        # DSP config hot-swap — the web UI can switch this speaker to a
+        # measurement / variant config (config/camilladsp/<name>.yml). Done
+        # over the CamillaDSP websocket (no service restart). While a non-
+        # production config is active we set _dsp_flat_mode so loudness
+        # patching is suspended (below + at every volume change) — otherwise
+        # the bridge would re-EQ the flat config. Runtime-only: a camilladsp
+        # restart reverts to production; the bridge re-applies on its next poll
+        # if the override still requests the variant.
+        prod = self.profile.audio.camilladsp_config
+        want = data.get("dsp_config")
+        if want and not dsp_configs.is_valid(prod, want):
+            log.warning("overrides: unknown dsp_config %r — ignoring", want)
+            want = None
+        target = want or prod
+        if target != self._active_dsp_config:
+            path = dsp_configs.config_path(target)
+            if path.is_file() and self.dsp.set_config_path(str(path)):
+                self._active_dsp_config = target
+                self._dsp_flat_mode = bool(want)
+                log.info("overrides: DSP config → %s%s", target,
+                         "  (flat — loudness suspended)" if self._dsp_flat_mode
+                         else "  (production)")
+            else:
+                log.warning("overrides: DSP config swap to %s failed "
+                            "(missing file or DSP unreachable)", target)
+
         # Loudness voicing — the web UI tunes base_gain / max_boost / curve /
         # knees. Rebuild the definition from profile + override and re-apply at
         # the current volume. Skipped on initial: the controller was already
         # built with overrides in _build_loudness, and the first real apply()
-        # happens in start() once the DSP socket is up.
-        if not initial and self.loudness is not None:
+        # happens in start() once the DSP socket is up. Also skipped in flat
+        # mode (a measurement config has no loudness filters to patch).
+        if not initial and self.loudness is not None and not self._dsp_flat_mode:
             try:
                 filters, curve, knee_low, knee_high = build_loudness(self.profile, data)
                 self.loudness.set_params(filters, curve, knee_low, knee_high)

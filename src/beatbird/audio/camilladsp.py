@@ -194,3 +194,32 @@ class CamillaDSP:
     def patch_filters(self, patch: dict[str, dict]) -> None:
         """Apply a PatchConfig for filter parameter changes."""
         self._cmd({"PatchConfig": {"filters": patch}})
+
+    # ─── Config hot-swap ─────────────────────────────────────────────────────
+
+    def set_config_path(self, path: str) -> bool:
+        """Hot-swap the running config to the YAML at ``path`` (no service
+        restart). Points CamillaDSP at the file then Reloads it. Returns True
+        if the active path matches afterwards. The DSP must be able to READ
+        the path (it runs as the repo-owning user, so repo configs work).
+
+        Runtime-only: a camilladsp service restart reverts to the installed
+        /etc/camilladsp/config.yml. That's deliberate — a measurement/variant
+        swap never silently outlives a restart."""
+        self._cmd({"SetConfigFilePath": path})
+        self._cmd("Reload")
+        return self._cmd("GetConfigFilePath") == path
+
+    def get_config_path(self) -> str | None:
+        return self._cmd("GetConfigFilePath")
+
+    # ─── Health / headroom telemetry ─────────────────────────────────────────
+
+    def get_clipped_samples(self) -> int | None:
+        """Count of clipped samples since the last config (re)load. A rising
+        count during playback is the smoking gun for the bass-heavy click/pop."""
+        return self._cmd("GetClippedSamples")
+
+    def get_processing_load(self) -> float | None:
+        """DSP processing load (CamillaDSP reports it as a percentage)."""
+        return self._cmd("GetProcessingLoad")

@@ -1,0 +1,72 @@
+---
+# MEASUREMENT CONFIG — Zipp Mini 2 (LTH200), flat baseline for REW sweeps.
+#
+# Switched to live from the web UI's DSP-config dropdown (no service restart).
+# While active the bridge suspends loudness patching, so what REW sees is
+# exactly this file — nothing re-EQ'd underneath.
+#
+# Differs from the production zipp-mini-2.yml: ALL tonal EQ + the loudness
+# filters + the soft-clip limiter are removed, so you measure the raw response
+# you then voice on top of. KEPT on purpose:
+#   - devices identical to production (44.1k capture + Synchronous resampler)
+#     so the measurement runs through the same signal chain music does.
+#   - mono_sum (−8 dB) — headroom + the same summing as production.
+#   - the LR4 @ 4 kHz crossover — measure each driver in its actual passband.
+#   - tweeter_trim (−5 dB, inverted) — keep the acoustic crossover summing
+#     correct (polarity + level match) so the measured XO region is real.
+#   - sub_protect (35 Hz Butterworth HP) — driver safety during sweeps.
+# Drop any of these if you want a more raw per-driver measurement.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+mixers:
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+filters:
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass, freq: 4000, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 4000, order: 4}
+  tweeter_trim:
+    type: Gain
+    parameters:
+      gain: -5.0
+      inverted: true
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 35, order: 4}
+pipeline:
+  - type: Mixer
+    name: mono_sum
+  - type: Filter
+    channels: [0]
+    names: [sub_protect, xover_lp]
+  - type: Filter
+    channels: [1]
+    names: [xover_hp, tweeter_trim]
