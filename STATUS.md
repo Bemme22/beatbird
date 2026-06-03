@@ -326,16 +326,22 @@ to avoid losing HA history.
 - [ ] **dead `dma_done_count`** in firmware `main.cpp` — remove.
 
 ### Web UI / polish
-- [ ] **"Persist settings" button** — on overlayroot=tmpfs the settings-overrides
-  (palette / idle / **loudness voicing**) are written to tmpfs, so browser tweaks
-  apply live but DON'T survive a reboot without an `overlayroot-chroot` write. Add
-  a one-shot helper (sudoers-allowed script) that copies the live
-  `/var/lib/beatbird/settings-overrides.json` onto the persistent disk, exposed as
-  a button in `/advanced`. Do this together with the Web UI prettifying pass below.
-  (The loudness voicing UI shipped 2026-06-02, commit 6687921, but each retune
-  currently needs a manual chroot-persist — this button closes that gap.)
+- [x] **"Persist settings" button** (2026-06-03, commit bc2001e) — on
+  overlayroot=tmpfs the settings-overrides (palette / idle / **loudness voicing**)
+  live in tmpfs, so browser tweaks apply live but don't survive a reboot. Helper
+  `/usr/local/sbin/beatbird-persist-overrides` (installed by `55-web-sudo.sh`,
+  sudoers-allowed) remounts `/media/root-ro` rw and copies the live overrides
+  onto it; no-op on plain rw root. Exposed as 💾 *"Einstellungen dauerhaft sichern"*
+  in the Voicing card on `/advanced`, via `POST /api/persist` (returns a clean 503
+  if the helper isn't provisioned yet). NOTE: the helper + sudoers rule install
+  only on the next provisioning pass — already-running speakers need
+  `sudo bash install/55-web-sudo.sh` once before the button works end-to-end.
+- [x] **Web UI prettifying pass** (2026-06-03, commit 767599d) — amber brand
+  accent (overrides Pico azure), subtle top glow + card shadow/radius, header
+  bird-mark + online dot, per-source coloured badges (Spotify/BT/Snapcast),
+  current-page nav highlight. Deployed + render-verified on the Zipp.
 - [ ] Migrate `/health`, `/settings`, `/bluetooth` to the Pico+htmx
-  template stack (still inline HTML).
+  template stack (still inline HTML — they don't yet inherit the new accent).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
