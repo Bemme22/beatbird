@@ -18,12 +18,40 @@
     <span class="num" id="vol-pct">{{ status.volume }}%</span>
   </header>
   <input type="range" min="0" max="100" value="{{ status.volume }}"
-         name="pct"
+         name="pct" id="vol-slider"
          hx-post="/ui/vol"
          hx-trigger="input changed delay:150ms"
          hx-swap="none"
          hx-on::after-request="document.getElementById('vol-pct').textContent = this.value + '%'">
 </article>
+
+<script>
+  // Keep the slider in sync with the speaker — turning the knob on the
+  // display (or another phone) should move it here too. The catch is not
+  // stomping a live drag: skip the sync for 1.5 s after the last touch and
+  // never while the user is holding the thumb. Polls the cheap /api/volume,
+  // not the full status snapshot.
+  (function () {
+    var slider = document.getElementById('vol-slider');
+    var label = document.getElementById('vol-pct');
+    if (!slider) return;
+    var lastTouch = 0;
+    var GUARD_MS = 1500;
+    slider.addEventListener('input', function () { lastTouch = Date.now(); });
+    setInterval(function () {
+      if (Date.now() - lastTouch < GUARD_MS) return;
+      fetch('/api/volume').then(function (r) { return r.json(); }).then(function (s) {
+        if (typeof s.pct !== 'number') return;
+        if (Date.now() - lastTouch < GUARD_MS) return;     // re-check after await
+        if (document.activeElement === slider) return;      // thumb held
+        if (parseInt(slider.value, 10) !== s.pct) {
+          slider.value = s.pct;
+          label.textContent = s.pct + '%';
+        }
+      }).catch(function () {});
+    }, 2500);
+  })();
+</script>
 
 <!-- Bluetooth — pair button + connected device + paired-devices list.
      Pair-now posts to a UI endpoint that opens a 60 s discoverable

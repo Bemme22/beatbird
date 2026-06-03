@@ -188,6 +188,15 @@ def set_volume(req: VolumeReq):
     return {"ok": True, "pct": req.pct}
 
 
+@app.get("/api/volume")
+def get_volume():
+    """Just the current volume %. Cheap (one cached-WS read) so the dashboard
+    can poll it to track the display knob / other clients without hitting the
+    full /api/status (which also reads hardware I2C + 3 service probes)."""
+    db = _dsp.get_volume_db()
+    return {"pct": db_to_pct(db, *_vol_params()) if db is not None else 0}
+
+
 @app.post("/api/playback")
 def set_playback(req: PlaybackReq):
     cmd = req.cmd.upper()
