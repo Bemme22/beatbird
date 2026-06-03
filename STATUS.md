@@ -313,8 +313,12 @@ to avoid losing HA history.
   the display AND a 100% drag pushed past `max_db` (zipp-mini-2: hit 0 dB vs the
   −10 dB ceiling). New `_vol_params()` reads `profile.audio.volume` and is spread
   into all three call sites. Verified on the Zipp: 100% → −10 dB (was 0 dB).
-- [ ] **`_refresh_system()` can overwrite a live volume drag** (5 s tick) —
-  add a ~1.5 s last-user-touch guard after `set_volume`.
+- [x] **`_refresh_system()` can overwrite a live volume drag** (2026-06-03,
+  commit 682b4d1) — the legacy polling dashboard that caused it is gone (migrated
+  to template). Re-added live sync the right way: dashboard polls cheap
+  `GET /api/volume` every 2.5 s so the slider follows the display knob / other
+  clients, guarded by a 1.5 s last-touch window + activeElement check so a drag
+  is never stomped.
 - [ ] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** → move to
   `audio.volume.safe_first_boot_pct` (Lounge may want lower).
 - [ ] **`SpotifyClient._call` return convention** (None/`{}`/dict) — tighten

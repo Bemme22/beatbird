@@ -231,6 +231,7 @@ class BeatBirdBridge:
         self.vol_min_db = profile.audio.volume.min_db
         self.vol_max_db = profile.audio.volume.max_db
         self.vol_gamma  = profile.audio.volume.curve_gamma
+        self.vol_safe_first_boot = profile.audio.volume.safe_first_boot_pct
 
         self.dsp = CamillaDSP()
         self.spotify = SpotifyClient() if profile.sources.spotify.enabled else None
@@ -660,8 +661,7 @@ class BeatBirdBridge:
         # 2) /var/lib/beatbird/state.json — our own last-known-good
         #    persisted value. Survives a reboot even when CDSP's state
         #    got wiped (overlay tmpfs, fresh image, etc.).
-        # 3) SAFE_FIRST_BOOT_PCT (25 %) as the conservative default.
-        SAFE_FIRST_BOOT_PCT = 25
+        # 3) the profile's safe_first_boot_pct as the conservative default.
         persisted = self._load_persistent_state()
         persisted_pct = persisted.get("volume_pct")
         if not isinstance(persisted_pct, int) or not 0 <= persisted_pct <= 100:
@@ -671,7 +671,7 @@ class BeatBirdBridge:
         if db is None:
             # DSP unreachable — fall back to persisted state if we have one,
             # else the conservative default.
-            target = persisted_pct if persisted_pct is not None else SAFE_FIRST_BOOT_PCT
+            target = persisted_pct if persisted_pct is not None else self.vol_safe_first_boot
             log.warning(
                 "DSP volume unreadable at start, %s to %d%%",
                 "restoring persisted" if persisted_pct is not None else "defaulting",
@@ -685,7 +685,7 @@ class BeatBirdBridge:
         elif db > self.vol_max_db + 0.5:
             # DSP is at boot default (0 dB max). Prefer our persisted value
             # over the blind 25 % snap.
-            target = persisted_pct if persisted_pct is not None else SAFE_FIRST_BOOT_PCT
+            target = persisted_pct if persisted_pct is not None else self.vol_safe_first_boot
             log.warning(
                 "DSP volume %.1f dB exceeds profile max %.1f dB (stale state?), "
                 "%s to %d%%",

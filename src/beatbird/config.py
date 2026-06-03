@@ -85,6 +85,10 @@ class VolumeConfig(BaseModel):
     # speaker decision, not a silent breaking change for existing setups.
     # See beatbird.audio.camilladsp.pct_to_db for the formula.
     curve_gamma: float = 1.0
+    # Conservative volume the bridge snaps to on a genuine first boot (no
+    # persisted state, DSP at its 0 dB default). Per-speaker because a big
+    # passive system (Lounge) wants to come up quieter than a desk speaker.
+    safe_first_boot_pct: int = 25
 
 
 class Sfx(BaseModel):
