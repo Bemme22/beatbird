@@ -9,7 +9,10 @@
     <strong style="font-size:1.05rem">
       {% if status.title %}{{ status.title }}{% else %}<span style="color:var(--pico-muted-color)">Nichts spielt</span>{% endif %}
     </strong>
-    <span class="pill {% if status.source and status.source != 'none' %}on{% endif %}">
+    <span class="pill
+      {% if status.source == 'spotify' %}src-spotify
+      {% elif status.source == 'bluetooth' %}src-bluetooth
+      {% elif status.source == 'snapcast' %}src-snapcast{% endif %}">
       {% if status.source == 'spotify' %}Spotify
       {% elif status.source == 'bluetooth' %}Bluetooth
       {% elif status.source == 'snapcast' %}Snapcast

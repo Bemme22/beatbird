@@ -507,6 +507,12 @@ def persist_overrides():
     the persistent disk so browser tweaks survive a reboot on overlayroot=tmpfs.
     No-op on a plain rw root. Calls the sudoers-allowed helper installed by
     install/55-web-sudo.sh."""
+    if not os.path.exists("/usr/local/sbin/beatbird-persist-overrides"):
+        raise HTTPException(
+            503,
+            "Persist-Helper noch nicht installiert — install/55-web-sudo.sh "
+            "ausführen (geschieht beim nächsten Provisioning).",
+        )
     try:
         r = subprocess.run(
             ["sudo", "/usr/local/sbin/beatbird-persist-overrides"],

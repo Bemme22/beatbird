@@ -11,27 +11,55 @@
 
   <style>
     /* Pico defaults are great; here we tighten only the speaker-specific
-       bits. Cards stay compact on phones, transport buttons are large
-       enough for thumbs without help text. */
+       bits and give BeatBird a warm amber accent so it reads as "ours"
+       rather than stock Pico azure. Cards stay compact on phones,
+       transport buttons are large enough for thumbs without help text. */
     :root {
       --pico-form-element-spacing-vertical: 0.6rem;
       --pico-spacing: 0.9rem;
+      --pico-border-radius: 0.7rem;
+      /* Brand accent — amber. Override Pico's primary so buttons, the
+         volume range and links all pick it up in one place. */
+      --pico-primary: #f4a52b;
+      --pico-primary-hover: #ffb648;
+      --pico-primary-focus: rgba(244, 165, 43, 0.3);
+      --pico-primary-inverse: #1a1205;
+      --pico-primary-background: #f4a52b;
+      --pico-primary-hover-background: #ffb648;
+      --bb-accent: #f4a52b;
     }
-    body { padding: 1rem; max-width: 640px; margin: 0 auto; }
-    h1 { font-size: 1.5rem; letter-spacing: 0.02em; margin-bottom: 0.3rem; }
-    h1 .sub { color: var(--pico-muted-color); font-size: 0.9rem; font-weight: 400; }
+    body {
+      padding: 1rem; max-width: 640px; margin: 0 auto;
+      /* A whisper of warmth at the top so the dark UI isn't flat black. */
+      background-image: radial-gradient(120% 60% at 50% -10%, rgba(244,165,43,0.06), transparent 70%);
+      background-attachment: fixed;
+    }
+    header.app { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.1rem; }
+    header.app .mark { font-size: 1.6rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(244,165,43,0.4)); }
+    h1 { font-size: 1.45rem; letter-spacing: 0.02em; margin: 0; line-height: 1.15; }
+    h1 .sub { display: block; color: var(--pico-muted-color); font-size: 0.85rem; font-weight: 400; letter-spacing: 0.04em; }
+    .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #2ec27e; box-shadow: 0 0 6px #2ec27e; margin-left: auto; flex: none; }
+    article { box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
     nav.bottom { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); font-size: 0.85rem; }
-    nav.bottom a { margin-right: 1rem; color: var(--pico-muted-color); }
+    nav.bottom a { margin-right: 1rem; color: var(--pico-muted-color); text-decoration: none; padding-bottom: 0.2rem; }
+    nav.bottom a:hover { color: var(--pico-contrast); }
+    nav.bottom a.active { color: var(--bb-accent); border-bottom: 2px solid var(--bb-accent); }
     .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
-    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; background: var(--pico-card-sectioning-background-color); color: var(--pico-muted-color); }
+    .pill { display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; background: var(--pico-card-sectioning-background-color); color: var(--pico-muted-color); white-space: nowrap; }
     .pill.on { background: var(--pico-primary); color: var(--pico-primary-inverse); }
+    /* Per-source badge colours — instantly readable at a glance. */
+    .pill.src-spotify  { background: #1db954; color: #04230f; }
+    .pill.src-bluetooth{ background: #0a84ff; color: #001a3d; }
+    .pill.src-snapcast { background: #a06cd5; color: #1e0f33; }
     .num { font-variant-numeric: tabular-nums; }
   </style>
   {% block head_extra %}{% endblock %}
 </head>
 <body>
-  <header>
-    <h1>{{ name }}<br><span class="sub">{% block subtitle %}{% endblock %}</span></h1>
+  <header class="app">
+    <span class="mark">🐦</span>
+    <h1>{{ name }}<span class="sub">{% block subtitle %}{% endblock %}</span></h1>
+    <span class="dot" title="online"></span>
   </header>
 
   <main>
@@ -46,5 +74,17 @@
       <a href="/advanced">Diagnose</a>
     {% endblock %}
   </nav>
+  <script>
+    // Highlight the nav link for the current page (exact match, with "/"
+    // treated as the dashboard root). Pure client-side so the partials
+    // and htmx swaps never need to care about it.
+    (function () {
+      var p = location.pathname.replace(/\/$/, '') || '/';
+      document.querySelectorAll('nav.bottom a').forEach(function (a) {
+        var href = a.getAttribute('href').replace(/\/$/, '') || '/';
+        if (href === p) a.classList.add('active');
+      });
+    })();
+  </script>
 </body>
 </html>
