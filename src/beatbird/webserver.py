@@ -82,6 +82,16 @@ def _hardware():
     return NullHardware()
 
 
+def _vol_params():
+    """(min_db, max_db, gamma) from the active profile's volume curve.
+
+    The bridge + display map the 0..100 slider through these; the web UI must
+    use the SAME params or its % drifts from the display and a drag can push
+    past the profile's max_db. Spread into pct_to_db()/db_to_pct()."""
+    v = _get_profile().audio.volume
+    return v.min_db, v.max_db, v.curve_gamma
+
+
 # ─── Pydantic models ─────────────────────────────────────────────────────────
 
 class VolumeReq(BaseModel):
@@ -130,7 +140,7 @@ def get_profile():
 @app.get("/api/status")
 def get_status():
     db = _dsp.get_volume_db()
-    vol_pct = db_to_pct(db) if db is not None else 0
+    vol_pct = db_to_pct(db, *_vol_params()) if db is not None else 0
     state = _spotify.get_state()
     amp = _hardware().read_status()
     return {
@@ -174,7 +184,7 @@ def get_filters():
 def set_volume(req: VolumeReq):
     if not 0 <= req.pct <= 100:
         raise HTTPException(400, "pct must be 0..100")
-    _dsp.set_volume_db(pct_to_db(req.pct))
+    _dsp.set_volume_db(pct_to_db(req.pct, *_vol_params()))
     return {"ok": True, "pct": req.pct}
 
 
@@ -946,7 +956,7 @@ async def ui_vol(request: Request):
     except (TypeError, ValueError):
         raise HTTPException(400, "bad pct")
     pct = max(0, min(100, pct))
-    _dsp.set_volume_db(pct_to_db(pct))
+    _dsp.set_volume_db(pct_to_db(pct, *_vol_params()))
     return HTMLResponse("")  # hx-swap="none" — slider handles its own UI
 
 
