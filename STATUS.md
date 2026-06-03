@@ -356,11 +356,41 @@ to avoid losing HA history.
 - [x] Migrate `/settings` + `/bluetooth` to the Pico+htmx base template
   (2026-06-03, commit 22d3327) — dead inline-HTML constants deleted; both now
   inherit the display theme. `/health` still inline (diagnostics-only, not in nav).
+- [x] **DSP config switcher + headroom monitor** (2026-06-03, commit 60b16fe) —
+  Diagnose card hot-swaps CamillaDSP configs without a service restart (Produktion
+  / **Messmodus-flat for REW** / variants), via a `dsp_config` settings-override
+  the *bridge* applies (single owner — web + bridge never fight the running
+  config). While a non-production config is active the bridge suspends loudness
+  patching (`_dsp_flat_mode` → `_apply_loudness` choke point) so the flat config
+  isn't re-EQ'd; a camilladsp restart reverts to production (runtime-only by
+  design). New `zipp-mini-2-meas.yml` (crossover + sub-protect + tweeter polarity,
+  no tonal EQ/loudness/limiter). Card also shows live clipped-samples + processing
+  load (`GET /api/dsp-health`) so the bass-heavy click/pop is measurable. Switchable
+  configs are discovered by prefix (`config/camilladsp/<name>*.yml`) — drop a YAML
+  + `git pull` and it appears. Full web→bridge flow verified on the Zipp.
+  TODO: `beat-meas.yml` + deploy the web commit to the Beat (was offline).
+- [ ] **Live vol mapping / `capture_samplerate`** — configs hardcode
+  `capture_samplerate: 44100`; verify every source feeds 44.1k or a 48k source
+  hitting the loopback pitches/speeds. (Surfaced during the DSP-switcher work.)
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
+
+### CamillaDSP optimisation ideas (surfaced 2026-06-03)
+- [ ] **Native `Loudness` filter** — replace the manual bass-gain PatchConfig
+  with CamillaDSP's built-in ISO-226 Loudness processor. Removes the patch-on-
+  every-volume-change coefficient jump (a click source) + the drift-bug risk +
+  the whole LoudnessController. BUT the browser voicing feature is built on the
+  manual approach — would need rethinking. Biggest architectural lever.
+- [ ] **Gain-staging / headroom** — the bass path stacks ~+14 dB; even with the
+  soft-clip limiter, sustained bass slams it (the click/pop suspect). A small
+  global pre-attenuation would keep the limiter off most of the time. Use the new
+  `/api/dsp-health` clip monitor to measure before/after.
+- [ ] **Limiter truth** — the `Limiter` is an instantaneous soft-clipper, NOT an
+  attack/release limiter; the "attack 5 ms / release 80 ms" comments in the
+  configs are wrong. Fix the comments or move to `Compressor` w/ makeup.
 
 ### Sound design ideas (non-blocking)
 - [ ] Tilt-EQ filter with MQTT-switchable warm/neutral/bright presets.
