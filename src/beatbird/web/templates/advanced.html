@@ -56,6 +56,20 @@
   <p id="persist-status" style="color:var(--pico-muted-color);font-size:0.85rem;margin:0.4rem 0 0"></p>
 </article>
 
+<!-- DSP config switcher (measurement / variant hot-swap) + headroom monitor.
+     The bridge owns the swap; this card just writes the dsp_config override
+     and polls live clipping/load. -->
+<article id="dsp-card">
+  <header><strong>DSP-Config & Headroom</strong></header>
+  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
+    Heißer Wechsel der CamillaDSP-Config ohne Neustart — z. B. Messmodus (flat)
+    fürs REW-Einmessen. Greift in ≤5 s; im Messmodus pausiert die Loudness.
+  </p>
+  <div id="dsp-panel" hx-get="/ui/advanced/dsp" hx-trigger="load" hx-swap="innerHTML">
+    <span style="color:var(--pico-muted-color)">Lade…</span>
+  </div>
+</article>
+
 <!-- Service control + reboot -->
 <article id="service-card">
   <header><strong>Services</strong></header>
@@ -160,5 +174,38 @@
       })
       .catch(e => { s.textContent = 'Fehler: ' + e; });
   }
+
+  // DSP config switch — writes the override; the bridge hot-swaps within ~5 s.
+  // Re-fetch the panel so the dropdown selection + the MESSMODUS banner reflect
+  // the new active config.
+  function switchDsp(name) {
+    var sel = document.getElementById('dsp-select');
+    if (sel) sel.disabled = true;
+    fetch('/api/dsp-config', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) alert('Wechsel fehlgeschlagen: ' + (d.detail || JSON.stringify(d)));
+        setTimeout(function () { htmx.ajax('GET', '/ui/advanced/dsp', '#dsp-panel'); }, 800);
+      })
+      .catch(e => { alert('Fehler: ' + e); if (sel) sel.disabled = false; });
+  }
+
+  // Live headroom monitor — poll only while the DSP panel is on screen.
+  setInterval(function () {
+    var c = document.getElementById('dsp-clipped');
+    if (!c) return;
+    fetch('/api/dsp-health').then(r => r.json()).then(function (h) {
+      var clip = document.getElementById('dsp-clipped');
+      var load = document.getElementById('dsp-load');
+      if (clip) {
+        clip.textContent = (h.clipped == null) ? '–' : h.clipped;
+        clip.style.color = (h.clipped > 0) ? 'var(--bb-alert)' : 'var(--bb-text)';
+      }
+      if (load) load.textContent = (h.load == null) ? '–' : (Math.round(h.load * 10) / 10 + '%');
+    }).catch(function () {});
+  }, 2000);
 </script>
 {% endblock %}

@@ -1,0 +1,33 @@
+{# DSP config switcher + live headroom monitor. Swapped into #dsp-panel by
+   htmx; the switchDsp()/dsp-health poll live page-level in advanced.html so
+   they survive the swap. #}
+{% if dsp.flat_active %}
+<p style="margin:0 0 0.7rem;padding:0.5rem 0.7rem;border-radius:6px;
+          background:rgba(199,62,44,0.15);border:1px solid var(--bb-alert);
+          color:var(--bb-alert);font-size:0.82rem;letter-spacing:0.04em">
+  ⚠ MESSMODUS AKTIV — flach, kein EQ/Loudness/Limiter. Zum normalen Hören
+  wieder auf <strong>Produktion</strong> stellen.
+</p>
+{% endif %}
+
+<label style="display:block;font-size:0.82rem;color:var(--bb-text-2);margin-bottom:0.6rem">
+  Aktive DSP-Config
+  <select id="dsp-select" onchange="switchDsp(this.value)" style="margin-top:0.25rem">
+    {% for c in dsp.configs %}
+    <option value="{{ c.name }}" {% if c.active %}selected{% endif %}>{{ c.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+
+<div style="display:flex;gap:1.4rem;font-size:0.82rem;color:var(--bb-text-2);
+            border-top:1px solid var(--bb-line);padding-top:0.6rem">
+  <div>Clipping
+    <div class="num" id="dsp-clipped" style="font-size:1.1rem;color:var(--bb-text)">–</div>
+  </div>
+  <div>Load
+    <div class="num" id="dsp-load" style="font-size:1.1rem;color:var(--bb-text)">–</div>
+  </div>
+  <div style="margin-left:auto;align-self:end;color:var(--bb-text-3);font-size:0.74rem">
+    Bass-Track spielen → steigt „Clipping", fehlt Headroom.
+  </div>
+</div>

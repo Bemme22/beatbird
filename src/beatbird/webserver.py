@@ -40,6 +40,7 @@ from beatbird import settings_overrides, system
 from beatbird.sources import bluetooth as bt
 from beatbird.audio.camilladsp import CamillaDSP, db_to_pct, pct_to_db
 from beatbird.audio import loudness
+from beatbird.audio import dsp_configs
 from beatbird.config import load_profile
 from beatbird.hardware import louder_hat
 from beatbird.sources.spotify import SpotifyClient
@@ -615,6 +616,76 @@ def persist_overrides():
     if r.returncode != 0:
         raise HTTPException(500, f"persist failed: {(r.stderr or r.stdout).strip()}")
     return {"ok": True, "msg": (r.stdout.strip() or "persisted")}
+
+
+# ─── DSP config switcher (measurement / variant hot-swap) ────────────────────
+
+class DspConfigReq(BaseModel):
+    name: str   # a stem from this speaker's switchable set, or the production name
+
+
+def _dsp_label(name: str, production: str) -> str:
+    """Friendly label for a config stem-name."""
+    if name == production:
+        return "Produktion (Voicing)"
+    suffix = name[len(production):].lstrip("-_") if name.startswith(production) else name
+    if suffix in ("meas", "measure", "measurement"):
+        return "Messmodus (flat, REW)"
+    return suffix.replace("-", " ").replace("_", " ").title() or name
+
+
+@app.get("/api/dsp-configs")
+def get_dsp_configs():
+    """The CamillaDSP configs this speaker can hot-swap between + which is
+    active. Active = the dsp_config override, else the production config."""
+    production = _get_profile().audio.camilladsp_config
+    active = settings_overrides.load().get("dsp_config") or production
+    names = dsp_configs.list_configs(production)
+    return {
+        "production": production,
+        "active": active,
+        "flat_active": active != production,
+        "configs": [
+            {"name": n, "label": _dsp_label(n, production),
+             "is_production": n == production, "active": n == active}
+            for n in names
+        ],
+    }
+
+
+@app.post("/api/dsp-config")
+def set_dsp_config(req: DspConfigReq):
+    """Request a DSP config switch. Writes the dsp_config override; the bridge
+    hot-swaps CamillaDSP on its next poll (≤5 s) and suspends loudness while a
+    non-production config is active. Selecting the production config clears the
+    override."""
+    production = _get_profile().audio.camilladsp_config
+    if req.name != production and not dsp_configs.is_valid(production, req.name):
+        raise HTTPException(400, f"unknown DSP config {req.name!r} for this speaker")
+    out = settings_overrides.load()
+    out["dsp_config"] = None if req.name == production else req.name
+    try:
+        settings_overrides.save(out)
+    except Exception as e:
+        raise HTTPException(500, f"dsp_config save failed: {e}")
+    return {"ok": True, "active": req.name, "flat_active": req.name != production}
+
+
+@app.get("/api/dsp-health")
+def get_dsp_health():
+    """Live headroom telemetry: clipped-sample count + processing load. A
+    rising clipped count during a bass-heavy track is the click/pop smoking
+    gun. Cheap (cached-WS reads)."""
+    return {
+        "clipped": _dsp.get_clipped_samples(),
+        "load": _dsp.get_processing_load(),
+    }
+
+
+@app.get("/ui/advanced/dsp", response_class=HTMLResponse)
+def ui_advanced_dsp(request: Request):
+    return templates.TemplateResponse(request, "_advanced_dsp.html",
+                                      {"dsp": get_dsp_configs()})
 
 
 # ─── Bluetooth pairing & device management ──────────────────────────────────
