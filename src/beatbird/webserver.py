@@ -358,6 +358,79 @@ def get_settings():
     return {"palette": palette, "idle": idle, "overrides": ov}
 
 
+# ─── Web theme — mirror the speaker's display palette into CSS ────────────────
+# theme.h is the firmware source of truth (Nothing-Glyph aesthetic on the round
+# AMOLED). The web UI echoes it so the browser feels like an extension of the
+# display: pure-black bg, Departure Mono, cream/linen text, champagne accent.
+# The accent (and any pushed palette slots) come live from profile + overrides
+# so a colour the user sets for the speaker also retints the web UI.
+
+# Compile-time fallbacks copied verbatim from firmware theme.h Color::*_DEFAULT.
+_THEME_FALLBACK = {
+    "a": "F0CB7B",  # accent — champagne gold
+    "g": "FFE6B3",  # glow   — brighter champagne
+    "d": "3C321E",  # dim    — ~25% accent on black
+    "p": "F4EFE0",  # text primary — cream
+    "s": "A89E89",  # text secondary — linen
+    "e": "C73E2C",  # alert  — rust
+}
+
+
+def _shade(hex6: str, pct: float) -> str:
+    """Lighten (pct>0, toward white) or darken (pct<0, toward black) a bare
+    rrggbb string. Mirrors the settings page's deriveFromAccent() so a glow/dim
+    we synthesise here matches what the speaker derives."""
+    r, g, b = int(hex6[0:2], 16), int(hex6[2:4], 16), int(hex6[4:6], 16)
+    if pct >= 0:
+        r, g, b = r + (255 - r) * pct, g + (255 - g) * pct, b + (255 - b) * pct
+    else:
+        r, g, b = r * (1 + pct), g * (1 + pct), b * (1 + pct)
+    return "{:02X}{:02X}{:02X}".format(
+        *(max(0, min(255, round(v))) for v in (r, g, b)))
+
+
+def _theme_ctx() -> dict:
+    """Effective display palette → CSS-ready hex tokens. Registered as the
+    Jinja global ``theme()`` so base.html can set its CSS variables from it."""
+    p = _get_profile()
+    ov = settings_overrides.load()
+    ov_pal = ov.get("palette") if isinstance(ov.get("palette"), dict) else {}
+
+    prof = {
+        "a": p.display.accent_color, "g": p.display.accent_glow,
+        "d": p.display.accent_dim,   "p": p.display.text_primary,
+        "s": p.display.text_secondary, "e": p.display.accent_alert,
+    }
+
+    def slot(k: str) -> str | None:
+        v = _hex6(ov_pal.get(k)) or _hex6(prof.get(k))   # "#rrggbb" or None
+        return v[1:].upper() if v else None
+
+    accent = slot("a") or _THEME_FALLBACK["a"]
+    glow   = slot("g") or _shade(accent, 0.30)
+    dim    = slot("d") or _shade(accent, -0.70)
+    textp  = slot("p") or _THEME_FALLBACK["p"]
+    texts  = slot("s") or _THEME_FALLBACK["s"]
+    alert  = slot("e") or _THEME_FALLBACK["e"]
+
+    r, g, b = int(accent[0:2], 16), int(accent[2:4], 16), int(accent[4:6], 16)
+    # Relative luminance → dark ink on a light accent, cream on a dark one,
+    # so button text stays legible whatever palette the user picks.
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    inverse = "1A1205" if lum > 140 else "F4EFE0"
+
+    return {
+        "accent": "#" + accent, "glow": "#" + glow, "dim": "#" + dim,
+        "text": "#" + textp, "text2": "#" + texts, "alert": "#" + alert,
+        "inverse": "#" + inverse, "accent_rgb": f"{r},{g},{b}",
+    }
+
+
+# Expose to every template (used by base.html). Recomputed per render so a
+# live palette override retints the UI on the next page load.
+templates.env.globals["theme"] = _theme_ctx
+
+
 @app.post("/api/settings")
 def set_settings(req: SettingsReq):
     """Persist overrides to disk. PATCH semantics — only the keys present
@@ -1235,341 +1308,22 @@ def health_page():
     return _HEALTH_HTML.format(name=p.identity.friendly_name)
 
 
-# ─── /settings page — live editor for palette + idle/RSS ─────────────────────
-
-_SETTINGS_HTML = """<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BeatBird Settings — {name}</title>
-<style>
- body{{font:14px/1.45 system-ui,sans-serif;background:#111;color:#eee;max-width:640px;margin:1.2em auto;padding:0 1em 2em}}
- h1{{font-weight:400;letter-spacing:.05em;margin:0 0 .2em}}
- h1 a{{color:#888;font-size:13px;text-decoration:none;float:right}}
- h2{{font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#777;margin:1.4em 0 .4em}}
- .card{{background:#1c1c1c;border-radius:6px;padding:.9em 1.1em;margin:.4em 0}}
- .pal{{display:grid;grid-template-columns:90px 50px 110px 1fr;gap:.5em;align-items:center;margin:.35em 0}}
- .pal label{{color:#888;font-size:12px}}
- .pal .swatch{{width:36px;height:24px;border-radius:4px;border:1px solid #444}}
- .pal input[type=color]{{width:50px;height:30px;background:none;border:0;padding:0;cursor:pointer}}
- .pal input[type=text]{{background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.3em .5em;font-family:ui-monospace,monospace;font-size:12px;width:90px}}
- .pal .hint{{color:#666;font-size:11px}}
- .field{{display:grid;grid-template-columns:160px 1fr;gap:.6em;align-items:center;margin:.4em 0}}
- .field label{{color:#888;font-size:12px}}
- input[type=text].url{{width:100%;background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.4em .6em;font-family:ui-monospace,monospace;font-size:12px;box-sizing:border-box}}
- input[type=number]{{background:#222;color:#eee;border:1px solid #333;border-radius:3px;padding:.3em .5em;font-size:13px;width:80px}}
- input[type=range]{{flex:1;accent-color:#888}}
- .slider-row{{display:flex;align-items:center;gap:.5em}}
- button{{background:#2a2a2a;color:#eee;border:0;border-radius:4px;padding:.5em 1em;margin:.2em .15em .2em 0;cursor:pointer;font-size:13px}}
- button:hover{{background:#3a3a3a}}
- button.primary{{background:#284028;color:#cfc}}
- button.primary:hover{{background:#385038}}
- #status{{font-size:12px;color:#888;margin-left:.6em}}
- .legend{{color:#666;font-size:11px;margin:.3em 0 .8em}}
-</style></head>
-<body>
-<h1>{name} — Settings <a href="/">← Dashboard</a></h1>
-<div class="legend">Live editor. Änderungen werden in /var/lib/beatbird/settings-overrides.json gespeichert und vom Bridge-Daemon innerhalb von ~5 s übernommen — kein Neustart nötig.</div>
-
-<h2>Palette</h2>
-<div class="card">
- <div class="legend">Slots: <code>a</code>=accent, <code>g</code>=glow, <code>d</code>=dim, <code>p</code>=text primary, <code>s</code>=text secondary, <code>e</code>=alert. Leerlassen = Profile-Default.</div>
- <div id="palette"></div>
- <div style="margin-top:.6em">
-  <button onclick="deriveFromAccent()">Aus Accent ableiten</button>
-  <button onclick="clearPalette()">Auf Profile-Default zurücksetzen</button>
- </div>
-</div>
-
-<h2>Standby — RSS feed</h2>
-<div class="card">
- <div class="field">
-  <label>RSS URL</label>
-  <input id="rss_url" type="text" class="url" placeholder="https://www.tagesschau.de/xml/rss2/">
- </div>
- <div class="field">
-  <label>Refresh (min)</label>
-  <input id="rss_refresh" type="number" min="1" max="1440" step="1" value="30">
- </div>
- <div class="field">
-  <label>RSS-Anteil</label>
-  <div class="slider-row">
-   <input id="rss_weight" type="range" min="0" max="100" step="5" value="50">
-   <span id="rss_weight_v" style="font-family:ui-monospace,monospace;width:3em;text-align:right">50%</span>
-  </div>
- </div>
- <div class="legend">0% = nur lokale Airport-Board-Sprüche, 100% = nur RSS-Headlines. URL leerlassen schaltet RSS komplett aus.</div>
-</div>
-
-<div class="card" style="text-align:right">
- <button class="primary" onclick="save()">Speichern</button>
- <span id="status"></span>
-</div>
-
-<script>
- const SLOTS = ['a','g','d','p','s','e'];
- const SLOT_LABEL = {{a:'accent',g:'glow',d:'dim',p:'text primary',s:'text secondary',e:'alert'}};
- let current = {{palette:{{}}, idle:{{}}, overrides:{{}}}};
-
- function isHex6(s) {{ return typeof s==='string' && /^#[0-9a-f]{{6}}$/i.test(s); }}
-
- function renderPalette() {{
-  const wrap = document.getElementById('palette');
-  wrap.innerHTML = '';
-  const ovPal = current.overrides && current.overrides.palette || {{}};
-  for (const k of SLOTS) {{
-   const eff = current.palette[k] || '#000000';
-   const overridden = !!ovPal[k];
-   const row = document.createElement('div');
-   row.className = 'pal';
-   row.innerHTML = `
-    <label>${{k}} <span style="color:#555">${{SLOT_LABEL[k]}}</span></label>
-    <input type="color" data-slot="${{k}}" value="${{eff}}">
-    <input type="text" data-slot-hex="${{k}}" value="${{eff}}" maxlength="7">
-    <span class="hint">${{overridden ? 'override' : 'profile default'}}</span>`;
-   wrap.appendChild(row);
-   const c = row.querySelector('input[type=color]');
-   const t = row.querySelector('input[type=text]');
-   c.addEventListener('input', () => {{ t.value = c.value; }});
-   t.addEventListener('input', () => {{ if (isHex6(t.value)) c.value = t.value; }});
-  }}
- }}
-
- function readPalette() {{
-  const out = {{}};
-  for (const k of SLOTS) {{
-   const t = document.querySelector(`input[data-slot-hex="${{k}}"]`);
-   const v = (t && t.value || '').trim().toLowerCase();
-   if (isHex6(v)) out[k] = v;
-  }}
-  return out;
- }}
-
- function shade(hex, pct) {{
-  // pct in [-1, +1]; -1 → black, +1 → white. Used by deriveFromAccent.
-  const c = hex.startsWith('#') ? hex.slice(1) : hex;
-  let r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
-  if (pct >= 0) {{ r += (255-r)*pct; g += (255-g)*pct; b += (255-b)*pct; }}
-  else          {{ r *= (1+pct);     g *= (1+pct);     b *= (1+pct); }}
-  const h = v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0');
-  return '#'+h(r)+h(g)+h(b);
- }}
-
- function deriveFromAccent() {{
-  const t = document.querySelector('input[data-slot-hex="a"]');
-  if (!t || !isHex6(t.value)) {{ alert('Accent (a) muss ein gültiger #rrggbb-Wert sein.'); return; }}
-  const a = t.value.toLowerCase();
-  const derived = {{
-    a: a,
-    g: shade(a, +0.35),    // glow — brighter
-    d: shade(a, -0.55),    // dim  — darker
-    p: '#ffffff',
-    s: '#888888',
-    e: '#e85050',
-  }};
-  current.palette = derived;
-  current.overrides.palette = derived;
-  renderPalette();
- }}
-
- function clearPalette() {{
-  current.overrides.palette = {{}};
-  // Re-fetch so we display profile defaults
-  load().then(()=>{{}});
- }}
-
- async function load() {{
-  const r = await fetch('/api/settings');
-  current = await r.json();
-  renderPalette();
-  document.getElementById('rss_url').value = current.idle.rss_url || '';
-  document.getElementById('rss_refresh').value = current.idle.rss_refresh_minutes || 30;
-  const w = Math.round((current.idle.rss_weight ?? 0.5) * 100);
-  document.getElementById('rss_weight').value = w;
-  document.getElementById('rss_weight_v').textContent = w + '%';
- }}
-
- document.getElementById('rss_weight').addEventListener('input', e => {{
-  document.getElementById('rss_weight_v').textContent = e.target.value + '%';
- }});
-
- async function save() {{
-  const body = {{
-    palette: readPalette(),
-    idle: {{
-      rss_url: document.getElementById('rss_url').value.trim(),
-      rss_refresh_minutes: parseInt(document.getElementById('rss_refresh').value, 10),
-      rss_weight: parseInt(document.getElementById('rss_weight').value, 10) / 100,
-    }},
-  }};
-  const st = document.getElementById('status');
-  st.textContent = 'speichere…';
-  try {{
-   const r = await fetch('/api/settings', {{method:'POST',
-     headers:{{'content-type':'application/json'}},
-     body: JSON.stringify(body)}});
-   if (!r.ok) throw new Error('HTTP ' + r.status);
-   st.textContent = 'gespeichert ✓ (Bridge übernimmt innerhalb 5 s)';
-   setTimeout(load, 6000);   // reload after bridge has applied
-  }} catch (e) {{
-   st.textContent = 'Fehler: ' + e;
-  }}
- }}
-
- load();
-</script>
-</body></html>
-"""
-
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page():
+def settings_page(request: Request):
     p = _get_profile()
-    return _SETTINGS_HTML.format(name=p.identity.friendly_name)
+    return templates.TemplateResponse(request, "settings.html", {
+        "name": p.identity.friendly_name,
+    })
 
-
-# ─── /bluetooth page — pairing + trusted-device management ──────────────────
-
-_BLUETOOTH_HTML = """<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BeatBird Bluetooth — {name}</title>
-<style>
- body{{font:14px/1.45 system-ui,sans-serif;background:#111;color:#eee;max-width:640px;margin:1.2em auto;padding:0 1em 2em}}
- h1{{font-weight:400;letter-spacing:.05em;margin:0 0 .2em}}
- h1 a{{color:#888;font-size:13px;text-decoration:none;float:right}}
- h2{{font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#777;margin:1.4em 0 .4em}}
- .card{{background:#1c1c1c;border-radius:6px;padding:.9em 1.1em;margin:.4em 0}}
- .dev{{display:grid;grid-template-columns:1fr auto;gap:.6em;padding:.6em .2em;border-top:1px solid #2a2a2a;align-items:center}}
- .dev:first-child{{border-top:0}}
- .dev .name{{font-weight:500}}
- .dev .meta{{color:#777;font-size:11px;font-family:ui-monospace,monospace;margin-top:.15em}}
- .badge{{display:inline-block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:.15em .5em;border-radius:3px;margin-right:.3em}}
- .badge.on{{background:#1f3a1f;color:#9d9}} .badge.off{{background:#2a2a2a;color:#777}}
- .actions{{white-space:nowrap}}
- button{{background:#2a2a2a;color:#eee;border:0;border-radius:4px;padding:.4em .8em;margin:.1em;cursor:pointer;font-size:12px}}
- button:hover{{background:#3a3a3a}}
- button.primary{{background:#284028;color:#cfc}}
- button.primary:hover{{background:#385038}}
- button.warn{{background:#3a1e1e;color:#e88}}
- button.warn:hover{{background:#4a2a2a}}
- #pair-bar{{display:flex;align-items:center;gap:.8em}}
- #pair-status{{color:#888;font-size:12px}}
- .legend{{color:#666;font-size:11px;margin:.3em 0 .8em}}
- .empty{{color:#666;padding:.6em 0;text-align:center;font-size:12px}}
-</style></head>
-<body>
-<h1>{name} — Bluetooth <a href="/">← Dashboard</a></h1>
-<div class="legend">Paired devices auto-reconnect when in range as long as they're <strong>trusted</strong>. Forget removes the pairing entirely on both sides.</div>
-
-<h2>Pairing-Modus</h2>
-<div class="card">
- <div id="pair-bar">
-  <button class="primary" id="pair-btn" onclick="startPair()">Pairing starten (60 s)</button>
-  <span id="pair-status">Adapter offline — klick auf Pairing starten, dann am Handy nach &quot;{name}&quot; suchen.</span>
- </div>
-</div>
-
-<h2>Gekoppelte Geräte</h2>
-<div class="card" id="device-list">
- <div class="empty">(lade…)</div>
-</div>
-
-<script>
- let pairCountdown = 0;
- let pairTimer = null;
-
- async function load() {{
-  const r = await fetch('/api/bluetooth');
-  const j = await r.json();
-  const wrap = document.getElementById('device-list');
-  wrap.innerHTML = '';
-  if (!j.devices.length) {{
-   wrap.innerHTML = '<div class="empty">Noch keine gekoppelten Geräte.</div>';
-   return;
-  }}
-  for (const d of j.devices) {{
-   const row = document.createElement('div');
-   row.className = 'dev';
-   row.innerHTML = `
-    <div>
-     <div class="name">${{d.alias || '(unbenannt)'}}</div>
-     <div class="meta">
-      ${{d.connected ? '<span class="badge on">connected</span>' : '<span class="badge off">offline</span>'}}
-      ${{d.trusted   ? '<span class="badge on">trusted</span>'   : '<span class="badge off">untrusted</span>'}}
-      <span style="margin-left:.5em">${{d.mac}}</span>
-     </div>
-    </div>
-    <div class="actions">
-     <button onclick="act('${{d.mac}}','${{d.trusted ? 'untrust' : 'trust'}}')">${{d.trusted ? 'Untrust' : 'Trust'}}</button>
-     ${{d.connected ? `<button onclick="act('${{d.mac}}','disconnect')">Trennen</button>` : ''}}
-     <button class="warn" onclick="forget('${{d.mac}}','${{d.alias}}')">Vergessen</button>
-    </div>`;
-   wrap.appendChild(row);
-  }}
- }}
-
- async function startPair() {{
-  const btn = document.getElementById('pair-btn');
-  btn.disabled = true;
-  btn.textContent = 'Pairing aktiv…';
-  try {{
-   const r = await fetch('/api/bluetooth/discoverable', {{
-     method:'POST',headers:{{'content-type':'application/json'}},
-     body: JSON.stringify({{seconds:60}})
-   }});
-   if (!r.ok) throw new Error('HTTP ' + r.status);
-   pairCountdown = 60;
-   const status = document.getElementById('pair-status');
-   const tick = () => {{
-     if (pairCountdown <= 0) {{
-       status.textContent = 'Pairing-Fenster geschlossen.';
-       btn.disabled = false;
-       btn.textContent = 'Pairing starten (60 s)';
-       clearInterval(pairTimer);
-       load();
-       return;
-     }}
-     status.textContent = `Adapter sichtbar für ${{pairCountdown}} s — am Handy nach &quot;{name}&quot; suchen.`;
-     pairCountdown--;
-   }};
-   tick();
-   pairTimer = setInterval(() => {{ tick(); load(); }}, 1000);
-  }} catch (e) {{
-   document.getElementById('pair-status').textContent = 'Fehler: ' + e;
-   btn.disabled = false;
-   btn.textContent = 'Pairing starten (60 s)';
-  }}
- }}
-
- async function act(mac, action) {{
-  try {{
-   const r = await fetch('/api/bluetooth/device', {{
-     method:'POST',headers:{{'content-type':'application/json'}},
-     body: JSON.stringify({{mac, action}})
-   }});
-   if (!r.ok) throw new Error('HTTP ' + r.status);
-   load();
-  }} catch (e) {{
-   alert(action + ' fehlgeschlagen: ' + e);
-  }}
- }}
-
- async function forget(mac, alias) {{
-  if (!confirm(`&quot;${{alias || mac}}&quot; vergessen? Muss dann neu gekoppelt werden.`)) return;
-  await act(mac, 'forget');
- }}
-
- load();
- setInterval(load, 5000);
-</script>
-</body></html>
-"""
 
 
 @app.get("/bluetooth", response_class=HTMLResponse)
-def bluetooth_page():
+def bluetooth_page(request: Request):
     p = _get_profile()
-    return _BLUETOOTH_HTML.format(name=p.identity.friendly_name)
+    return templates.TemplateResponse(request, "bluetooth.html", {
+        "name": p.identity.friendly_name,
+    })
 
 
 def main():

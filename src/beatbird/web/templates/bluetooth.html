@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Bluetooth{% endblock %}
+{% block subtitle %}Bluetooth{% endblock %}
+
+{% block head_extra %}
+<style>
+  .legend { color: var(--bb-text-3); font-size: 0.78rem; margin: 0 0 0.8rem; }
+  #pair-bar { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+  #pair-status { color: var(--bb-text-2); font-size: 0.8rem; }
+  .dev { display: grid; grid-template-columns: 1fr auto; gap: 0.6rem; padding: 0.6rem 0.1rem; border-top: 1px solid var(--bb-line); align-items: center; }
+  .dev:first-child { border-top: 0; }
+  .dev .name { font-weight: 500; color: var(--bb-text); }
+  .dev .meta { color: var(--bb-text-3); font-size: 0.7rem; margin-top: 0.2rem; }
+  .badge { display: inline-block; font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.12rem 0.45rem; border-radius: 3px; margin-right: 0.3rem; }
+  .badge.on { background: rgba(30,215,96,0.15); color: #4ade80; }
+  .badge.off { background: var(--bb-card-2); color: var(--bb-text-3); }
+  .dev .actions { white-space: nowrap; }
+  .dev .actions button { font-size: 0.72rem; padding: 0.35rem 0.7rem; margin: 0.1rem; }
+  .empty { color: var(--bb-text-3); padding: 0.6rem 0; text-align: center; font-size: 0.8rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<p class="legend">Gekoppelte Geräte verbinden sich automatisch wieder, solange sie
+  <strong>trusted</strong> sind. „Vergessen" löscht die Kopplung auf beiden Seiten.</p>
+
+<h2>Pairing-Modus</h2>
+<article>
+  <div id="pair-bar">
+    <button id="pair-btn" onclick="startPair()">Pairing starten (60 s)</button>
+    <span id="pair-status">Klick auf „Pairing starten", dann am Handy nach „{{ name }}" suchen.</span>
+  </div>
+</article>
+
+<h2>Gekoppelte Geräte</h2>
+<article id="device-list">
+  <div class="empty">(lade…)</div>
+</article>
+
+<script>
+  const DEVICE_NAME = {{ name | tojson }};
+  let pairCountdown = 0;
+  let pairTimer = null;
+
+  async function load() {
+    const r = await fetch('/api/bluetooth');
+    const j = await r.json();
+    const wrap = document.getElementById('device-list');
+    wrap.innerHTML = '';
+    if (!j.devices.length) {
+      wrap.innerHTML = '<div class="empty">Noch keine gekoppelten Geräte.</div>';
+      return;
+    }
+    for (const d of j.devices) {
+      const row = document.createElement('div');
+      row.className = 'dev';
+      row.innerHTML = `
+        <div>
+          <div class="name">${d.alias || '(unbenannt)'}</div>
+          <div class="meta">
+            ${d.connected ? '<span class="badge on">connected</span>' : '<span class="badge off">offline</span>'}
+            ${d.trusted ? '<span class="badge on">trusted</span>' : '<span class="badge off">untrusted</span>'}
+            <span style="margin-left:.4em">${d.mac}</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="secondary outline" onclick="act('${d.mac}','${d.trusted ? 'untrust' : 'trust'}')">${d.trusted ? 'Untrust' : 'Trust'}</button>
+          ${d.connected ? `<button class="secondary outline" onclick="act('${d.mac}','disconnect')">Trennen</button>` : ''}
+          <button class="secondary" onclick="forget('${d.mac}','${d.alias}')">Vergessen</button>
+        </div>`;
+      wrap.appendChild(row);
+    }
+  }
+
+  async function startPair() {
+    const btn = document.getElementById('pair-btn');
+    btn.disabled = true;
+    btn.textContent = 'Pairing aktiv…';
+    try {
+      const r = await fetch('/api/bluetooth/discoverable', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ seconds: 60 })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      pairCountdown = 60;
+      const status = document.getElementById('pair-status');
+      const tick = () => {
+        if (pairCountdown <= 0) {
+          status.textContent = 'Pairing-Fenster geschlossen.';
+          btn.disabled = false;
+          btn.textContent = 'Pairing starten (60 s)';
+          clearInterval(pairTimer);
+          load();
+          return;
+        }
+        status.textContent = `Sichtbar für ${pairCountdown} s — am Handy nach „${DEVICE_NAME}" suchen.`;
+        pairCountdown--;
+      };
+      tick();
+      pairTimer = setInterval(() => { tick(); load(); }, 1000);
+    } catch (e) {
+      document.getElementById('pair-status').textContent = 'Fehler: ' + e;
+      btn.disabled = false;
+      btn.textContent = 'Pairing starten (60 s)';
+    }
+  }
+
+  async function act(mac, action) {
+    try {
+      const r = await fetch('/api/bluetooth/device', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mac, action })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      load();
+    } catch (e) {
+      alert(action + ' fehlgeschlagen: ' + e);
+    }
+  }
+
+  async function forget(mac, alias) {
+    if (!confirm(`„${alias || mac}" vergessen? Muss dann neu gekoppelt werden.`)) return;
+    await act(mac, 'forget');
+  }
+
+  load();
+  setInterval(load, 5000);
+</script>
+{% endblock %}

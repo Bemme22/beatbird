@@ -3,54 +3,97 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0e0e0e">
+  <meta name="theme-color" content="#000000">
   <title>{% block title %}BeatBird{% endblock %} — {{ name }}</title>
 
   <link rel="stylesheet" href="/static/pico.min.css">
   <script src="/static/htmx.min.js" defer></script>
 
+  {# Effective speaker palette (profile + live overrides), mirrored from the
+     firmware theme.h. Drives every colour below so the web UI tracks the
+     AMOLED display. #}
+  {% set t = theme() %}
   <style>
-    /* Pico defaults are great; here we tighten only the speaker-specific
-       bits and give BeatBird a warm amber accent so it reads as "ours"
-       rather than stock Pico azure. Cards stay compact on phones,
-       transport buttons are large enough for thumbs without help text. */
+    /* ── BeatBird display theme on the web ──────────────────────────────────
+       The speaker's AMOLED runs a "Nothing-Glyph" look: pure-black background,
+       Departure Mono, cream/linen text, a champagne-gold accent (runtime).
+       We re-create it here so the browser feels like the same device. Colour
+       tokens come from theme() (= firmware theme.h, retinted by the user's
+       palette). Departure Mono is the actual display font, served locally. */
+    @font-face {
+      font-family: "Departure Mono";
+      src: url("/static/fonts/DepartureMono-Regular.otf") format("opentype");
+      font-weight: 400; font-display: swap;
+    }
     :root {
+      --bb-bg: #000;            /* AMOLED pixels-off */
+      --bb-card: #111;          /* BG_DIM */
+      --bb-card-2: #161616;     /* BG_DEEP */
+      --bb-line: #242424;
+      --bb-accent: {{ t.accent }};
+      --bb-glow: {{ t.glow }};
+      --bb-dim: {{ t.dim }};
+      --bb-inverse: {{ t.inverse }};
+      --bb-text: {{ t.text }};      /* cream — primary */
+      --bb-text-2: {{ t.text2 }};   /* linen — secondary */
+      --bb-text-3: #5a5a5a;         /* TEXT_DIM */
+      --bb-alert: {{ t.alert }};    /* rust */
+      --bb-accent-rgb: {{ t.accent_rgb }};
+
+      --pico-font-family: "Departure Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      --pico-font-family-monospace: "Departure Mono", ui-monospace, monospace;
+      --pico-line-height: 1.45;
       --pico-form-element-spacing-vertical: 0.6rem;
       --pico-spacing: 0.9rem;
       --pico-border-radius: 0.7rem;
-      /* Brand accent — amber. Override Pico's primary so buttons, the
-         volume range and links all pick it up in one place. */
-      --pico-primary: #f4a52b;
-      --pico-primary-hover: #ffb648;
-      --pico-primary-focus: rgba(244, 165, 43, 0.3);
-      --pico-primary-inverse: #1a1205;
-      --pico-primary-background: #f4a52b;
-      --pico-primary-hover-background: #ffb648;
-      --bb-accent: #f4a52b;
+      --pico-background-color: var(--bb-bg);
+      --pico-color: var(--bb-text);
+      --pico-h1-color: var(--bb-text);
+      --pico-h2-color: var(--bb-text);
+      --pico-h3-color: var(--bb-text);
+      --pico-muted-color: var(--bb-text-2);
+      --pico-muted-border-color: var(--bb-line);
+      --pico-card-background-color: var(--bb-card);
+      --pico-card-sectioning-background-color: var(--bb-card-2);
+      --pico-card-border-color: var(--bb-line);
+      --pico-primary: var(--bb-accent);
+      --pico-primary-background: var(--bb-accent);
+      --pico-primary-hover: var(--bb-glow);
+      --pico-primary-hover-background: var(--bb-glow);
+      --pico-primary-focus: rgba(var(--bb-accent-rgb), 0.3);
+      --pico-primary-inverse: var(--bb-inverse);
+      --pico-del-color: var(--bb-alert);
     }
     body {
       padding: 1rem; max-width: 640px; margin: 0 auto;
-      /* A whisper of warmth at the top so the dark UI isn't flat black. */
-      background-image: radial-gradient(120% 60% at 50% -10%, rgba(244,165,43,0.06), transparent 70%);
+      background: var(--bb-bg);
+      /* A faint accent halo at the top — the AMOLED's glow, not flat black. */
+      background-image: radial-gradient(130% 55% at 50% -12%, rgba(var(--bb-accent-rgb),0.07), transparent 70%);
       background-attachment: fixed;
     }
-    header.app { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.1rem; }
-    header.app .mark { font-size: 1.6rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(244,165,43,0.4)); }
-    h1 { font-size: 1.45rem; letter-spacing: 0.02em; margin: 0; line-height: 1.15; }
-    h1 .sub { display: block; color: var(--pico-muted-color); font-size: 0.85rem; font-weight: 400; letter-spacing: 0.04em; }
-    .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #2ec27e; box-shadow: 0 0 6px #2ec27e; margin-left: auto; flex: none; }
-    article { box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
-    nav.bottom { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); font-size: 0.85rem; }
-    nav.bottom a { margin-right: 1rem; color: var(--pico-muted-color); text-decoration: none; padding-bottom: 0.2rem; }
-    nav.bottom a:hover { color: var(--pico-contrast); }
-    nav.bottom a.active { color: var(--bb-accent); border-bottom: 2px solid var(--bb-accent); }
+    /* Mono numerals everywhere — the display reads like a flight board. */
+    body { font-feature-settings: "tnum" 1; }
+    header.app { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.2rem; }
+    header.app .mark {
+      font-size: 1.5rem; line-height: 1;
+      filter: drop-shadow(0 0 7px rgba(var(--bb-accent-rgb),0.55));
+    }
+    h1 { font-size: 1.4rem; letter-spacing: 0.08em; text-transform: uppercase; margin: 0; line-height: 1.15; color: var(--bb-text); }
+    h1 .sub { display: block; color: var(--bb-text-2); font-size: 0.8rem; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; margin-top: 0.15rem; }
+    .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--bb-accent); box-shadow: 0 0 7px var(--bb-accent); margin-left: auto; flex: none; }
+    article { border: 1px solid var(--bb-line); box-shadow: none; }
+    h2 { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bb-text-3); font-weight: 400; margin: 1.4rem 0 0.4rem; }
+    nav.bottom { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--bb-line); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; }
+    nav.bottom a { margin-right: 1.1rem; color: var(--bb-text-3); text-decoration: none; padding-bottom: 0.25rem; }
+    nav.bottom a:hover { color: var(--bb-text-2); }
+    nav.bottom a.active { color: var(--bb-accent); border-bottom: 1px solid var(--bb-accent); }
     .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem; }
-    .pill { display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; background: var(--pico-card-sectioning-background-color); color: var(--pico-muted-color); white-space: nowrap; }
-    .pill.on { background: var(--pico-primary); color: var(--pico-primary-inverse); }
-    /* Per-source badge colours — instantly readable at a glance. */
-    .pill.src-spotify  { background: #1db954; color: #04230f; }
-    .pill.src-bluetooth{ background: #0a84ff; color: #001a3d; }
-    .pill.src-snapcast { background: #a06cd5; color: #1e0f33; }
+    .pill { display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; background: var(--bb-card-2); color: var(--bb-text-3); border: 1px solid var(--bb-line); white-space: nowrap; }
+    .pill.on { background: var(--bb-accent); color: var(--bb-inverse); border-color: var(--bb-accent); }
+    /* Source colours copied 1:1 from firmware theme.h Color::SRC_*. */
+    .pill.src-spotify  { background: #1ED760; color: #04230f; border-color: #1ED760; }
+    .pill.src-bluetooth{ background: #3F8CFF; color: #001a3d; border-color: #3F8CFF; }
+    .pill.src-snapcast { background: #A678FF; color: #1e0f33; border-color: #A678FF; }
     .num { font-variant-numeric: tabular-nums; }
   </style>
   {% block head_extra %}{% endblock %}

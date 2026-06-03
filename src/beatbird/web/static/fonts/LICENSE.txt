@@ -1,0 +1,15 @@
+Departure Mono
+==============
+
+DepartureMono-Regular.otf is bundled here so the BeatBird web UI renders in the
+same typeface as the speaker's AMOLED display (see firmware/amoled-1.43/fonts).
+
+Departure Mono is designed by Helena Zhang and Philipp Nurullin and released
+under the SIL Open Font License, Version 1.1.
+
+  Project:  https://departuremono.com
+  License:  SIL Open Font License 1.1 — https://openfontlicense.org
+
+The OFL permits bundling and redistribution of the font (including embedding in
+software and web pages) provided the font itself is not sold on its own and the
+copyright/license notice is retained. This file satisfies that notice.

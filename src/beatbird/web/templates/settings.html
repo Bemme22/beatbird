@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block subtitle %}Settings{% endblock %}
+
+{% block head_extra %}
+<style>
+  .legend { color: var(--bb-text-3); font-size: 0.78rem; margin: 0 0 0.8rem; }
+  .legend code { color: var(--bb-text-2); }
+  .pal { display: grid; grid-template-columns: 92px 50px 100px 1fr; gap: 0.5rem; align-items: center; margin: 0.4rem 0; }
+  .pal label { color: var(--bb-text-2); font-size: 0.78rem; }
+  .pal input[type=color] { width: 50px; height: 32px; background: none; border: 1px solid var(--bb-line); border-radius: 4px; padding: 2px; cursor: pointer; }
+  .pal input[type=text] { padding: 0.3rem 0.5rem; font-size: 0.78rem; margin: 0; }
+  .pal .hint { color: var(--bb-text-3); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .field { display: grid; grid-template-columns: 150px 1fr; gap: 0.6rem; align-items: center; margin: 0.5rem 0; }
+  .field label { color: var(--bb-text-2); font-size: 0.82rem; }
+  .field input { margin: 0; }
+  .slider-row { display: flex; align-items: center; gap: 0.6rem; }
+  #status { font-size: 0.8rem; color: var(--bb-text-2); margin-left: 0.6rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<p class="legend">Live-Editor. Änderungen landen in <code>/var/lib/beatbird/settings-overrides.json</code>
+  und werden vom Bridge-Daemon in ~5 s übernommen — kein Neustart nötig.
+  Auf Reboot-festen Speakern danach in der <a href="/advanced">Diagnose</a> „dauerhaft sichern".</p>
+
+<h2>Palette</h2>
+<article>
+  <p class="legend">Slots: <code>a</code>=accent, <code>g</code>=glow, <code>d</code>=dim,
+    <code>p</code>=text primary, <code>s</code>=text secondary, <code>e</code>=alert.
+    Leerlassen = Profil-Default. Dieselbe Palette färbt Display <em>und</em> diese Web-UI.</p>
+  <div id="palette"></div>
+  <div style="margin-top:0.7rem">
+    <button class="secondary outline" onclick="deriveFromAccent()">Aus Accent ableiten</button>
+    <button class="secondary outline" onclick="clearPalette()">Auf Profil-Default zurücksetzen</button>
+  </div>
+</article>
+
+<h2>Standby — RSS feed</h2>
+<article>
+  <div class="field">
+    <label>RSS URL</label>
+    <input id="rss_url" type="text" placeholder="https://www.tagesschau.de/xml/rss2/">
+  </div>
+  <div class="field">
+    <label>Refresh (min)</label>
+    <input id="rss_refresh" type="number" min="1" max="1440" step="1" value="30">
+  </div>
+  <div class="field">
+    <label>RSS-Anteil</label>
+    <div class="slider-row">
+      <input id="rss_weight" type="range" min="0" max="100" step="5" value="50">
+      <span id="rss_weight_v" class="num" style="width:3em;text-align:right">50%</span>
+    </div>
+  </div>
+  <p class="legend">0% = nur lokale Airport-Board-Sprüche, 100% = nur RSS-Headlines.
+    URL leerlassen schaltet RSS komplett aus.</p>
+</article>
+
+<article style="text-align:right">
+  <button onclick="save()">Speichern</button>
+  <span id="status"></span>
+</article>
+
+<script>
+  const SLOTS = ['a', 'g', 'd', 'p', 's', 'e'];
+  const SLOT_LABEL = { a: 'accent', g: 'glow', d: 'dim', p: 'text primary', s: 'text secondary', e: 'alert' };
+  let current = { palette: {}, idle: {}, overrides: {} };
+
+  function isHex6(s) { return typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s); }
+
+  function renderPalette() {
+    const wrap = document.getElementById('palette');
+    wrap.innerHTML = '';
+    const ovPal = current.overrides && current.overrides.palette || {};
+    for (const k of SLOTS) {
+      const eff = current.palette[k] || '#000000';
+      const overridden = !!ovPal[k];
+      const row = document.createElement('div');
+      row.className = 'pal';
+      row.innerHTML = `
+        <label>${k} <span style="color:var(--bb-text-3)">${SLOT_LABEL[k]}</span></label>
+        <input type="color" data-slot="${k}" value="${eff}">
+        <input type="text" data-slot-hex="${k}" value="${eff}" maxlength="7">
+        <span class="hint">${overridden ? 'override' : 'profil-default'}</span>`;
+      wrap.appendChild(row);
+      const c = row.querySelector('input[type=color]');
+      const tx = row.querySelector('input[type=text]');
+      c.addEventListener('input', () => { tx.value = c.value; });
+      tx.addEventListener('input', () => { if (isHex6(tx.value)) c.value = tx.value; });
+    }
+  }
+
+  function readPalette() {
+    const out = {};
+    for (const k of SLOTS) {
+      const tx = document.querySelector(`input[data-slot-hex="${k}"]`);
+      const v = (tx && tx.value || '').trim().toLowerCase();
+      if (isHex6(v)) out[k] = v;
+    }
+    return out;
+  }
+
+  function shade(hex, pct) {
+    const c = hex.startsWith('#') ? hex.slice(1) : hex;
+    let r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
+    if (pct >= 0) { r += (255 - r) * pct; g += (255 - g) * pct; b += (255 - b) * pct; }
+    else { r *= (1 + pct); g *= (1 + pct); b *= (1 + pct); }
+    const h = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return '#' + h(r) + h(g) + h(b);
+  }
+
+  function deriveFromAccent() {
+    const tx = document.querySelector('input[data-slot-hex="a"]');
+    if (!tx || !isHex6(tx.value)) { alert('Accent (a) muss ein gültiger #rrggbb-Wert sein.'); return; }
+    const a = tx.value.toLowerCase();
+    const derived = { a: a, g: shade(a, +0.35), d: shade(a, -0.55), p: '#f4efe0', s: '#a89e89', e: '#c73e2c' };
+    current.palette = derived;
+    current.overrides.palette = derived;
+    renderPalette();
+  }
+
+  function clearPalette() {
+    current.overrides.palette = {};
+    load().then(() => { });
+  }
+
+  async function load() {
+    const r = await fetch('/api/settings');
+    current = await r.json();
+    renderPalette();
+    document.getElementById('rss_url').value = current.idle.rss_url || '';
+    document.getElementById('rss_refresh').value = current.idle.rss_refresh_minutes || 30;
+    const w = Math.round((current.idle.rss_weight ?? 0.5) * 100);
+    document.getElementById('rss_weight').value = w;
+    document.getElementById('rss_weight_v').textContent = w + '%';
+  }
+
+  document.getElementById('rss_weight').addEventListener('input', e => {
+    document.getElementById('rss_weight_v').textContent = e.target.value + '%';
+  });
+
+  async function save() {
+    const body = {
+      palette: readPalette(),
+      idle: {
+        rss_url: document.getElementById('rss_url').value.trim(),
+        rss_refresh_minutes: parseInt(document.getElementById('rss_refresh').value, 10),
+        rss_weight: parseInt(document.getElementById('rss_weight').value, 10) / 100,
+      },
+    };
+    const st = document.getElementById('status');
+    st.textContent = 'speichere…';
+    try {
+      const r = await fetch('/api/settings', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      st.textContent = 'gespeichert ✓ (Bridge übernimmt in ≤5 s — Seite neu laden für Web-Tint)';
+      setTimeout(load, 6000);
+    } catch (e) {
+      st.textContent = 'Fehler: ' + e;
+    }
+  }
+
+  load();
+</script>
+{% endblock %}
