@@ -304,6 +304,13 @@ class Idle(BaseModel):
     # When both local + RSS are populated, fraction of picks that come
     # from RSS (0.0 = always local, 1.0 = always RSS). 0.5 = balanced.
     rss_weight: float = 0.5
+    # Seconds of non-PLAYING before the display drops to the clock-standby
+    # screen. Per-speaker: a kitchen speaker may want a longer grace than a
+    # desk one. (A stopped stream uses a shorter fixed window regardless.)
+    standby_timeout_s: float = 60.0
+    # How often the standby flap text rotates to a fresh line, in seconds.
+    # Purely cosmetic pacing of the airport-board cycle.
+    idle_message_interval_s: float = 45.0
 
 
 # ─── Top-level ───────────────────────────────────────────────────────────────

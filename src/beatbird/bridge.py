@@ -74,11 +74,11 @@ def sd_notify_local(msg: str) -> None:
 LEVEL_POLL_INTERVAL = 0.1
 STATE_PUSH_PLAYING = 0.2
 STATE_PUSH_IDLE = 2.0
-STANDBY_TIMEOUT_S = 60.0
 # Restart go-librespot if /status hangs for this many consecutive polls.
 # At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
 SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
-IDLE_MESSAGE_INTERVAL = 45.0  # how often to flip the standby flap text
+# Standby grace + flap-rotation pacing moved to the profile (idle.* — they're
+# per-speaker UX): self._standby_timeout_s, self._idle_message_interval.
 # Driver/amp longevity: when a TAS amp reports OT (over-temperature) in its
 # CHAN_FAULT register, hard-cap the volume to this level until it cools. The
 # fault bit was already read every STATUS_INTERVAL but previously only
@@ -329,6 +329,8 @@ class BeatBirdBridge:
         self.rss: RssFetcher | None = None
         self._idle_max_chars = profile.idle.max_chars
         self._rss_weight = profile.idle.rss_weight
+        self._standby_timeout_s = profile.idle.standby_timeout_s
+        self._idle_message_interval = profile.idle.idle_message_interval_s
 
         # Runtime overrides from the web UI settings page. We poll the
         # file's mtime once per status tick (every 5 s) and re-apply on
@@ -1492,7 +1494,7 @@ class BeatBirdBridge:
             return 30.0
         # Paused with a track loaded — keep the full grace, the user
         # likely walked away mid-song and will be back to resume.
-        return STANDBY_TIMEOUT_S
+        return self._standby_timeout_s
 
     def _pairing_idle_text(self) -> str:
         """Standby flap text shown during a pairing window. Includes the
@@ -1776,7 +1778,7 @@ class BeatBirdBridge:
                     # fresh airport-board line flips in every ~45s.
                     if (
                         self.in_standby
-                        and now - self._idle_msg_t >= IDLE_MESSAGE_INTERVAL
+                        and now - self._idle_msg_t >= self._idle_message_interval
                     ):
                         self._send_idle_message()
 
