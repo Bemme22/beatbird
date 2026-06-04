@@ -111,14 +111,35 @@ init script (TDM mode + slot offsets + flat EQ + gain), no ALSA codec/overlay.
   TDM design works — no SBC migration, no driver port, no DIY firmware, ~€50.**
   Verify: the TAS chips configured as I²S/TDM slaves (Pi I²C) while clocked by the
   York; the wiring (York BCLK/LRCK/MCLK/DATA → TAS I²S in; Pi I²C → TAS).
-- **ESP32-S3 as a DIY USB-UAC2→TDM bridge (~€5, on-brand)** — same architecture,
-  built yourself: ESP32-S3 runs TinyUSB UAC2 (Pi sees a USB sound card) and emits
-  I²S **TDM with 8 slots @ 16-bit** (enough for 6 ch). Cheap + uses the ESP32
-  skills already in the display firmware. Catch: the **UAC2→I²S clock-domain sync**
-  is the hard part — real projects report crackle until the async/feedback
-  endpoint + buffering are done right. 16-bit/8-slot ceiling (fine here).
+### DIY the bridge on a popular MCU board (USB-UAC2 → TDM)
+
+All of these can emit the I²S/TDM out easily; **the hard part on every one is the
+USB-audio ↔ I²S clock sync** (the bridge must run as I²S master with an *adaptive
+sample rate* driven by the USB data flow / the UAC2 feedback endpoint — otherwise
+under/overflows → clicks). That's the real engineering, and it's solvable.
+
+| Board | USB | TDM-out | Audio maturity | Note |
+|---|---|---|---|---|
+| **Teensy 4.1** (i.MX RT1062) | **High-Speed** | Audio Library has **TDM8** (≤16-bit on 4.x bus) | **best** — mature audio lib, USB-audio support, a "Custom USB+TDM Audio on Teensy 4.1" project exists | most likely to work with least from-scratch; ~€30 |
+| **ESP32-S3** | Full-Speed | I²S **TDM 8-slot @16-bit** | good (TinyUSB UAC2) | cheap ~€5, on-brand (display firmware), sync is DIY |
+| **ESP32-P4** | High-Speed | better I²S/TDM | newer/less mature | ~€10, HS USB helps headroom |
+| **RP2040 Pico / RP2350** | Full-Speed | **PIO** does TDM (8-ch, very flexible) | community work, not turnkey | ~€4-5, the USB↔I²S sync is the documented pain point |
+
+USB Full-Speed (12 Mbps) comfortably carries 8-ch @ 16-bit @ 48 kHz (~6 Mbps);
+24-bit 8-ch wants High-Speed (Teensy 4.x / ESP32-P4). For our 6×16-bit, any of
+them has the bandwidth. **Teensy 4.1 is the pick if you want it to actually work
+without writing the sync from scratch** (mature audio ecosystem); the ESP32-S3 /
+Pico are the cheap routes where you own the async-feedback firmware. The York was
+the buy-it-done version — unavailable now — so on popular boards this is a DIY
+firmware project, sync being the crux.
+
 - **PCIe — no clean path.** PCIe sound cards output analog/SPDIF, not I²S/TDM
   master to external amp chips.
+
+Sources: [Custom USB+TDM Audio on Teensy 4.1 (PlatformIO)](https://community.platformio.org/t/custom-usb-tdm-audio-on-a-teensy-4-1/32624)
+· [arduino-pico I²S/TDM lib](https://arduino-pico.readthedocs.io/en/latest/i2s.html)
+· [RP2040 USB→I²S sync challenge (Schatzmann)](https://www.pschatzmann.ch/home/2025/01/09/tinyusb-the-rp2040-i2s-output-challange/)
+· [Teensy Audio TDM (Hackaday)](https://hackaday.io/project/2984-teensy-audio-library/log/57537-tdm-support-for-many-channel-audio-io)
 
 Sources: [York USB→I²S/TDM (Tindie)](https://www.tindie.com/products/eclipsevl/multichannel-usb-to-i2s-uac2-interface-york/)
 · [ESP32-S3 I²S TDM (ESP-IDF docs)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/i2s.html)
