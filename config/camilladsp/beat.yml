@@ -95,8 +95,9 @@ filters:
 
   # ─── Output limiter (safety net) ──────────────────────────────────────────
   # With +6 dB bass_shelf and the +3 dB loudness boost on top, hot-mastered
-  # tracks can clip the stereo path at high volumes. Soft-clip at -1 dBFS
-  # tames peaks without audible pumping.
+  # tracks can clip the stereo path at high volumes. The CamillaDSP Limiter is
+  # an instantaneous soft-clipper (no attack/release) — soft_clip at -1 dBFS
+  # rounds the knee so peaks distort gracefully instead of hard-clipping.
   broadband_limiter:
     type: Limiter
     parameters:

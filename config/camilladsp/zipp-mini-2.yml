@@ -66,8 +66,10 @@ filters:
   # Soft limiter on the broadband driver. Aggressive loudness compensation
   # adds up to ~13 dB of boost in the bass path at low volumes; at high
   # volumes a track with already-hot bass peaks would clip without this.
-  # Threshold at -1 dBFS leaves a touch of headroom; attack 5 ms keeps
-  # transients audible, release 80 ms is fast enough to not pump.
+  # Threshold at -1 dBFS leaves a touch of headroom. NOTE: CamillaDSP's
+  # Limiter is an INSTANTANEOUS soft-clipper (clip_limit + soft_clip only) —
+  # it has no attack/release (that's the Compressor). soft_clip rounds the
+  # knee so hot transients distort gracefully instead of hard-clipping.
   broadband_limiter:
     type: Limiter
     parameters:

@@ -29,13 +29,13 @@ def config_dir() -> Path:
 
 def list_configs(production: str) -> list[str]:
     """Config stem-names switchable for this speaker: the production config
-    first, then any prefix-sharing variants, sorted. Empty if the dir is gone."""
+    first, then its `<production>-<suffix>.yml` variants, sorted. Empty if the
+    dir is gone. The variant glob requires a HYPHEN after the production name so
+    e.g. "beat" doesn't swallow the unrelated "beatpimini.yml"."""
     d = config_dir()
     if not d.is_dir():
         return [production]
-    variants = sorted(
-        p.stem for p in d.glob(f"{production}*.yml") if p.stem != production
-    )
+    variants = sorted(p.stem for p in d.glob(f"{production}-*.yml"))
     out = [production] + variants
     # Drop any that don't actually exist on disk (production might be missing
     # on a half-provisioned box) while keeping order + uniqueness.

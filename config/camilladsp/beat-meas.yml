@@ -1,0 +1,48 @@
+---
+# MEASUREMENT CONFIG — Libratone Beat (#1/#2), flat baseline for REW sweeps.
+#
+# Switched to live from the web UI's DSP-config dropdown (no service restart).
+# While active the bridge suspends loudness patching, so what REW sees is
+# exactly this file — nothing re-EQ'd underneath.
+#
+# Differs from the production beat.yml: ALL tonal EQ + the loudness filters +
+# the REW room/driver correction + the soft-clip limiter are removed, so you
+# measure the raw response you then voice on top of. KEPT on purpose:
+#   - devices identical to production (44.1k capture + Synchronous resampler)
+#     so the measurement runs through the same signal chain music does.
+#   - sub_protect (35 Hz Butterworth HP) — driver safety during sweeps.
+# NOTE: the Plus 2X sub crossover lives in the TAS5825M's internal DSP (set by
+# louder-hat-init, ~150 Hz), NOT in CamillaDSP — this config doesn't touch it.
+# Drop sub_protect too if you want a fully raw full-range sweep.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  sub_protect:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      freq: 35
+      order: 6
+
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [sub_protect]
+  - type: Filter
+    channels: [1]
+    names: [sub_protect]
