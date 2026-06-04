@@ -333,17 +333,20 @@ to avoid losing HA history.
   `GET /api/volume` every 2.5 s so the slider follows the display knob / other
   clients, guarded by a 1.5 s last-touch window + activeElement check so a drag
   is never stomped.
-- [ ] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** → move to
-  `audio.volume.safe_first_boot_pct` (Lounge may want lower).
+- [x] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** (2026-06-03, commit f021657)
+  → `audio.volume.safe_first_boot_pct` (default 25, per-speaker).
 - [ ] **`SpotifyClient._call` return convention** (None/`{}`/dict) — tighten
   to a consistent shape; `get_state()` can return a degenerate empty dict.
 - [ ] **`sources/bluetooth.py` hand-rolled D-Bus parsing** (~400 LOC,
   fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift.
 - [ ] **`beat-1.yml` / `beat-2.yml` split** — collapses under the identity
   split (above); until then they're per-unit dupes.
-- [ ] **Module-level timing constants in `bridge.py`** → profile-driven so
-  Pi Zero 2W vs Pi 5 tune separately.
-- [ ] **dead `dma_done_count`** in firmware `main.cpp` — remove.
+- [x] **Module-level timing constants in `bridge.py`** (2026-06-03, commit
+  e61ca29) → the per-speaker UX ones (`idle.standby_timeout_s`,
+  `idle.idle_message_interval_s`) are profile-driven; the internal poll intervals
+  stay module constants by design (coupled, e.g. the Spotify health threshold).
+- [x] **dead `dma_done_count`** in firmware `main.cpp` (2026-06-04) — removed the
+  unused counter + its `-Wvolatile` pragma wrapper from the flush-done ISR.
 
 ### Web UI / polish
 - [x] **"Persist settings" button** (2026-06-03, commit bc2001e) — on

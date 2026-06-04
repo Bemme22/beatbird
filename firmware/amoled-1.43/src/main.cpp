@@ -51,7 +51,6 @@ struct _lv_hit_test_info_t {
 static esp_lcd_panel_handle_t    panel_handle     = NULL;
 static esp_lcd_panel_io_handle_t io_handle_global = NULL;
 static SemaphoreHandle_t         flush_done_sem   = NULL;
-static volatile int              dma_done_count   = 0;
 static bool                      touch_dev        = false;
 static uint8_t                   disp_brightness  = 255;
 
@@ -115,10 +114,6 @@ static bool on_color_trans_done(esp_lcd_panel_io_handle_t,
                                 esp_lcd_panel_io_event_data_t *,
                                 void *)
 {
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wvolatile"
-    dma_done_count++;
-    #pragma GCC diagnostic pop
     BaseType_t awoken = pdFALSE;
     xSemaphoreGiveFromISR(flush_done_sem, &awoken);
     return awoken == pdTRUE;
