@@ -119,6 +119,16 @@ bass filters add positive gain → 0 dBFS overflow). Plan below; diagnose first.
 / IP, not `.local`** — see [docs/reachability.md](docs/reachability.md). Live
 per-unit hostnames/IPs are kept in gitignored `secrets/` (this repo is public).
 
+**Live diagnose 2026-06-04 (read-only, both speakers idle):** `get_throttled =
+0x0` on both → **undervoltage ruled out**. `GetProcessingLoad` 1.2 % (Zipp) /
+2.1 % (Beat) → **CPU ruled out**. `GetClippedSamples = 0` on both — but that's an
+idle baseline (Zipp had just rebooted); the conclusive test is a before/after
+diff across a **loud, bass-heavy passage**, NOT yet run (don't blast the speakers
+unattended). One isolated `Prepare playback after buffer underrun` on the Zipp at
+a stream transition — not chronic. Config-gain math (below) still says the static
+bass stack is the prime suspect at high volume. **Remaining:** the loud-bass
+clip-diff, then the headroom Gain filter if it confirms.
+
 **Phase 1 — DIAGNOSE ONLY, change nothing:**
 1. Read `config/camilladsp/beat.yml` + `zipp-mini-2.yml`; sum the positive filter
    gains in 40–200 Hz to estimate headroom loss.
