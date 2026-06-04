@@ -53,14 +53,22 @@ log = logging.getLogger("beatbird.bridge")
 STATE_FILE = "/var/lib/beatbird/state.json"
 
 
+# Captured and removed from the environment at import so the subprocesses the
+# bridge spawns every status tick (BT polling shells out to bluetoothctl /
+# busctl, which link libsystemd) don't inherit NOTIFY_SOCKET and fire stray
+# sd_notify messages that systemd rejects (NotifyAccess=main) and logs once per
+# spawn — ~1 warning/second on a BT-active speaker. The bridge keeps the
+# captured value for its own READY=1 / WATCHDOG=1 pings.
+_NOTIFY_SOCKET = os.environ.pop("NOTIFY_SOCKET", None)
+
+
 def sd_notify_local(msg: str) -> None:
-    """Lightweight sd_notify — no python-systemd dependency. Reads
-    NOTIFY_SOCKET from the env (systemd sets it on Type=notify units);
-    no-ops when run outside systemd (tests, dev, journal-less hosts).
-    Used for READY=1 at boot and WATCHDOG=1 in the main loop."""
-    import os
+    """Lightweight sd_notify — no python-systemd dependency. Uses the
+    NOTIFY_SOCKET captured (and popped) from the env at import; systemd sets it
+    on Type=notify units. No-ops when run outside systemd (tests, dev,
+    journal-less hosts). Used for READY=1 at boot and WATCHDOG=1 in the loop."""
     import socket
-    sock_path = os.environ.get("NOTIFY_SOCKET")
+    sock_path = _NOTIFY_SOCKET
     if not sock_path:
         return
     # Abstract sockets are prefixed with '@'; replace with NUL for connect.
@@ -308,6 +316,9 @@ class BeatBirdBridge:
         self._evt_prev: dict | None = None
         self._evt_booted = False
         self._sp_volume_steps = 65535
+        # Last Spotify-reported volume %, to tell who moved the slider (Spotify
+        # app vs. web/HA writing CamillaDSP directly) in the bidirectional sync.
+        self._last_sp_pct = 0
         self._prev_track_uri = ""
         self._stopped_since: float | None = None
 
@@ -966,7 +977,13 @@ class BeatBirdBridge:
         if state.volume_steps > 0:
             self._sp_volume_steps = state.volume_steps
 
-        # Bidirectional volume sync (Spotify app slider → CamillaDSP)
+        # Bidirectional volume sync. The naive "mirror Spotify→CamillaDSP
+        # whenever they differ" reverted web/HA volume changes: those write
+        # CamillaDSP directly (the bridge picks them up via GetVolume) but not
+        # Spotify, so the next poll saw Spotify's stale value ≠ CDSP and pushed
+        # it back. Disambiguate via the last Spotify-reported value: if the
+        # Spotify app's slider actually moved we adopt it; if only CamillaDSP
+        # moved underneath us we push *our* value back to Spotify instead.
         if not state.stopped and state.volume is not None:
             sp_pct = round(state.volume * 100 / self._sp_volume_steps)
             if not self._spotify_initial_sync_done:
@@ -980,13 +997,30 @@ class BeatBirdBridge:
                         self.current_volume, sp_pct,
                     )
                     self.spotify.set_volume(self.current_volume, self._sp_volume_steps)
+                    sp_pct = self.current_volume
+                self._last_sp_pct = sp_pct
             elif abs(sp_pct - self.current_volume) > 3:
-                log.info("Spotify volume → %d%% (syncing to CamillaDSP)", sp_pct)
-                db = pct_to_db(sp_pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
-                self.dsp.set_volume_db(db)
-                self.current_volume = sp_pct
-                self.current_volume_db = db
-                self._apply_loudness(sp_pct)
+                if sp_pct != self._last_sp_pct:
+                    # The Spotify app's slider moved → adopt it into CamillaDSP.
+                    log.info("Spotify volume → %d%% (syncing to CamillaDSP)", sp_pct)
+                    db = pct_to_db(sp_pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
+                    self.dsp.set_volume_db(db)
+                    self.current_volume = sp_pct
+                    self.current_volume_db = db
+                    self._apply_loudness(sp_pct)
+                    self._last_sp_pct = sp_pct
+                else:
+                    # Spotify held its value but CamillaDSP changed (web / HA) →
+                    # push our volume back so the two don't fight and the
+                    # external change sticks instead of being reverted.
+                    log.info(
+                        "Volume %d%% → Spotify (CamillaDSP changed, Spotify held %d%%)",
+                        self.current_volume, sp_pct,
+                    )
+                    self.spotify.set_volume(self.current_volume, self._sp_volume_steps)
+                    self._last_sp_pct = self.current_volume
+            else:
+                self._last_sp_pct = sp_pct
 
         # State + metadata
         if state.stopped:
@@ -1622,6 +1656,22 @@ class BeatBirdBridge:
             log.warning("push_idle_message failed: %s", e)
 
     def _enter_standby(self, reason: str = "idle timeout") -> None:
+        # Race guard: a Spotify connect that lands in the boot→idle window can
+        # start playback a poll or two before the bridge's own Spotify poll
+        # registers it — and the idle clock (counting from boot) then trips
+        # standby, whose close_session() kills the just-connected session
+        # ("first connect after a reboot drops, retry sticks"). Re-check
+        # go-librespot's live state here and refuse to stand by if it's
+        # actively playing.
+        if self.spotify:
+            try:
+                live = self.spotify.get_state()
+                if live is not None and not live.stopped and not live.paused:
+                    log.info("standby aborted (%s): Spotify is playing", reason)
+                    self.last_playback_time = time.monotonic()
+                    return
+            except Exception as e:
+                log.debug("standby Spotify recheck failed: %s", e)
         log.info("entering standby (%s)", reason)
         # Goodnight sound *before* the close_session, while audio is
         # still flowing through CamillaDSP. close_session is what
