@@ -44,6 +44,14 @@ autoconnect=true
 [wifi]
 mode=infrastructure
 ssid=$SSID
+# powersave=2 => DISABLE WiFi power-save for this connection, persistently.
+# (0=default, 1=don't-touch, 2=disable, 3=enable.) Without this, NM re-enables
+# power-save on every (re)connect — including the watchdog's NM restarts — which
+# makes the radio miss DHCP/multicast packets => recurring IPv4-loss => the
+# ".local resolves only to fe80:: , no A record" symptom. The one-shot
+# wifi-powersave-off.service only covers the first boot connection; this covers
+# every reconnect.
+powersave=2
 
 [wifi-security]
 key-mgmt=wpa-psk
@@ -137,10 +145,15 @@ pick_iface() {
 }
 
 pick_gw() {
-  local gw
-  gw="$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')"
-  [[ -z "$gw" ]] && gw="192.168.1.1"
-  echo "$gw"
+  # Echo the current default gateway, or empty. NO bogus fallback: a missing
+  # default route means we have no IPv4 lease, which is itself the failure we
+  # want to catch — pinging a guessed gateway (wrong subnet) would just mask it.
+  ip route show default 2>/dev/null | awk '/default/ {print $3; exit}'
+}
+
+# Echo the iface's IPv4 address, or empty if it has none (DHCP lease lost).
+ipv4_of() {
+  ip -4 -o addr show "$1" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1
 }
 
 # Parse `iw dev <iface> link` → echo "rssi rate bssid"
@@ -160,7 +173,17 @@ while true; do
   IFACE="$(pick_iface)"
   read -r rssi rate bssid <<<"$(wifi_link "$IFACE")"
 
-  if ping -c1 -W2 "$GW" >/dev/null 2>&1; then
+  # Re-evaluate per iteration: a lease can vanish while associated.
+  ipv4="$(ipv4_of "$IFACE")"
+  GW="$(pick_gw)"
+
+  if [[ -z "$ipv4" || -z "$GW" ]]; then
+    # Associated but no IPv4 address / no default route. This is THE recurring
+    # failure: .local then resolves only to fe80:: (no A record) and the box is
+    # unreachable. Don't bother pinging — count it straight as a failure.
+    fails=$((fails + 1))
+    ping_status="no-ipv4($fails/$FAIL_THRESHOLD)"
+  elif ping -c1 -W2 "$GW" >/dev/null 2>&1; then
     ping_status="ok"
     fails=0
   else
@@ -168,7 +191,7 @@ while true; do
     ping_status="fail($fails/$FAIL_THRESHOLD)"
   fi
 
-  echo "wifi: iface=$IFACE rssi=${rssi}dBm rate=$rate bssid=$bssid gw=$GW ping=$ping_status"
+  echo "wifi: iface=$IFACE rssi=${rssi}dBm rate=$rate bssid=$bssid ipv4=${ipv4:-none} gw=${GW:-none} ping=$ping_status"
 
   if [[ -n "$last_bssid" && "$bssid" != "$last_bssid" && "$bssid" != "?" && "$last_bssid" != "?" ]]; then
     echo "wifi: ROAM bssid $last_bssid -> $bssid (rssi was ${last_rssi}, now ${rssi})"
@@ -183,12 +206,24 @@ while true; do
     ip route 2>&1 || true
     echo "wifi-watchdog: attempting recovery"
     if systemctl is-active --quiet NetworkManager; then
+      # Force a full reconnect + fresh DHCP on the beatbird connection, not just
+      # a daemon bounce (which can come back up still leaseless).
+      nmcli connection down beatbird >/dev/null 2>&1 || true
       systemctl restart NetworkManager
+      sleep 8
+      nmcli connection up beatbird >/dev/null 2>&1 || true
     elif systemctl is-active --quiet wpa_supplicant; then
       systemctl restart wpa_supplicant
+      sleep 8
+      # wpa-only stacks rely on dhclient/dhcpcd — nudge whichever is present.
+      command -v dhclient >/dev/null 2>&1 && { dhclient -r "$IFACE" 2>/dev/null; dhclient "$IFACE" 2>/dev/null; } || \
+      command -v dhcpcd   >/dev/null 2>&1 && dhcpcd -n "$IFACE" 2>/dev/null || true
     else
       ip link set "$IFACE" down; sleep 2; ip link set "$IFACE" up
     fi
+    # Re-assert power-save off: a fresh connection may have it back on, which is
+    # what eats DHCP/multicast and caused the loss in the first place.
+    iw dev "$IFACE" set power_save off 2>/dev/null || true
     sleep 30
     fails=0
     GW="$(pick_gw)"

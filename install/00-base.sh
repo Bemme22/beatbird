@@ -28,6 +28,31 @@ if [[ -n "$HOSTNAME_NEW" && "$HOSTNAME_NEW" != "$(hostname)" ]]; then
   log_ok "hostname → $HOSTNAME_NEW"
 fi
 
+# ─── avahi/mDNS: IPv4-only publishing ───────────────────────────────────────
+# Default avahi publishes an IPv6 link-local (fe80::) AAAA for <host>.local even
+# on an IPv4-only LAN. When the DHCP lease drops, the A record disappears but the
+# fe80:: AAAA lingers, so clients resolve <host>.local to a dead link-local
+# address and just time out ("speaker unreachable" — the recurring symptom).
+# Forcing IPv4-only mDNS means .local returns ONLY the usable A record, and a
+# clean NXDOMAIN (not a hanging fe80::) when the box truly has no address.
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
+if [[ -f "$AVAHI_CONF" ]]; then
+  log_step "avahi: IPv4-only mDNS"
+  set_avahi_kv() { # key value — set under any section, handling commented form
+    local k="$1" v="$2"
+    if grep -Eq "^[#;]?\s*${k}=" "$AVAHI_CONF"; then
+      sed -i -E "s|^[#;]?\s*${k}=.*|${k}=${v}|" "$AVAHI_CONF"
+    else
+      sed -i "/^\[server\]/a ${k}=${v}" "$AVAHI_CONF"
+    fi
+  }
+  set_avahi_kv use-ipv6 no
+  set_avahi_kv publish-aaaa-on-ipv4 no
+  set_avahi_kv publish-a-on-ipv6 no
+  systemctl restart avahi-daemon 2>/dev/null || true
+  log_ok "avahi publishes IPv4 A records only (no fe80:: AAAA)"
+fi
+
 log_step "/etc/beatbird/"
 ensure_etc_beatbird
 

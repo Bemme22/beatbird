@@ -619,20 +619,21 @@ class BeatBirdBridge:
                 on_command=self._handle_display_command,
                 on_volume=self.set_volume,
             )
-            # Push the BT-pairing QR URL early so the standby screen has
-            # it cached before the user opens a discoverable window.
-            # Use the runtime hostname (lowercased) rather than the
-            # profile's identity.hostname: the profile value is what we
-            # set the system to during install, but a mismatch is
-            # possible (legacy installs, manual hostname changes) and
-            # mDNS resolves the runtime name, not the profile one.
-            # Lowercased because some Android/iOS URL parsers are picky
-            # about case in mDNS lookups.
+            # Push the BT-pairing QR URL early so the standby screen has it
+            # cached before the user opens a discoverable window.
+            # Prefer the runtime IP: a phone scanning the QR opens it with zero
+            # DNS. `<host>.local` is unreliable — on at least one LAN mDNS only
+            # ever answers with the IPv6 link-local (fe80::), which phones can't
+            # open, so the QR led nowhere. Fall back to `<host>.local` only if
+            # the IP can't be read (no route yet). Lowercased host because some
+            # Android/iOS URL parsers are picky about case in mDNS lookups.
             if self.bt is not None and self.profile.web.enabled:
                 import socket as _sock
-                host = _sock.gethostname().split(".")[0].lower()
+                from beatbird import system as _system
                 port = self.profile.web.port or 8080
-                qr_url = f"http://{host}.local:{port}/"
+                ip = _system.ip_address()
+                host = ip or (_sock.gethostname().split(".")[0].lower() + ".local")
+                qr_url = f"http://{host}:{port}/"
                 try:
                     self.display.push_qr_url(qr_url)
                     log.info("pushed BT pair QR URL: %s", qr_url)
