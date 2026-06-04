@@ -94,18 +94,52 @@ Sources: [diyAudio — 8-channel DSP + CamillaPi interface options](https://www.
 · [PiDSP / ADAU1452 (Hackaday)](https://hackaday.io/project/21119-pidsp)
 · [ADAU1452 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/adau1452.pdf)
 
+## Outside the box: a USB → I²S/TDM bridge (keeps the Pi + CamillaDSP)
+
+Instead of changing the host SBC, put a **USB device** between the Pi and the amp
+chips that converts USB audio → I²S/TDM **as master**. The Pi keeps running
+CamillaDSP and just outputs multichannel over USB (standard USB Audio Class); the
+bridge clocks + feeds the TAS chips. The Pi's I²C still configures the TAS chips
+(I²C and the audio path are independent) — so the TAS "driver" shrinks to an I²C
+init script (TDM mode + slot offsets + flat EQ + gain), no ALSA codec/overlay.
+
+- **"York" USB→I²S/TDM module (eclipsevl, Tindie, ~$52)** — PIC32MZ, High-Speed
+  USB, UAC2, **8-ch in / 8-ch out**, outputs **I²S/TDM as master** with on-board
+  low-noise audio clocks (256/512/1024 fs), up to 384 kHz. The Pi sees an 8-ch
+  USB sound card; CamillaDSP plays to it; its TDM out feeds the 3 TAS chips on a
+  shared line (each reads its slots). **The original all-CamillaDSP shared-line
+  TDM design works — no SBC migration, no driver port, no DIY firmware, ~€50.**
+  Verify: the TAS chips configured as I²S/TDM slaves (Pi I²C) while clocked by the
+  York; the wiring (York BCLK/LRCK/MCLK/DATA → TAS I²S in; Pi I²C → TAS).
+- **ESP32-S3 as a DIY USB-UAC2→TDM bridge (~€5, on-brand)** — same architecture,
+  built yourself: ESP32-S3 runs TinyUSB UAC2 (Pi sees a USB sound card) and emits
+  I²S **TDM with 8 slots @ 16-bit** (enough for 6 ch). Cheap + uses the ESP32
+  skills already in the display firmware. Catch: the **UAC2→I²S clock-domain sync**
+  is the hard part — real projects report crackle until the async/feedback
+  endpoint + buffering are done right. 16-bit/8-slot ceiling (fine here).
+- **PCIe — no clean path.** PCIe sound cards output analog/SPDIF, not I²S/TDM
+  master to external amp chips.
+
+Sources: [York USB→I²S/TDM (Tindie)](https://www.tindie.com/products/eclipsevl/multichannel-usb-to-i2s-uac2-interface-york/)
+· [ESP32-S3 I²S TDM (ESP-IDF docs)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/i2s.html)
+· [ESP32-S3 USB UAC (atomic14)](https://www.atomic14.com/2025/09/26/esp32-s3-usb-uac)
+
 ## Comparison
 
 | Option | New HW | Effort | Crossover home | Multi-chip-on-one-line OK? |
 |---|---|---|---|---|
 | Pi 5 multi-lane | none | low (overlay) | CamillaDSP (mostly) | ✗ each chip needs its own lane |
-| **Rockchip RK3566 + real TDM** | **~€25 board** | medium (driver/DT port) | CamillaDSP (fully) | ✅ yes (shared line, TDM slots) |
+| **USB→I²S/TDM bridge (York, ~€50)** | **~€50 USB module** | **low** (Pi keeps CamillaDSP; TAS = I²C-init script) | **CamillaDSP (fully)** | ✅ yes (bridge is TDM master) |
+| ESP32-S3 DIY USB→TDM bridge | ~€5 chip | medium–high (DIY UAC2→I²S firmware, sync) | CamillaDSP (fully) | ✅ yes |
+| Rockchip RK3566 SoC (real TDM) | board | medium (driver/DT port) | CamillaDSP (fully) | ✅ SoC yes — **but cheap Pi-form-factor boards don't break i2s1 TX out on the 40-pin header** (see rk3566-radxa-port.md); needs a dedicated-I²S-header board (RK3588, >€60) |
 | ADAU1452 TDM HAT | DSP board | medium–high | SigmaStudio (or split) | ✅ (but DSP moves off CamillaDSP) |
 
-**Bottom line:** for full software DSP with existing TAS-style amp boards and
-chips that share data lines, a **cheap Rockchip RK3566 host (e.g. Radxa Zero 3W,
-~€25) with real TDM** is the cleanest path — the original shared-line design just
-works, the cost is porting effort not money. A Pi 5 with multi-lane is the
-no-new-hardware route but constrains you to one DAC chip per lane (forcing one
-in-chip crossover with our boards). An ADAU1452 HAT is a niche middle option that
-usually isn't worth it.
+**Bottom line:** for full software DSP with existing TAS-style amp boards on a
+shared data line, the standout is a **USB→I²S/TDM bridge** (e.g. the ~€50 "York"
+module): the Pi keeps CamillaDSP, plays multichannel over USB, and the bridge
+clocks the TAS chips as TDM master — the original all-CamillaDSP design works with
+**no SBC migration, no driver port, no DIY firmware**. The ESP32-S3 is the cheap
+DIY version of the same idea (on-brand, but the USB-audio→I²S sync is real work).
+The cheap-RK3566-SBC route looked attractive but the boards don't expose i2s1 TX
+on their Pi-compatible 40-pin headers. And the Pi-5 multi-lane compromise stays
+the zero-cost fallback (one in-chip crossover).
