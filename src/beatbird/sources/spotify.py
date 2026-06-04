@@ -49,6 +49,17 @@ class SpotifyClient:
         return self._requests
 
     def _call(self, method: str, endpoint: str, **kwargs) -> Optional[dict]:
+        """Call the go-librespot HTTP API. Consistent contract:
+
+          * ``None``  — the call did not succeed: no requests lib, a network
+            error, or a non-2xx status. Callers test ``is None`` for "failed".
+          * ``dict``  — a 2xx response. The parsed JSON body, or an EMPTY dict
+            ``{}`` for a no-content success (204, or a 200 with no/invalid
+            body). Callers that need *data* must treat a falsy dict as
+            "succeeded but nothing to read" (see get_state) — only the
+            fire-and-forget POSTs and close_session rely on the
+            success-vs-None distinction alone.
+        """
         req = self._req()
         if not req:
             return None
@@ -75,7 +86,11 @@ class SpotifyClient:
 
     def get_state(self) -> Optional[SpotifyState]:
         status = self._call("GET", "/status")
-        if status is None:
+        # Treat BOTH a failed call (None) AND a content-less success ({}) as
+        # "no state" — an empty dict would otherwise build a degenerate
+        # all-defaults SpotifyState (stopped=True, no track) that looks like a
+        # real idle state but came from a 204/empty body, not go-librespot.
+        if not status:
             return None
         track = status.get("track") or {}
 
