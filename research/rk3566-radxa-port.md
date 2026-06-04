@@ -27,17 +27,33 @@ So the SoC side looks right; what's still unconfirmed is the exact **header-pin
 → I2S1 mapping** (which physical 40-pin pins, and whether Radxa's overlay wires
 I2S1 vs the 2-ch I2S2/3).
 
-Confirm on the board (BEFORE wiring):
-1. Radxa GPIO pinout table / `gpio readall` — which header pins map to
-   `I2S1_*` (SCLK_TX/LRCK_TX/SDO0…) and the I²C pins.
-2. `rsetup` overlay list — is there an `i2s1`/8-ch/TDM overlay for the header,
-   or only a 2-ch `i2s` one? (May need a custom overlay either way.)
-3. The mainline `rockchip,rk3566` DT `i2s1_8ch` node as the binding reference.
+**Kernel/DT verification (2026-06-04, no board needed) — TDM is real, the board
+just doesn't pre-wire it:**
+- ✅ **TDM confirmed at the SoC + driver level.** Mainline `rk356x-base.dtsi`:
+  `i2s1_8ch` is `compatible = "rockchip,rk3568-i2s-tdm"` — a genuine TDM
+  controller, with `i2s1m0_sdo0/1/2/3` (4 data-out lanes) + `sdi0..3` and
+  `sclktx/lrcktx` in the M0 pinmux group. So 8-ch TDM **and** multi-lane are both
+  supported by the RK3566 + the mainline `rockchip-i2s-tdm` driver. The hard
+  capability question is YES.
+- ⚠️ **The Radxa Zero 3 board DT leaves it OFF by default.** `rk3566-radxa-zero-3.dtsi`:
+  only `&i2s0_8ch` is enabled (it's the HDMI audio path); **`&i2s1_8ch` is not
+  referenced**, and only `&i2c0` (the PMIC) is on — the header I²C buses are off
+  too. Both get enabled via **overlays** (the Radxa rsetup mechanism), not a
+  Pi-style `config.txt` line.
+- ⏳ **No ready-made "i2s1 on the header" overlay found** in `radxa-pkg/radxa-overlays`
+  (CM3/CM4 audio overlays exist, but not an obvious Zero-3 i2s1-TDM one). So we
+  most likely **write a custom overlay**: enable `&i2s1_8ch` + its `i2s1m0_*`
+  pinctrl + a header I²C bus + the TDM/codec nodes. Doable — the board DT already
+  names the 40-pin header GPIOs, and the `i2s1m0` pin group is defined in the
+  pinctrl dtsi, so the header-pin mapping is derivable.
 
-If I2S1 turns out NOT to reach the header → fall back to multi-lane via
-`I2S1_SDO0..3` if those pins ARE exposed (same idea as the Pi 5, but the chips
-could still share via TDM if even one SDO + the clocks reach the header). Only a
-total absence of header I²S would make the Zero 3W wrong for this.
+**Verdict: feasible, but a build-it-yourself overlay, not plug-and-play.** The
+make-or-break (does the SoC do TDM?) is settled YES; the work is a custom DT.
+
+Remaining desk step (de-risk further before the board): cross-reference the board
+DT's header GPIO line-names (pins 3/5/7…40) with the `i2s1m0_sclktx/lrcktx/sdo0`
+pin group to predict exactly which header pins carry I2S1 (and whether they clash
+with anything). On the board, `gpio readall` / `rsetup` confirms it.
 
 ## If 8-ch TDM is available — the port
 
