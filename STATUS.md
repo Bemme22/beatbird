@@ -402,9 +402,10 @@ to avoid losing HA history.
   soft-clip limiter, sustained bass slams it (the click/pop suspect). A small
   global pre-attenuation would keep the limiter off most of the time. Use the new
   `/api/dsp-health` clip monitor to measure before/after.
-- [ ] **Limiter truth** — the `Limiter` is an instantaneous soft-clipper, NOT an
-  attack/release limiter; the "attack 5 ms / release 80 ms" comments in the
-  configs are wrong. Fix the comments or move to `Compressor` w/ makeup.
+- [x] **Limiter truth** (2026-06-04, commit 3157040) — fixed the wrong
+  "attack 5 ms / release 80 ms" comments in zipp-mini-2.yml + beat.yml; the
+  CamillaDSP `Limiter` is an instantaneous soft-clipper. (Moving to `Compressor`
+  w/ makeup for real attack/release control is still an option, not done.)
 
 ### Sound design ideas (non-blocking)
 - [ ] Tilt-EQ filter with MQTT-switchable warm/neutral/bright presets.
