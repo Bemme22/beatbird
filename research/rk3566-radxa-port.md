@@ -69,18 +69,37 @@ i2s instances — i.e. no better than the Pi.
 The RK3566 *SoC* does 8-ch TDM, but this *board* doesn't break i2s1 out.** The
 kernel/DT check caught it before wiring — exactly why we checked.
 
-**Options now:**
-1. **Different board that exposes i2s1** — verify the header GPIO map the same way
-   BEFORE buying. Candidates to check: Orange Pi 3B (RK3566, larger header), a
-   Radxa CM3 + carrier (the "8-ch tested" result was on the CM3, which breaks out
-   far more I/O than a Zero). The check is: do the `i2s1*_sclktx/lrcktx` GPIOs
-   land on that board's header?
-2. **Keep the Pi-5 multi-lane compromise** (free, works, one in-chip crossover).
-3. The two Zero 3W aren't wasted — they're capable general SBCs (Pi replacement
-   for a 2-channel speaker, or other projects).
+### It's a CLASS-WIDE pattern, not just the Zero 3W (2026-06-04)
 
-The rest of the porting plan below still applies to *whatever* RK35xx board does
-expose i2s1.
+Surveyed the other cheap RK3566 boards' DTs + pinouts. The killer is the
+**"Pi-compatible 40-pin header" convention itself**: it mirrors the Pi (which has
+only 2-ch I²S), so these boards put a 2-ch I²S on the standard pins and route the
+8-ch **i2s1 TX clocks** to onboard codecs / not the header.
+
+- **Radxa Rock 3C** (RK3566, ~€35) — even *enables* `i2s1_8ch` (M0) in its DT,
+  but the Radxa wiki 40-pin table shows only `I2S1_SDO2_M2` (pin22),
+  `I2S1_SCLK_RX_M2` (pin32), `I2S1_SCLK_RX_M0` (pin37) on the header — i.e. a
+  data lane + **RX** clocks, but **NO `SCLK_TX` / `LRCK_TX` / `MCLK`**. The host
+  is the I²S master, so it must EMIT SCLK_TX+LRCK_TX to the TAS chips — those
+  aren't on the header → can't clock external DACs. Same wall as the Zero 3W.
+- Orange Pi 3B / Tinker 3 / CM3-IO don't reference i2s1 at all (free, but the
+  header almost certainly only carries a 2-ch i2s on the Pi pins).
+
+**So no cheap (≤€60) Pi-form-factor RK3566 board exposes the i2s1 TX side on its
+40-pin header.** Getting full 8-ch TDM out needs a board with a **dedicated I²S
+header** (the Rock 5-class RK3588 boards added one — but that's >€60) or a
+CM3/CM4 on a **custom carrier** routing i2s1 TX. The "cheap RK3566 for TDM via
+the 40-pin" idea doesn't pan out.
+
+**Options now:**
+1. **Pi-5 multi-lane compromise** (free, works, one in-chip crossover) — the
+   pragmatic answer; full CamillaDSP for everything audible.
+2. A board with a **dedicated full-I²S header** (RK3588 Rock 5-class, >€60) or a
+   CM + custom carrier — more money/effort for the purist all-CamillaDSP build.
+3. The two Zero 3W aren't wasted — capable general SBCs (Pi replacement for a
+   2-channel speaker / other projects).
+
+The porting plan below still applies to *whatever* board does expose i2s1 TX.
 
 ## If 8-ch TDM is available — the port
 
