@@ -386,9 +386,14 @@ to avoid losing HA history.
   configs are discovered by prefix (`config/camilladsp/<name>*.yml`) — drop a YAML
   + `git pull` and it appears. Full web→bridge flow verified on the Zipp.
   TODO: `beat-meas.yml` + deploy the web commit to the Beat (was offline).
-- [ ] **Live vol mapping / `capture_samplerate`** — configs hardcode
-  `capture_samplerate: 44100`; verify every source feeds 44.1k or a 48k source
-  hitting the loopback pitches/speeds. (Surfaced during the DSP-switcher work.)
+- [ ] **`capture_samplerate: 44100` — verify (needs a live speaker)** — CamillaDSP
+  captures the Loopback at 44.1k; a 48k source would pitch/speed. **30-s check:**
+  is go-librespot/bluealsa/snapcast pointed at a `plug`-wrapped device (auto-
+  resamples to the Loopback rate = safe) or the raw `hw:Loopback`? Look at
+  `/etc/asound.conf` (`beatbird_mix` dmix — dmix is usually plug-wrapped → safe)
+  + go-librespot's `device:` + bluealsa. Likely already safe (SBC/Spotify are
+  44.1k anyway; AAC-BT @ 48k is the only real risk). Couldn't verify 2026-06-04
+  (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
