@@ -29,6 +29,7 @@ import re
 import subprocess
 
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -1047,10 +1048,16 @@ def ui_cmd(request: Request, c: str):
 
 @app.post("/ui/vol")
 async def ui_vol(request: Request):
-    """htmx form-encoded slider POST. Body: pct=42."""
-    form = await request.form()
+    """htmx form-encoded slider POST. Body: pct=42.
+
+    Parsed by hand from the urlencoded body rather than `request.form()` so
+    we don't pull in the `python-multipart` dependency for a single field —
+    Starlette hard-asserts on it the moment .form() is called, which 500'd
+    every slider drag when it wasn't installed."""
+    raw = (await request.body()).decode("utf-8", "replace")
+    pct_str = parse_qs(raw).get("pct", [""])[0]
     try:
-        pct = int(float(form.get("pct") or 0))
+        pct = int(float(pct_str or 0))
     except (TypeError, ValueError):
         raise HTTPException(400, "bad pct")
     pct = max(0, min(100, pct))
