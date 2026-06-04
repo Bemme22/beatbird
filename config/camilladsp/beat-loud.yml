@@ -1,0 +1,107 @@
+# CamillaDSP config — Libratone Beat, NATIVE-LOUDNESS A/B variant.
+#
+# Purpose: A/B the decided "Hybrid" loudness (docs/native-loudness.md) WITHOUT
+# touching the production beat.yml or the bridge's patch-controller. Hot-swap to
+# this via the web Settings → DSP config switcher; while a non-production config
+# is active the bridge suspends the per-volume PatchConfig loudness, so the only
+# volume-dependent bass/air boost here is CamillaDSP's NATIVE `Loudness` filter.
+#
+# Compared to production beat.yml:
+#   - identical static EQ (the hand-tuned "base camilladsp gains" — bass_shelf 6,
+#     sub_punch 3, timpani_body 2, air_lift 0 — that the production config's
+#     comment says "carry above 50%"), NOT patched per volume.
+#   - one extra `loudness` filter at the FRONT of both channels providing the
+#     volume-dependent low+high lift the patch-controller used to add.
+#
+# The native Loudness lifts a LOW shelf (<70 Hz) + a HIGH shelf (>3500 Hz) as the
+# Main fader drops below reference_level. Beat's air_lift (8 kHz) maps cleanly to
+# high_boost; low_boost roughly stands in for the bass_shelf/sub_punch/timpani
+# dynamic part. THESE NUMBERS ARE A/B STARTING POINTS — tune by ear, then bake
+# the winner into the controller (phase 2). reference_level is the Main-fader dB
+# at/above which there is NO boost (full boost ~20 dB below it).
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  # ─── Native volume-dependent loudness (the A/B subject) ────────────────────
+  loudness:
+    type: Loudness
+    parameters:
+      fader: Main
+      reference_level: -20.0   # Main dB at/above which boost = 0  (A/B knob: "Kurve")
+      low_boost: 4.0           # max <70 Hz lift at low volume     (A/B knob: "Bass leise")
+      high_boost: 2.5          # max >3.5 kHz lift (≈ air_lift max_boost 2.5)
+      attenuate_mid: false     # true would cut mid instead of boosting extremes (more headroom)
+
+  # ─── Static tonality (hand-tuned base gains — NOT patched per volume) ──────
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 6, q: 0.6}
+  sub_punch:
+    type: Biquad
+    parameters: {type: Peaking, freq: 45, gain: 3, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 2, q: 1.0}
+  fullness:
+    type: Biquad
+    parameters: {type: Peaking, freq: 200, gain: 3, q: 1.0}
+  air_lift:
+    type: Biquad
+    parameters: {type: Highshelf, freq: 8000, gain: 0, q: 0.7}
+
+  # ─── REW-derived room/driver correction (unchanged from beat.yml) ──────────
+  rew_600:
+    type: Biquad
+    parameters: {type: Peaking, freq: 600,   gain: -5.7, q: 2.431}
+  rew_2269:
+    type: Biquad
+    parameters: {type: Peaking, freq: 2269,  gain: -6.1, q: 5.0}
+  rew_9886:
+    type: Biquad
+    parameters: {type: Peaking, freq: 9886,  gain: -4.9, q: 4.093}
+  rew_14025:
+    type: Biquad
+    parameters: {type: Peaking, freq: 14025, gain: -10.6, q: 4.125}
+
+  # ─── Subsonic protection (unchanged) ───────────────────────────────────────
+  sub_protect:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      freq: 35
+      order: 6
+
+  # ─── Output limiter (unchanged) ────────────────────────────────────────────
+  broadband_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+            rew_600, rew_2269, rew_9886, rew_14025,
+            sub_protect, broadband_limiter]
+  - type: Filter
+    channels: [1]
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+            rew_600, rew_2269, rew_9886, rew_14025,
+            sub_protect, broadband_limiter]

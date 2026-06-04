@@ -1,0 +1,107 @@
+---
+# CamillaDSP config — Zipp Mini 2, NATIVE-LOUDNESS A/B variant.
+#
+# Purpose: A/B the decided "Hybrid" loudness (docs/native-loudness.md) WITHOUT
+# touching production zipp-mini-2.yml or the bridge's patch-controller. Hot-swap
+# to this via web Settings → DSP config switcher; the bridge then suspends the
+# per-volume PatchConfig loudness, so the only volume-dependent boost here is
+# CamillaDSP's NATIVE `Loudness` filter.
+#
+# ⚠️ FREQUENCY CAVEAT — read before judging: the production Zipp loudness comp is
+# at 80–120 Hz (bass_shelf@120, timpani_body@80). The native Loudness LOW shelf
+# corner is fixed at ~70 Hz, so it lifts DEEPER (<70 Hz) than the current comp —
+# territory a 3" broadband driver + PRs can barely move and where Xmax is the
+# limit. So this A/B is really "is sub-focused native comp acceptable here?",
+# not "is it identical to today". If it sounds thin/wrong, that's expected and
+# the Zipp likely keeps the patch-controller (or a mid-focused variant); Beat
+# (air_lift@8 kHz) is the better native fit. high_boost=0: the Zipp tweeter is
+# separately trimmed and not part of the loudness loop today.
+#
+# Static EQ = production hand-tuned values (bass_static 6, pr_boost 3,
+# bass_shelf 4, timpani_body 2), NOT patched per volume. `loudness` is inserted
+# at the FRONT of channel 0 only (the broadband path); channel 1 is the tweeter.
+# Numbers are A/B STARTING POINTS — tune by ear.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+mixers:
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -8}
+          - {channel: 1, gain: -8}
+filters:
+  # ─── Native volume-dependent loudness (the A/B subject) ────────────────────
+  loudness:
+    type: Loudness
+    parameters:
+      fader: Main
+      reference_level: -20.0   # Main dB at/above which boost = 0  (A/B knob: "Kurve")
+      low_boost: 6.0           # max <70 Hz lift at low volume     (A/B knob: "Bass leise")
+      high_boost: 0.0          # tweeter separate; bass-focused like today
+      attenuate_mid: false
+  # ─── Static tonality (NOT patched per volume) ──────────────────────────────
+  bass_static:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 100, gain: 6, q: 0.7}
+  pr_boost:
+    type: Biquad
+    parameters: {type: Peaking, freq: 60, gain: 3, q: 1.5}
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 4, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 80, gain: 2, q: 1.0}
+  rew_7k_notch:
+    type: Biquad
+    parameters: {type: Peaking, freq: 7000, gain: -4.0, q: 3.0}
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass, freq: 4000, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 4000, order: 4}
+  tweeter_trim:
+    type: Gain
+    parameters:
+      gain: -5.0
+      inverted: true
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 35, order: 4}
+  broadband_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+pipeline:
+  - type: Mixer
+    name: mono_sum
+  - type: Filter
+    channels: [0]
+    names: [loudness, bass_static, pr_boost, bass_shelf, timpani_body, sub_protect, xover_lp, broadband_limiter]
+  - type: Filter
+    channels: [1]
+    names: [xover_hp, tweeter_trim, rew_7k_notch]

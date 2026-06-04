@@ -78,13 +78,56 @@ filters, the native CamillaDSP `Loudness` filter takes over the
 volume-dependent boost → click gone, no read-back/drift. Accepted trade-off:
 loses per-band *max_boost* and the custom knee width.
 
-**Next step (gated on a live Zipp for the A/B):** rework
-`LoudnessController.apply()` to set the `Loudness` params instead of patching
-bass gains; keep `build_loudness` for the static filters; map the web
-`/api/loudness` "leise" field → `low_boost`, "Kurve" → `reference_level`;
-rewrite `test_loudness_curve.py` around the new mapping. Do **not** commit
-before an audible A/B on the Zipp (does native `low_boost` @ 70 Hz feel like
-today's sub-heavy boost?).
+### Step 1 (done 2026-06-04): A/B variants, no code touched
+
+Rather than rewrite the live patch-controller blind (the loudness path has bitten
+us before — [[feedback-loudness-feedback-loop]]), the native filter is first made
+**A/B-able** via two additive config variants that the existing DSP-config
+switcher already discovers — **zero risk to the production configs or the
+controller**:
+
+- `config/camilladsp/beat-loud.yml`
+- `config/camilladsp/zipp-mini-2-loud.yml`
+
+Each = the production static EQ (the hand-tuned base gains) **plus** one native
+`Loudness` filter at the front of the chain. Web Settings → DSP config → pick
+`*-loud`. Switching to a non-production config makes the bridge set
+`_dsp_flat_mode` → the per-volume PatchConfig loudness **suspends**, so the only
+volume-dependent boost is the native filter. (The journal will say "flat —
+loudness suspended"; that's correct in effect — the *patch* loudness is off, the
+*native* one is doing the work.)
+
+**A/B procedure (tonight):** play the same bass-heavy track, sweep the volume low
+↔ high on production vs `*-loud`. Listen for: (a) the click/pop on volume changes
+— should be **gone** on `*-loud`; (b) whether the low-end weight at low volume
+still feels right. Tune `low_boost` / `high_boost` / `reference_level` in the
+`*-loud` YAML and `Reload` to taste.
+
+### Two findings that shape step 2
+
+1. **Frequency mismatch.** The native `Loudness` LOW shelf corner is fixed at
+   ~70 Hz; the Zipp's comp is at **80–120 Hz** (bass_shelf@120, timpani_body@80),
+   so native lifts *deeper* than today — marginal on a 3" driver (Xmax). **Beat**
+   is the cleaner fit: its `air_lift`@8 kHz maps straight to `high_boost`, and its
+   bass comp is gentler. Expect Beat to adopt native and the Zipp to maybe keep
+   patch / a mid-focused variant.
+2. **`base_gain` inconsistency (resolve before step 2).** `beat.yml` hand-tunes
+   `bass_shelf: 6` (comment: "moderated 10→6"), but `DEFAULT_BASE` in
+   `audio/loudness.py` carries `base_gain: 10` for `bass_shelf` and the profile
+   doesn't override it — so the patch-controller drives it to **10** at high
+   volume, overriding the hand-tuned 6. The Hybrid's "static voicing" must pin
+   the *intended* base gain (config, not DEFAULT_BASE). Decide the source of
+   truth before wiring the controller.
+
+### Step 2 (gated on the A/B): wire it permanently
+
+Once the A/B picks the winner: rework `LoudnessController` so in native mode
+`apply(volume)` is a no-op (the filter handles per-volume) and a voicing edit
+pushes the static base gains + the `Loudness` params; add `audio.loudness.mode:
+patch|native` (default patch → no behaviour change); map the web `/api/loudness`
+"leise" → `low_boost`, "Kurve" → `reference_level`; rewrite
+`test_loudness_curve.py` around the new mapping. Default stays `patch` until a
+speaker is confirmed by ear.
 
 ---
 
