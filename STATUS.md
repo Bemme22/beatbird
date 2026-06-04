@@ -19,6 +19,17 @@ items flagged**. On `main`: the WiFi/mDNS self-heal (`996ef5d`).
 - **WiFi/mDNS self-heal** (`main 996ef5d`) — NM `powersave=2`, watchdog detects
   IPv4-loss + forces DHCP, avahi IPv4-only. Apply on tmpfs speakers via
   overlayroot-chroot; static IP (`secrets/static-ip.conf`) is the hard fix.
+- **Reachability — live finding (2026-06-04):** the recurring "`.local`
+  unreachable" is **not** lease-loss — the speakers had valid leases. mDNS only
+  returned the IPv6 link-local (`fe80::`) here; **router DNS (`<host>.fritz.box`
+  / plain hostname) and the IP work fine.** avahi IPv4-only was applied to the
+  Zipp (cleanup, not a silver bullet — IPv4 mDNS doesn't traverse this LAN). The
+  Zipp is on **netplan**, not the `beatbird` NM keyfile, so `20-wifi.sh`'s
+  power-save path doesn't apply there. Pairing QR now uses the IP (`main`
+  `133648a`). Pattern + rationale: [docs/reachability.md](docs/reachability.md).
+  Next: pin both Pis via a router DHCP reservation. Specifics in `secrets/`.
+- **`capture_samplerate` resolved live** (`main 2d33ba2`) — no pitch bug;
+  loopback runs 44100 both sides; asound dmix `rate 48000`→`44100` (honesty).
 - Decisions recorded in `docs/{native-loudness,identity-split,bluetooth-dbus-fast}.md`.
 
 ## Active speakers
@@ -104,9 +115,9 @@ overlayroot re-enabled, snapclient via `beatbird_mix`, BT on.
 loud / bass-heavy passages. **Likely cause: DSP output clipping** (the loudness
 bass filters add positive gain → 0 dBFS overflow). Plan below; diagnose first.
 
-**SSH:** Zipp `zipp2minipi` (`~/.ssh/beatbird`), Beat **`beatpi.local`**
-(`~/.ssh/beatbird`). NOTE: Zipp is on `id_ed25519` from this dev box per the
-LoungePi notes, but the committed SSH-config alias uses `~/.ssh/beatbird`.
+**SSH:** key `~/.ssh/beatbird`, user `devusr`. Address speakers by **router DNS
+/ IP, not `.local`** — see [docs/reachability.md](docs/reachability.md). Live
+per-unit hostnames/IPs are kept in gitignored `secrets/` (this repo is public).
 
 **Phase 1 — DIAGNOSE ONLY, change nothing:**
 1. Read `config/camilladsp/beat.yml` + `zipp-mini-2.yml`; sum the positive filter
@@ -418,24 +429,17 @@ to avoid losing HA history.
   configs are discovered by prefix (`config/camilladsp/<name>*.yml`) — drop a YAML
   + `git pull` and it appears. Full web→bridge flow verified on the Zipp.
   TODO: `beat-meas.yml` + deploy the web commit to the Beat (was offline).
-- [!] **`capture_samplerate` contradicts the dmix rate** (analysed 2026-06-04) —
-  the **only** writer to the loopback is the `beatbird_mix` dmix, whose slave is
-  pinned **`rate 48000`** (`config/alsa/beatbird-asound.conf:41`, via an outer
-  `plug` that resamples every source up to 48k). But **every** CamillaDSP config
-  captures `hw:Loopback,1` at **`capture_samplerate: 44100`** + a Synchronous
-  resampler 44.1→48k. The ALSA `aloop` does NOT resample — it copies 1:1, so the
-  two sides cannot both be the runtime cable rate; one is silently overridden by
-  open-order negotiation. The speakers play at correct pitch, so they agree at
-  runtime — but the configs lie and it's fragile. (Tell: `lt300-meas.yml` already
-  dropped `capture_samplerate` — "REW runs 48 kHz natively".)
-  - **Diagnostic (read-only, on a reachable speaker, during music):**
-    `cat /proc/asound/Loopback/pcm0p/sub0/hw_params` (dmix side) +
-    `…/pcm1c/sub0/hw_params` (CamillaDSP side) → the real agreed rate on each.
-    A 440 Hz reference track should read 440 Hz.
-  - **Proposed fix (gated on that check):** make the configs honest — almost
-    certainly `capture_samplerate: 48000` + drop the Synchronous resampler (match
-    the dmix master; no resample, no pitch risk), like the meas configs. Only if
-    the cable is genuinely 44.1k would dmix need lowering instead.
+- [x] **`capture_samplerate` vs dmix rate — RESOLVED live** (2026-06-04, main
+  `2d33ba2`). The `beatbird_mix` dmix slave was pinned `rate 48000`, but every
+  CamillaDSP config captures `hw:Loopback,1` at `capture_samplerate: 44100`, and
+  the ALSA `aloop` does NOT resample. **Live test on the Zipp** (silent /dev/zero
+  into the mix, read both hw_params during playback): `pcm0p` (dmix) AND `pcm1c`
+  (CamillaDSP) both read **44100**. So CamillaDSP — the persistent first-opener —
+  pins the cable at 44100 and dmix's `rate 48000` was silently forced down to it.
+  **No pitch bug.** Fix: dmix slave `rate 48000` → `44100` so the config states
+  reality (zero runtime change) and can't clash if dmix ever opens first (e.g. a
+  camilladsp restart mid-stream). CamillaDSP still resamples 44100→48000 for the
+  amp. `capture_samplerate: 44100` is correct, left as-is.
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
