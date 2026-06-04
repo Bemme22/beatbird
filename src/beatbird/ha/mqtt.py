@@ -35,6 +35,12 @@ class MqttBridge:
         self.client = None
         self.available = False
 
+        # Effective HA device name. None => the profile's resolved_friendly_name.
+        # The bridge pushes a browser rename here (identity-split phase 4) via
+        # update_friendly_name(); on a live connection it re-publishes discovery
+        # so the rename reaches HA without a restart.
+        self._friendly_name: str | None = None
+
         self.topic_base = profile.mqtt_topic_base
         self.topic_status = f"{self.topic_base}/status"
         self.topic_event = f"{self.topic_base}/event"
@@ -152,11 +158,27 @@ class MqttBridge:
     def _device_block(self) -> dict:
         return {
             "identifiers": [self.profile.resolved_speaker_id],
-            "name": self.profile.resolved_friendly_name,
+            "name": self._friendly_name or self.profile.resolved_friendly_name,
             "manufacturer": "DIY (Libratone conversion)",
             "model": f"BeatBird ({self.profile.soundcard.driver})",
             "sw_version": "2.0",
         }
+
+    def update_friendly_name(self, name: str | None) -> None:
+        """Set the effective HA device name (identity-split phase 4). No-op if
+        unchanged. On a live connection, re-publishes discovery (retained, so
+        idempotent) so HA renames the device without a bridge restart. Before
+        connect it just stores the value for the next _publish_discovery()."""
+        new = name or None
+        if new == self._friendly_name:
+            return
+        self._friendly_name = new
+        if self.client and self.available:
+            try:
+                self._publish_discovery()
+                log.info("MQTT device renamed → %s", new or "(profile default)")
+            except Exception as e:
+                log.warning("MQTT rename re-publish failed: %s", e)
 
     def _publish_discovery(self) -> None:
         did = self.profile.resolved_speaker_id

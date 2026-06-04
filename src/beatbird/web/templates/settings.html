@@ -24,6 +24,17 @@
   und werden vom Bridge-Daemon in ~5 s übernommen — kein Neustart nötig.
   Auf Reboot-festen Speakern danach in der <a href="/advanced">Diagnose</a> „dauerhaft sichern".</p>
 
+<h2>Name</h2>
+<article>
+  <div class="field">
+    <label>Lautsprecher-Name</label>
+    <input id="friendly_name" type="text" maxlength="48" placeholder="">
+  </div>
+  <p class="legend">Wird in Spotify Connect, Home Assistant, der Bluetooth-Liste
+    und hier im Web angezeigt. Leerlassen = Profil-/abgeleiteter Default
+    (im Platzhalter).</p>
+</article>
+
 <h2>Palette</h2>
 <article>
   <p class="legend">Slots: <code>a</code>=accent, <code>g</code>=glow, <code>d</code>=dim,
@@ -129,6 +140,10 @@
     const r = await fetch('/api/settings');
     current = await r.json();
     renderPalette();
+    const idn = current.identity || {};
+    const nameEl = document.getElementById('friendly_name');
+    nameEl.value = idn.friendly_name || '';
+    nameEl.placeholder = idn.default || '';
     document.getElementById('rss_url').value = current.idle.rss_url || '';
     document.getElementById('rss_refresh').value = current.idle.rss_refresh_minutes || 30;
     const w = Math.round((current.idle.rss_weight ?? 0.5) * 100);
@@ -143,6 +158,7 @@
   async function save() {
     const body = {
       palette: readPalette(),
+      friendly_name: document.getElementById('friendly_name').value.trim(),
       idle: {
         rss_url: document.getElementById('rss_url').value.trim(),
         rss_refresh_minutes: parseInt(document.getElementById('rss_refresh').value, 10),

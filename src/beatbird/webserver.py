@@ -75,6 +75,14 @@ def _get_profile():
     return _profile
 
 
+def _display_name() -> str:
+    """The speaker's shown name: a browser rename (settings-override) wins,
+    else the profile's resolved friendly_name. Read fresh from disk each call
+    so a rename shows up without restarting the (profile-caching) webserver."""
+    return settings_overrides.effective_friendly_name(
+        settings_overrides.load(), _get_profile().resolved_friendly_name)
+
+
 def _hardware():
     p = _get_profile()
     if p.soundcard.driver.startswith("louder-hat"):
@@ -120,6 +128,7 @@ class SystemReq(BaseModel):
 class SettingsReq(BaseModel):
     palette: dict | None = None   # {"a": "#rrggbb", "g": "...", ...} — slots a/g/d/p/s/e
     idle: dict | None = None      # {"rss_url": "...", "rss_refresh_minutes": 30, "rss_weight": 0.5}
+    friendly_name: str | None = None  # user rename; "" clears back to the profile/derived name
 
 
 class BtDiscoverableReq(BaseModel):
@@ -375,7 +384,14 @@ def get_settings():
     ov_idle = ov.get("idle") if isinstance(ov.get("idle"), dict) else {}
     idle = {**base_idle, **{k: v for k, v in ov_idle.items() if v is not None}}
 
-    return {"palette": palette, "idle": idle, "overrides": ov}
+    identity = {
+        # The custom name the user has set (empty = none), plus the
+        # profile/derived default so the form can show it as a placeholder.
+        "friendly_name": (ov.get("friendly_name") or ""),
+        "default": p.resolved_friendly_name,
+    }
+
+    return {"palette": palette, "idle": idle, "identity": identity, "overrides": ov}
 
 
 # ─── Web theme — mirror the speaker's display palette into CSS ────────────────
@@ -494,6 +510,11 @@ def set_settings(req: SettingsReq):
                 "rss_refresh_minutes": refresh,
                 "rss_weight":          weight,
             }
+
+    if req.friendly_name is not None:
+        # Trim + cap; empty string clears the override back to the profile name.
+        name = req.friendly_name.strip()[:48]
+        out["friendly_name"] = name or None
 
     try:
         settings_overrides.save(out)
@@ -960,9 +981,8 @@ def _status_for_template() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    p = _get_profile()
     return templates.TemplateResponse(request, "dashboard.html", {
-        "name":    p.resolved_friendly_name,
+        "name":    _display_name(),
         "status":  _status_for_template(),
         "bt":      _bt_context(),
     })
@@ -970,9 +990,8 @@ def dashboard(request: Request):
 
 @app.get("/advanced", response_class=HTMLResponse)
 def advanced(request: Request):
-    p = _get_profile()
     return templates.TemplateResponse(request, "advanced.html", {
-        "name":    p.resolved_friendly_name,
+        "name":    _display_name(),
         "status":  _status_for_template(),
         "diag":    diag(),
     })
@@ -989,9 +1008,8 @@ def ui_now_playing(request: Request):
 
 @app.get("/ui/bluetooth", response_class=HTMLResponse)
 def ui_bluetooth(request: Request):
-    p = _get_profile()
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.resolved_friendly_name,
+        "name":    _display_name(),
         "bt":      _bt_context(),
     })
 
@@ -1042,27 +1060,25 @@ async def ui_vol(request: Request):
 
 @app.post("/ui/bluetooth/pair", response_class=HTMLResponse)
 def ui_bluetooth_pair(request: Request):
-    p = _get_profile()
     try:
         bt.set_discoverable(True, timeout_s=60)
     except Exception as e:
         log.error("ui_bluetooth_pair: %s", e)
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.resolved_friendly_name,
+        "name":    _display_name(),
         "bt":      _bt_context(),
     })
 
 
 @app.post("/ui/bluetooth/forget", response_class=HTMLResponse)
 def ui_bluetooth_forget(request: Request, mac: str):
-    p = _get_profile()
     mac = _validate_mac(mac)
     try:
         bt.forget_device(mac)
     except Exception as e:
         log.error("ui_bluetooth_forget %s: %s", mac, e)
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.resolved_friendly_name,
+        "name":    _display_name(),
         "bt":      _bt_context(),
     })
 
@@ -1215,25 +1231,22 @@ _HEALTH_HTML = """<!doctype html>
 
 @app.get("/health", response_class=HTMLResponse)
 def health_page():
-    p = _get_profile()
-    return _HEALTH_HTML.format(name=p.resolved_friendly_name)
+    return _HEALTH_HTML.format(name=_display_name())
 
 
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
-    p = _get_profile()
     return templates.TemplateResponse(request, "settings.html", {
-        "name": p.resolved_friendly_name,
+        "name": _display_name(),
     })
 
 
 
 @app.get("/bluetooth", response_class=HTMLResponse)
 def bluetooth_page(request: Request):
-    p = _get_profile()
     return templates.TemplateResponse(request, "bluetooth.html", {
-        "name": p.resolved_friendly_name,
+        "name": _display_name(),
     })
 
 

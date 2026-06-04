@@ -105,15 +105,17 @@ Resolution order (a `resolved_*` property on Profile, instance id injected):
    (+ `short_id`), instance id injected by `load_profile()`; all call sites
    (bridge, ha/mqtt, webserver, mqtt_topic_base) routed through them.
    *(`test_identity_resolve.py`.)* Settings-override hook lands in phase 4.
-4. **user-label** — friendly_name editable in the web Settings page → written to
-   settings-overrides; bridge picks it up (BlueZ alias + web + MQTT) on the
-   existing override poll.
+4. ✅ **user-label** — friendly_name editable in the web Settings page → written
+   to the `friendly_name` settings-override slot; the bridge applies it on the
+   existing override poll (BlueZ alias + HA device-name re-publish), the web UI
+   reads it fresh. Pure layering helper `settings_overrides.effective_friendly_name`
+   (override wins, else `resolved_friendly_name`). *(`test_settings_overrides.py`.)*
 5. **MQTT migration** — pin beat-1/2 `speaker_id`, then collapse
    `beat-1.yml`+`beat-2.yml` → `beat.yml`; provisioning selects by `model`.
 6. **Provisioning** — derive + set the hostname from model+instance at install;
    drop per-unit profiles.
 
-## Phases 1–3 done (2026-06-04)
+## Phases 1–4 done (2026-06-04)
 
 The whole CI-testable, no-live-speaker core is in:
 
@@ -127,10 +129,18 @@ The whole CI-testable, no-live-speaker core is in:
   (+ `short_id`); `load_profile()` injects the instance id; every consumer routes
   through the resolved properties. `mqtt_topic_base` no longer crashes on an
   unset `speaker_id`.
+- **Phase 4 — browser rename:** `friendly_name` settings-override slot +
+  `settings_overrides.effective_friendly_name` (override wins, else resolved).
+  Web Settings page has a name field; `/api/settings` GET/POST carry it; the web
+  reads it fresh per request. The bridge applies it on the override poll —
+  `MqttBridge.update_friendly_name()` re-publishes HA discovery (retained,
+  idempotent) and the BlueZ adapter alias is updated — no restart.
 - Tests: `test_identity_resolve.py` (pin-wins, derivation, generic fallback,
-  topic-base regression). Full suite green (87), ruff clean.
+  topic-base regression) + `test_settings_overrides.py` (name layering). Full
+  suite green (94), ruff clean.
 
-**Still gated on hardware / a follow-up PR:** phase 4 (browser rename via
-settings-overrides), phase 5 (pin beat-1/2 `speaker_id` against the **live HA
-broker**, then collapse `beat-1.yml`+`beat-2.yml` → `beat.yml`), phase 6
-(provisioning derives the hostname on a real unit).
+**Still gated on hardware / a follow-up PR:** phase 5 (pin beat-1/2 `speaker_id`
+against the **live HA broker**, then collapse `beat-1.yml`+`beat-2.yml` →
+`beat.yml`), phase 6 (provisioning derives the hostname on a real unit). The
+phase-4 MQTT-rename re-publish wants one live-broker confirmation that HA renames
+the device in place (it should — same unique_ids, retained config topics).

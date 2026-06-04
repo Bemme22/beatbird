@@ -34,7 +34,23 @@ def empty() -> dict:
     #            (e.g. "<speaker>-meas" for REW). None = the profile's
     #            production config. While non-None the bridge suspends loudness
     #            patching so the flat/variant config isn't re-EQ'd underneath.
-    return {"palette": None, "idle": None, "loudness": None, "dsp_config": None}
+    # friendly_name: user-label (identity-split phase 4) — a browser rename that
+    #            wins over the profile's resolved friendly_name. None = use the
+    #            profile/derived name. Drives the BlueZ alias, web title + the
+    #            HA device name.
+    return {"palette": None, "idle": None, "loudness": None,
+            "dsp_config": None, "friendly_name": None}
+
+
+def effective_friendly_name(overrides: dict | None, resolved_default: str) -> str:
+    """The speaker's shown name (identity-split phase 4): the ``friendly_name``
+    override slot (a browser rename) wins; otherwise the profile's resolved
+    default. Pure so both the bridge and the webserver — and a CI test — can
+    layer the override the same way without importing the other's deps."""
+    name = ""
+    if isinstance(overrides, dict):
+        name = (overrides.get("friendly_name") or "").strip()
+    return name or resolved_default
 
 
 def load(path: str = OVERRIDES_PATH) -> dict:

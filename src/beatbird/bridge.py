@@ -644,7 +644,7 @@ class BeatBirdBridge:
         if self.bt is not None:
             try:
                 from beatbird.sources.bluetooth import set_adapter_alias
-                set_adapter_alias(self.profile.resolved_friendly_name)
+                set_adapter_alias(self._friendly_name())
             except Exception as e:
                 log.debug("set bt alias failed: %s", e)
 
@@ -1107,6 +1107,14 @@ class BeatBirdBridge:
         if self.loudness and not self._dsp_flat_mode:
             self.loudness.apply(pct)
 
+    def _friendly_name(self, data: dict | None = None) -> str:
+        """Effective speaker name: a browser rename (settings-override) wins,
+        else the profile's resolved friendly_name. Pass the already-loaded
+        override dict in the poll path to avoid a redundant disk read."""
+        return settings_overrides.effective_friendly_name(
+            data if data is not None else settings_overrides.load(),
+            self.profile.resolved_friendly_name)
+
     def _apply_overrides(self, data: dict, initial: bool = False) -> None:
         """Layer web-UI overrides on top of profile defaults. Called once
         at startup (initial=True) and again whenever the overrides file
@@ -1190,6 +1198,23 @@ class BeatBirdBridge:
                                       for f in filters))
             except Exception as e:
                 log.warning("overrides loudness apply failed: %s", e)
+
+        # Friendly name (user-label) — a browser rename. Push the effective name
+        # to the BlueZ adapter alias and the HA device name. The web UI reads it
+        # fresh per request. On initial start() handles the BlueZ alias itself
+        # (after this runs); MQTT discovery is published at connect using the
+        # name we seed here, so seed it on the initial pass too.
+        raw_name = data.get("friendly_name") if isinstance(data, dict) else None
+        try:
+            self.mqtt.update_friendly_name(raw_name)
+        except Exception as e:
+            log.debug("overrides: mqtt name update failed: %s", e)
+        if not initial and self.bt is not None:
+            try:
+                from beatbird.sources.bluetooth import set_adapter_alias
+                set_adapter_alias(self._friendly_name(data))
+            except Exception as e:
+                log.debug("overrides: bt alias update failed: %s", e)
 
     def _poll_overrides(self) -> None:
         """File-mtime check, applies if changed. Called from main loop
@@ -1543,7 +1568,7 @@ class BeatBirdBridge:
         split-flap byte-cycle constraints. The label is fixed-width with
         SCROLL_CIRCULAR, so a long name just marquees."""
         from beatbird.rss_fetcher import _sanitise   # same sanitiser as RSS
-        name = _sanitise(self.profile.resolved_friendly_name)
+        name = _sanitise(self._friendly_name())
         return f"PAIRING {name}" if name else "PAIRING MODE"
 
     def _send_idle_message(self) -> None:
