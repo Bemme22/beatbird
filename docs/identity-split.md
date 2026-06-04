@@ -96,12 +96,15 @@ Resolution order (a `resolved_*` property on Profile, instance id injected):
 
 ## 6-phase rollout
 
-1. **Instance ID helper** — `system.hardware_instance_id()` (CPU serial → short
-   id). Pure + testable. *(scaffolded now — see `system.py` + test.)*
-2. **Identity model** — add `model`, make the three fields optional/derived;
-   keep back-compat (explicit values still win).
-3. **Resolution** — `Profile.resolved_speaker_id / hostname / friendly_name`
-   using the instance id + settings-overrides; route all call sites through them.
+1. ✅ **Instance ID helper** — `system.hardware_instance_id()` (CPU serial →
+   short id). Pure + testable. *(`system.py` + `test_hardware_id.py`.)*
+2. ✅ **Identity model** — added `model`; `hostname`/`friendly_name`/`speaker_id`
+   are now optional/derived; explicit values still win (back-compat — every
+   committed profile pins all three, so nothing shifts).
+3. ✅ **Resolution** — `Profile.resolved_speaker_id / hostname / friendly_name`
+   (+ `short_id`), instance id injected by `load_profile()`; all call sites
+   (bridge, ha/mqtt, webserver, mqtt_topic_base) routed through them.
+   *(`test_identity_resolve.py`.)* Settings-override hook lands in phase 4.
 4. **user-label** — friendly_name editable in the web Settings page → written to
    settings-overrides; bridge picks it up (BlueZ alias + web + MQTT) on the
    existing override poll.
@@ -110,9 +113,24 @@ Resolution order (a `resolved_*` property on Profile, instance id injected):
 6. **Provisioning** — derive + set the hostname from model+instance at install;
    drop per-unit profiles.
 
-## Phase 1 scaffold (done now, decision-free)
+## Phases 1–3 done (2026-06-04)
 
-`system.hardware_instance_id()` reads the Pi CPU serial and returns a short
-stable id — the one piece that's useful regardless of which naming/MQTT
-decisions land. Unit-tested against a fixed serial. Everything else waits on the
-three decisions above.
+The whole CI-testable, no-live-speaker core is in:
+
+- `system.hardware_instance_id()` — Pi CPU serial → 4-hex short id, or None on a
+  non-Pi / unreadable serial.
+- `Identity` model gains `model`; the three labels are optional and **derived**
+  (`<model>_<short_id>` / `<model>-<short_id>` / title-cased `<Model> <short_id>`)
+  unless pinned. On a box with no serial, `short_id` falls back to `"generic"`,
+  which reproduces the legacy `beatbird_generic` default exactly.
+- `Profile.resolved_speaker_id / resolved_hostname / resolved_friendly_name`
+  (+ `short_id`); `load_profile()` injects the instance id; every consumer routes
+  through the resolved properties. `mqtt_topic_base` no longer crashes on an
+  unset `speaker_id`.
+- Tests: `test_identity_resolve.py` (pin-wins, derivation, generic fallback,
+  topic-base regression). Full suite green (87), ruff clean.
+
+**Still gated on hardware / a follow-up PR:** phase 4 (browser rename via
+settings-overrides), phase 5 (pin beat-1/2 `speaker_id` against the **live HA
+broker**, then collapse `beat-1.yml`+`beat-2.yml` → `beat.yml`), phase 6
+(provisioning derives the hostname on a real unit).

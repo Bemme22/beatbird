@@ -594,7 +594,7 @@ class BeatBirdBridge:
     def start(self) -> None:
         log.info(
             "BeatBird bridge starting (profile=%s, driver=%s, display=%s)",
-            self.profile.identity.speaker_id,
+            self.profile.resolved_speaker_id,
             self.profile.soundcard.driver,
             self.profile.display.type,
         )
@@ -644,7 +644,7 @@ class BeatBirdBridge:
         if self.bt is not None:
             try:
                 from beatbird.sources.bluetooth import set_adapter_alias
-                set_adapter_alias(self.profile.identity.friendly_name)
+                set_adapter_alias(self.profile.resolved_friendly_name)
             except Exception as e:
                 log.debug("set bt alias failed: %s", e)
 
@@ -1543,7 +1543,7 @@ class BeatBirdBridge:
         split-flap byte-cycle constraints. The label is fixed-width with
         SCROLL_CIRCULAR, so a long name just marquees."""
         from beatbird.rss_fetcher import _sanitise   # same sanitiser as RSS
-        name = _sanitise(self.profile.identity.friendly_name)
+        name = _sanitise(self.profile.resolved_friendly_name)
         return f"PAIRING {name}" if name else "PAIRING MODE"
 
     def _send_idle_message(self) -> None:

@@ -437,8 +437,8 @@ def set_adapter_alias(alias: str) -> bool:
     """Set the BlueZ adapter Alias (what nearby phones see in their BT
     scan list). Persistent across boots — bluez stores it in
     /var/lib/bluetooth/<adapter>/settings. Called by the bridge at
-    startup so the speaker advertises its profile.identity.friendly_name
-    instead of the kernel-default hostname.
+    startup so the speaker advertises its resolved friendly_name
+    (profile.resolved_friendly_name) instead of the kernel-default hostname.
 
     Important for multi-room setups: a household with three speakers
     wants three distinct names in the phone's BT picker, not three

@@ -962,7 +962,7 @@ def _status_for_template() -> dict:
 def dashboard(request: Request):
     p = _get_profile()
     return templates.TemplateResponse(request, "dashboard.html", {
-        "name":    p.identity.friendly_name,
+        "name":    p.resolved_friendly_name,
         "status":  _status_for_template(),
         "bt":      _bt_context(),
     })
@@ -972,7 +972,7 @@ def dashboard(request: Request):
 def advanced(request: Request):
     p = _get_profile()
     return templates.TemplateResponse(request, "advanced.html", {
-        "name":    p.identity.friendly_name,
+        "name":    p.resolved_friendly_name,
         "status":  _status_for_template(),
         "diag":    diag(),
     })
@@ -991,7 +991,7 @@ def ui_now_playing(request: Request):
 def ui_bluetooth(request: Request):
     p = _get_profile()
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.identity.friendly_name,
+        "name":    p.resolved_friendly_name,
         "bt":      _bt_context(),
     })
 
@@ -1048,7 +1048,7 @@ def ui_bluetooth_pair(request: Request):
     except Exception as e:
         log.error("ui_bluetooth_pair: %s", e)
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.identity.friendly_name,
+        "name":    p.resolved_friendly_name,
         "bt":      _bt_context(),
     })
 
@@ -1062,7 +1062,7 @@ def ui_bluetooth_forget(request: Request, mac: str):
     except Exception as e:
         log.error("ui_bluetooth_forget %s: %s", mac, e)
     return templates.TemplateResponse(request, "_bluetooth.html", {
-        "name":    p.identity.friendly_name,
+        "name":    p.resolved_friendly_name,
         "bt":      _bt_context(),
     })
 
@@ -1216,7 +1216,7 @@ _HEALTH_HTML = """<!doctype html>
 @app.get("/health", response_class=HTMLResponse)
 def health_page():
     p = _get_profile()
-    return _HEALTH_HTML.format(name=p.identity.friendly_name)
+    return _HEALTH_HTML.format(name=p.resolved_friendly_name)
 
 
 
@@ -1224,7 +1224,7 @@ def health_page():
 def settings_page(request: Request):
     p = _get_profile()
     return templates.TemplateResponse(request, "settings.html", {
-        "name": p.identity.friendly_name,
+        "name": p.resolved_friendly_name,
     })
 
 
@@ -1233,7 +1233,7 @@ def settings_page(request: Request):
 def bluetooth_page(request: Request):
     p = _get_profile()
     return templates.TemplateResponse(request, "bluetooth.html", {
-        "name": p.identity.friendly_name,
+        "name": p.resolved_friendly_name,
     })
 
 

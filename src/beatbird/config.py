@@ -17,15 +17,27 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 
 # ─── Sub-models ──────────────────────────────────────────────────────────────
 
 class Identity(BaseModel):
-    hostname: str = "beatbird"
-    friendly_name: str = "BeatBird Speaker"
-    speaker_id: str = "beatbird_generic"
+    """Who this speaker is, in three layers that change at different rates
+    (identity-split — see docs/identity-split.md).
+
+    ``model`` is the hardware-class (which beat.yml / zipp-mini-2.yml — drives
+    DSP/display/soundcard); it never changes per unit. ``hostname``,
+    ``friendly_name`` and ``speaker_id`` are **derived** from ``model`` + the
+    board's hardware instance id (Pi CPU serial) when left unset — but an
+    explicit value always wins. Existing units pin all three so their MQTT/HA
+    topics stay stable across the migration. Resolve via the ``Profile``
+    ``resolved_*`` properties, never read these raw fields directly.
+    """
+    model: str = "beatbird"
+    hostname: str | None = None
+    friendly_name: str | None = None
+    speaker_id: str | None = None
 
 
 class Soundcard(BaseModel):
@@ -329,12 +341,52 @@ class Profile(BaseModel):
     web: Web = Field(default_factory=Web)
     idle: Idle = Field(default_factory=Idle)
 
+    # Hardware instance id (Pi CPU serial → short hash), injected by
+    # load_profile(). None on a box without a readable serial (dev/CI), where
+    # the resolved_* fall back to the legacy "*_generic" defaults.
+    _instance_id: str | None = PrivateAttr(default=None)
+
+    # ─── Resolved identity (identity-split) ─────────────────────────────────
+    # Always route identity through these, not the raw Identity fields: an
+    # explicit profile value wins (the pin for legacy units), otherwise the
+    # value is derived from <model> + the board's instance id.
+
+    @property
+    def short_id(self) -> str:
+        """Stable per-board short id, or 'generic' on hardware without a
+        readable CPU serial. 'generic' reproduces the legacy default
+        speaker_id 'beatbird_generic' for an unconfigured profile."""
+        return self._instance_id or "generic"
+
+    @property
+    def resolved_speaker_id(self) -> str:
+        """MQTT client_id / topic slug. Explicit pin wins (keeps legacy units'
+        HA history intact); otherwise ``<model>_<short_id>``."""
+        return self.identity.speaker_id or f"{self.identity.model}_{self.short_id}"
+
+    @property
+    def resolved_hostname(self) -> str:
+        """Linux hostname. Explicit wins; otherwise ``<model>-<short_id>``."""
+        return self.identity.hostname or f"{self.identity.model}-{self.short_id}"
+
+    @property
+    def resolved_friendly_name(self) -> str:
+        """Human label (Spotify Connect / HA / BlueZ alias / web title).
+        Explicit wins; otherwise a title-cased ``<Model> <short_id>``.
+        (Phase 4 inserts a browser settings-override ahead of the explicit
+        value so users can rename without SSH.)"""
+        if self.identity.friendly_name:
+            return self.identity.friendly_name
+        label = self.identity.model.replace("-", " ").replace("_", " ").title()
+        return f"{label} {self.short_id}"
+
     @property
     def mqtt_topic_base(self) -> str:
         base = self.mqtt.base_topic.rstrip("/")
-        if self.identity.speaker_id in base:
+        sid = self.resolved_speaker_id
+        if sid in base:
             return base
-        return f"{base}/{self.identity.speaker_id}" if "/" in base else base
+        return f"{base}/{sid}" if "/" in base else base
 
     @property
     def has_tas5825m(self) -> bool:
@@ -359,6 +411,14 @@ def load_profile(path: Optional[str | Path] = None) -> Profile:
     with path.open() as f:
         raw = yaml.safe_load(f)
     prof = Profile.model_validate(raw)
+
+    # Inject the board's hardware instance id so the resolved_* identity
+    # properties can derive <model>-<short_id> for any field the profile leaves
+    # unset. None on a non-Pi / unreadable serial → resolved_* fall back to the
+    # legacy "*_generic" defaults. (Lazy import: keeps config import side-effect
+    # free and avoids a hard dependency at module load.)
+    from .system import hardware_instance_id
+    prof._instance_id = hardware_instance_id()
 
     # Per-deployment broker details are LAN-specific (and the repo is public),
     # so they don't live in the profile YAML. install/00-base.sh renders them

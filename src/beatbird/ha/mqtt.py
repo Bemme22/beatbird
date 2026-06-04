@@ -55,7 +55,7 @@ class MqttBridge:
             return
 
         client = mqtt.Client(
-            client_id=self.profile.identity.speaker_id,
+            client_id=self.profile.resolved_speaker_id,
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         )
         if self.profile.mqtt.user:
@@ -151,15 +151,15 @@ class MqttBridge:
 
     def _device_block(self) -> dict:
         return {
-            "identifiers": [self.profile.identity.speaker_id],
-            "name": self.profile.identity.friendly_name,
+            "identifiers": [self.profile.resolved_speaker_id],
+            "name": self.profile.resolved_friendly_name,
             "manufacturer": "DIY (Libratone conversion)",
             "model": f"BeatBird ({self.profile.soundcard.driver})",
             "sw_version": "2.0",
         }
 
     def _publish_discovery(self) -> None:
-        did = self.profile.identity.speaker_id
+        did = self.profile.resolved_speaker_id
         avail = {
             "availability_topic": self.topic_availability,
             "payload_available": "online",
