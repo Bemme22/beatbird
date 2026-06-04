@@ -32,7 +32,30 @@ speaker is a browser field, no SSH.
   (settings-overrides), with the profile/default as fallback.
 - `hostname` → set at provisioning. → derive `<model>-<short-id>`.
 
-## Open decisions (need your call before coding)
+## ✅ DECIDED (2026-06-04): full plan
+
+Steff chose the **full rollout** of all three sub-decisions below as recommended:
+1. **Instance-ID source → Pi CPU serial** (→ short hash; survives SD reflash).
+2. **Naming** → `hostname=<model>-<short-id>`, `speaker_id=<model>_<short-id>`,
+   `friendly_name` default `<Model> <short-id>`, user-overridable in the browser.
+3. **MQTT migration** → existing speakers keep their current `speaker_id` via an
+   explicit pin (no HA-history loss); only NEW speakers auto-derive. Then collapse
+   `beat-1.yml`+`beat-2.yml` → `beat.yml`.
+
+**Next steps** (Phase 1 instance-id helper already scaffolded + tested):
+- Phase 2–3 (Identity model: add `model`, make the three fields optional/derived,
+  add `resolved_*` properties, route all call sites through them) — pure code +
+  CI-testable, **no live speaker needed**.
+- Phase 4 (browser friendly_name → settings-overrides) — code + the existing
+  override poll.
+- Phase 5 (MQTT pin beat-1/2 then collapse profiles) — **gated**: pin must be in
+  place and verified against the live HA broker before the profiles merge, or the
+  entity history orphans.
+- Phase 6 (provisioning derives hostname) — at install time on a real unit.
+
+---
+
+## Open decisions (were your call before coding)
 
 ### 1. Hardware-instance ID source
 | Source | Stable across reimage? | Notes |

@@ -6,6 +6,15 @@ set-property / tree) and **regex-parsing the text output**. That is fragile vs
 BlueZ updates and slow (a subprocess per call). Goal: native typed D-Bus via
 [`dbus-fast`](https://github.com/Bluetooth-Devices/dbus-fast).
 
+> **✅ DECIDED (2026-06-04): Option B.** Steff approved the migration via a
+> dedicated asyncio loop-thread holding one persistent `MessageBus`, with a sync
+> facade so callers stay unchanged. Incremental (read-paths first, behind a flag),
+> pairing/agent stays on `bluetoothctl` initially. **Gated:** the subprocess
+> fallback is only dropped after live-adapter validation on a Zipp/Beat (pair a
+> phone → list/connect-state/volume/AVRCP/disconnect). Do it in its own PR off
+> `prep/big-rocks`. Step 1 (deps + `BluetoothBus` plumbing, no behaviour change)
+> is CI-mockable and needs no adapter.
+
 ## The blocker to decide first: async ↔ sync
 
 `dbus-fast` is **async-only** (asyncio `MessageBus`). The rest of BeatBird

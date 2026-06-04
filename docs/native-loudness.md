@@ -71,7 +71,24 @@ Main volume; CamillaDSP's `Loudness` reacts. `LoudnessController` shrinks to
 "apply the static voicing + push the Loudness params on a voicing edit (rare),
 via SetConfig" — no per-volume work, no read-back, no drift.
 
-## Decision needed before implementing
+## ✅ DECIDED (2026-06-04): Hybrid
+
+Steff chose **Hybrid**: static voicing stays as ordinary (browser-tunable) EQ
+filters, the native CamillaDSP `Loudness` filter takes over the
+volume-dependent boost → click gone, no read-back/drift. Accepted trade-off:
+loses per-band *max_boost* and the custom knee width.
+
+**Next step (gated on a live Zipp for the A/B):** rework
+`LoudnessController.apply()` to set the `Loudness` params instead of patching
+bass gains; keep `build_loudness` for the static filters; map the web
+`/api/loudness` "leise" field → `low_boost`, "Kurve" → `reference_level`;
+rewrite `test_loudness_curve.py` around the new mapping. Do **not** commit
+before an audible A/B on the Zipp (does native `low_boost` @ 70 Hz feel like
+today's sub-heavy boost?).
+
+---
+
+## Options that were on the table
 
 1. **Hybrid** (recommended) — keep static voicing, native filter for the
    volume-dependent part. Keeps most of the web UI; loses only the per-band
