@@ -64,11 +64,17 @@ fi
 # 2) Persist on overlayroot: pull the read-only base repo via the chroot.
 if mount | grep -q "overlayroot on / "; then
   log "overlayroot → persisting base repo via chroot"
+  # The chroot runs as root, so its git writes land root-owned in the base.
+  # After the next reboot the tmpfs overlay is a fresh copy of that base →
+  # the repo (and .git refs) come up root-owned and the *next* live ff-pull
+  # (run as $OWNER) can't lock its refs. chown the tree back so the owner-
+  # context git keeps working across reboots.
   if overlayroot-chroot bash -c "
         echo nameserver 1.1.1.1 > /etc/resolv.conf
         git -C '$REPO' -c safe.directory='$REPO' fetch --quiet origin '$BRANCH' \
           && git -C '$REPO' -c safe.directory='$REPO' checkout --quiet '$BRANCH' \
-          && git -C '$REPO' -c safe.directory='$REPO' merge --quiet --ff-only 'origin/$BRANCH'"; then
+          && git -C '$REPO' -c safe.directory='$REPO' merge --quiet --ff-only 'origin/$BRANCH' \
+          && chown -R '$OWNER:$OWNER' '$REPO'"; then
     log "base repo persisted (survives reboot)"
   else
     log "WARN: chroot persist failed — live update active but will revert on reboot"
