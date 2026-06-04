@@ -35,7 +35,7 @@ exact signatures — the migration is invisible to them.
 class BluetoothBus:
     _loop: asyncio.AbstractEventLoop      # on a daemon thread, started lazily
     _bus:  MessageBus                     # system bus, connected once, reused
-    def _run(self, coro, timeout=4.0):    # sync bridge: submit + .result()
+    def submit(self, coro, timeout=4.0):  # sync bridge: submit + .result()
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
 ```
 
@@ -59,8 +59,13 @@ function. That single change removes most of the fragility.
 
 ## Migration order (incremental, each shippable)
 
-1. Add `dbus-fast` to deps (`pyproject`/bridge venv). Add the `BluetoothBus`
-   singleton + loop-thread plumbing. No behaviour change yet.
+1. ✅ **Done (2026-06-04).** `dbus-fast>=2.0` added to deps; `BluetoothBus`
+   (`sources/bluetooth_bus.py`) — singleton + lazy daemon loop thread + sync
+   `submit(coro, timeout)` facade + lazy `_connect()` to the system bus. No
+   behaviour change, nothing calls it yet. `dbus_fast` imported lazily so the
+   package still imports without it (CI). Plumbing unit-tested with plain
+   coroutines (`test_bluetooth_bus.py`) — runs-on-daemon-thread, exception
+   propagation, timeout, lazy-start, loop reuse, idempotent close.
 2. Port the **read paths** first (lowest risk): `GetManagedObjects`-based
    `list_paired_devices` + the BlueALSA PCM/volume reads. Keep the old
    functions as fallback behind a flag for one release.
@@ -71,7 +76,7 @@ function. That single change removes most of the fragility.
 
 ## Testing
 
-- **Unit (CI, no adapter):** mock `BluetoothBus._run` / the `MessageBus` so the
+- **Unit (CI, no adapter):** mock `BluetoothBus.submit` / the `MessageBus` so the
   mapping logic (GetManagedObjects dict → `BTDevice`, volume raw↔pct) is tested
   without D-Bus. The raw↔pct math (`_vol_raw_to_pct` / `_vol_pct_to_raw`) is
   already pure — unit-test it directly.

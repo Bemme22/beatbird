@@ -21,6 +21,10 @@ dependencies = [
     # (src/beatbird/web/static/) so no extra runtime deps for the
     # client side — only Jinja2 here for server-side templating.
     "jinja2>=3.1",
+    # Native typed D-Bus for BlueZ/BlueALSA (docs/bluetooth-dbus-fast.md).
+    # Imported lazily by sources/bluetooth_bus.py so the package still imports
+    # on a box without it (e.g. CI, which doesn't install runtime deps).
+    "dbus-fast>=2.0",
 ]
 
 [tool.setuptools.package-data]
