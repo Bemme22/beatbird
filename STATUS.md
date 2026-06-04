@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | **Beat #1** | Pi Zero 2W · Louder Hat Plus 2X | Bookworm | fw-v0.9.14 | ✅ Production — overlayroot=tmpfs, BT + dashboard live |
 | **Zipp Mini 2** | Pi Zero 2W · Louder Hat Plus 1X | Trixie | fw-v0.9.14 | ✅ Production |
-| **LoungePi** | Pi 5 (1 GB) · 3× Louder Hat (TDM) | Trixie 13.4 | — | 🔧 Bench bring-up — blocked on driver TDM register (see roadmap) |
+| **LoungePi** | Pi 5 (1 GB) · 3× Louder Hat | Trixie 13.4 | — | 🔧 Bench — TDM design dead (Pi I²S can't); redirected to Pi 5 multi-lane (see roadmap + docs/lounge-multilane.md) |
 | BeatPiMini | Pi Zero 2W · Louder Hat Plus 1X | — | — | 📐 Designed, not built (see roadmap) |
 
 Both production speakers run `overlayroot="tmpfs:recurse=0"` (persistent
@@ -135,7 +135,21 @@ InnoMaker `plughw:sndrpihifiberry,0` / `S16_LE` premise is stale; the Louder Hat
 Plus 1X conversion is done). `capture_samplerate 44100` + Synchronous already in
 place. So this part = confirm only, no change.
 
-### 🔧 LoungePi — 3-DAC TDM, all-active CamillaDSP (TDM STACK UP, awaiting chassis)
+### 🔧 LoungePi — 3-DAC, all-active CamillaDSP (TDM DESIGN DEAD → Pi 5 multi-lane)
+
+> **⛔ UPDATE 2026-06-04 — the shared-I²S-TDM design below is a DEAD END.** Bench-
+> proven on both Pis: Pi 5 RP1 has no TDM at all (only slot 0 ever output, all
+> chips healthy — scoped); Pi 4 bcm2835 TDM is hard-capped to 2 channels (kernel
+> source, card fails probe `set_tdm_slot -22`). The hardware was never at fault.
+> **New path = Pi 5 MULTI-LANE** (separate I²S data lanes, one stereo pair each).
+> Constrained to a **2-lane compromise** (Plus X2's two chips share one SDIN +
+> the spare X1 collides on I²C address): mid+sub on lane D0 with the sub crossover
+> in-chip (Beat-style), ribbon on lane D1, mid↔ribbon crossover + all EQ in
+> CamillaDSP. **Full design + Andriy/PR notes: [docs/lounge-multilane.md](docs/lounge-multilane.md).**
+> New artefacts: `install/overlays/tas58xx-lanes-overlay.dts` (DRAFT — key open
+> question: multi-lane→I²C-codec mapping on RP1), rewritten `config/camilladsp/lounge.yml`
+> (4-ch, 2 lanes). Bench next: jumper ribbon SDIN→GPIO23, load overlay, test.
+> The TDM write-up below is kept for the record.
 
 Fully-active 3-way (8" woofer mono + 2× 4" mid L/R + 2× ribbon L/R) on a
 Pi 5 with 3 Louder Hat boards on **one shared I²S line via 6-channel TDM**,

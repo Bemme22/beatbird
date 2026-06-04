@@ -1,0 +1,127 @@
+// ============================================================================
+// tas58xx-lanes — DRAFT — Pi 5 (RP1) MULTI-LANE I2S for the Lounge 3-way.
+// ============================================================================
+// Replaces the dead tas58xx-triple (TDM) overlay. See docs/lounge-multilane.md
+// for the full why. Short version: neither Pi does >2-ch TDM, so we use the
+// RP1's separate I2S data lanes (one stereo pair per lane, shared BCLK/LRCLK).
+//
+// HARDWARE WIRING (boards un-stacked, jumpered):
+//   shared : BCLK  GPIO18 (pin12),  LRCLK GPIO19 (pin35),  I2C GPIO2/3,  GND
+//   lane D0: SDO0  GPIO21 (pin40) <- X2 board SDIN  (mid 0x4c + sub 0x4d)
+//   lane D1: SDO1  GPIO23 (pin16) <- ribbon board SDIN (0x2d)
+//   (RP1 i2s0 SDO lanes = GPIO 21/23/25/27 = D0/D1/D2/D3, docs-confirmed.
+//    GPIO23 carries the on-board IR when STACKED; un-stacked + un-wired it's
+//    free, so D1 is fine here.)
+//
+//   ALSA ch  lane   driver / role
+//   0  L     SDO0   mid 0x4c (stereo) + sub 0x4d (mono) read the SAME pair
+//   1  R     SDO0
+//   2  L     SDO1   ribbon 0x2d (stereo)
+//   3  R     SDO1
+//
+// CHIP ROLES (the sub<->mid ~120 Hz split is IN-CHIP; mid<->ribbon ~3 kHz is in
+// CamillaDSP — config/camilladsp/lounge.yml):
+//   mid 0x4c   : stereo,  ti,eq-mode = HF-crossover (~120 Hz high-pass)
+//   sub 0x4d   : PBTL mono, ti,eq-mode = LF-crossover (~120 Hz low-pass)
+//   ribbon 0x2d: stereo,  flat (CamillaDSP high-passes it)
+//
+// !!! OPEN QUESTIONS — confirm before trusting output (and good Qs for Andriy):
+//   (A) The generic simple-audio-card multi-codec link below assumes the RP1
+//       i2s driver spreads a 4-ch stream as ch0/1->SDO0, ch2/3->SDO1, and that
+//       each codec just reads whichever SDO pin it's physically wired to. The
+//       HiFiBerry DAC8x needed a CUSTOM driver (rpi-simple-soundcard) for this
+//       lane mapping with DUMB codecs. With I2C codecs (TAS) it may need the
+//       same framework or a per-lane dai-link. THIS IS THE KEY THING TO TEST.
+//   (B) Exact RP1 DT node names / pinctrl group for a 2-lane subset mux
+//       (GPIO 18/19/21/23). Model is the hifiberry-dac8x overlay (muxes 18-27).
+//   (C) eq-mode crossover frequency: the driver's HF/LF-crossover profiles bake
+//       the freq into a DSP blob; ~120 Hz may need a custom coefficient set.
+//
+// Until tested, treat as a starting point, not a working overlay.
+// dtc -I dts -O dtb -@ -o /boot/firmware/overlays/tas58xx-lanes.dtbo tas58xx-lanes-overlay.dts
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2712";
+
+    // ── I2C: declare the three codecs (config bus; distinct addresses) ──────
+    fragment@0 {
+        target = <&i2c1>;
+        __overlay__ {
+            status = "okay";
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            codec_mid: tas58xx@4c {        // X2 chip A — Mids (stereo)
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x4c>;
+                pdn-gpios = <&gpio 4 0>;
+                sound-name-prefix = "Mid";
+                ti,eq-mode = <3>;          // HF crossover (~120 Hz high-pass) — DRAFT
+                ti,mixer-mode = <0>;       // Stereo
+            };
+            codec_sub: tas58xx@4d {        // X2 chip B — Sub (mono PBTL)
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x4d>;
+                pdn-gpios = <&gpio 5 0>;
+                sound-name-prefix = "Sub";
+                ti,bridge-mode;            // PBTL
+                ti,eq-mode = <2>;          // LF crossover (~120 Hz low-pass) — DRAFT
+                ti,mixer-mode = <1>;       // Mono (L+R sum)
+                ti,analog-gain = <0x0b>;   // -5.5 dB, conservative
+            };
+            codec_ribbon: tas58xx@2d {     // ribbon board — flat (stereo)
+                #sound-dai-cells = <0>;
+                compatible = "ti,tas58xx";
+                reg = <0x2d>;
+                pdn-gpios = <&gpio 6 0>;
+                sound-name-prefix = "Ribbon";
+                ti,eq-mode = <0>;          // OFF — CamillaDSP does the HP
+                ti,mixer-mode = <0>;       // Stereo
+                ti,analog-gain = <0x10>;   // -8 dB, conservative (flat ribbon)
+            };
+        };
+    };
+
+    // ── I2S0 (RP1 clock producer) + 2-lane pinctrl ──────────────────────────
+    // NOTE: node/label names modelled on hifiberry-dac8x; verify against the
+    // Pi 5 base DT. Subset mux of GPIO 18/19/21/23 = clk, ws, SDO0, SDO1.
+    fragment@1 {
+        target = <&rp1_i2s0>;
+        __dormant__ {                      // enable once node name confirmed
+            status = "okay";
+        };
+    };
+
+    // ── Card: 4-ch, plain I2S (NOT TDM), 3 codecs across 2 lanes ────────────
+    fragment@2 {
+        target = <&sound>;
+        __overlay__ {
+            status = "okay";
+            compatible = "simple-audio-card";
+            label = "LouderLanes";
+            simple-audio-card,name = "LouderLanes";
+            simple-audio-card,format = "i2s";
+            simple-audio-card,bitclock-master = <&snd_cpu>;
+            simple-audio-card,frame-master = <&snd_cpu>;
+
+            snd_cpu: simple-audio-card,cpu {
+                sound-dai = <&i2s_clk_producer>;
+                // 4 channels => RP1 maps pair0->SDO0 (GPIO21), pair1->SDO1 (GPIO23)
+            };
+            // OPEN (A): one multi-codec link, OR one dai-link per lane?
+            simple-audio-card,codec {
+                sound-dai = <&codec_mid>, <&codec_sub>, <&codec_ribbon>;
+            };
+        };
+    };
+
+    __overrides__ {
+        i2creg_mid    = <&codec_mid>,"reg:<>";
+        i2creg_sub    = <&codec_sub>,"reg:<>";
+        i2creg_ribbon = <&codec_ribbon>,"reg:<>";
+    };
+};

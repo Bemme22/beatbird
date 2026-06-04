@@ -1,29 +1,43 @@
 ---
-# CamillaDSP — Libratone Lounge, fully-active 3-way over 8-channel TDM.
+# CamillaDSP — Libratone Lounge, 3-way stereo over Pi 5 multi-lane I2S.
 #
-# Hardware: Pi 5 + 3 Sonocotta amp boards on one shared I2S TDM line.
-#   Output channel  TDM slot  Driver
-#   0  Mid L         slot 0    TAS5825M @ 0x4c
-#   1  Mid R         slot 1    TAS5825M @ 0x4c
-#   2  Woofer (mono) slot 2    TAS5825M @ 0x4d (PBTL)
-#   3  (unused)      slot 3
-#   4  Ribbon L      slot 4    TAS5805M @ 0x2d
-#   5  Ribbon R      slot 5    TAS5805M @ 0x2d
-#   6,7 (unused)
+# === Why this shape (read before editing) ===
+# The "3 DACs on one TDM bus, all crossover in CamillaDSP" plan is DEAD: the Pi
+# 5 RP1 I2S has no TDM, and the Pi 4 bcm2835 TDM is hard-capped to 2 channels
+# (kernel source). The workable path on the Pi 5 is MULTI-LANE: separate I2S
+# data lanes sharing BCLK/LRCLK, one stereo pair per lane.
 #
-# TAS chips run FLAT — every crossover / EQ / level / delay is here. This is
-# the all-CamillaDSP design the Pi 5 was bought for, after the TAS-internal-
-# crossover approach dead-ended at voicing on the Pi 4.
+# Our boards force a compromise: the Plus X2 board carries TWO chips (mid 0x4c +
+# sub 0x4d) hard-wired to ONE SDIN — they can't be split onto separate lanes,
+# and the only spare board collides on I2C address. So:
 #
-# CROSSOVER FREQUENCIES BELOW ARE PLACEHOLDERS. They give a sane 3-way split
-# so every driver plays roughly in its band at first power-on, but the real
-# values + the per-driver REW EQ come AFTER in-situ measurement (UMIK-1).
-# The per-driver REW-EQ slots are empty Gain=0 placeholders — do NOT invent
-# correction filters; they get filled once measured.
+#   Lane D0 (GPIO21): X2 board — mid 0x4c (stereo) + sub 0x4d (mono PBTL),
+#                     both read the SAME stereo pair.
+#   Lane D1 (GPIO23): ribbon board 0x2d (stereo).
 #
-# Depends on: the 8-ch TDM TAS driver patch + tas58xx-triple overlay. Until
-# the driver's SAP_CTRL1 (0x33) TDM value is vendor-confirmed, treat output
-# as untrusted (especially the ribbon channel).
+#   ALSA ch  Lane/SDO   Driver / role
+#   0  L     SDO0/D0    mid 0x4c  (in-chip HP ~120 Hz)  + sub feed
+#   1  R     SDO0/D0    mid 0x4c                         + sub feed
+#   2  L     SDO1/D1    ribbon 0x2d  (CamillaDSP HP)
+#   3  R     SDO1/D1    ribbon 0x2d
+#
+# CROSSOVER SPLIT:
+#   * mid <-> ribbon (~3 kHz LR4): IN CAMILLADSP (LP on ch0/1, HP on ch2/3).
+#   * sub <-> mid   (~120 Hz):     IN THE CHIPS on D0 — the mid chip high-passes
+#     ~120 Hz (ti,eq-mode HF crossover), the sub chip low-passes ~120 Hz + mono.
+#     This is the one crossover we can't do in CamillaDSP (mid+sub share the
+#     lane). Audibly fine — exactly how the Beat runs its internal sub split.
+#   * So CamillaDSP feeds ch0/1 the FULL RANGE BELOW ~3 kHz (bass for the sub +
+#     mids); the X2 chips split it at 120 Hz. CamillaDSP must NOT add the 120 Hz
+#     split here or the sub gets no bass.
+#
+# CROSSOVER FREQS BELOW ARE PLACEHOLDERS (sane 3-way at first power-on); the
+# real values + per-driver REW EQ come AFTER in-situ UMIK-1 measurement. The
+# rew_* slots are empty Gain=0 — do NOT invent correction filters.
+#
+# Depends on the tas58xx-lanes overlay (2-lane RP1 I2S) — see
+# install/overlays/tas58xx-lanes-overlay.dts. Playback device name comes from
+# that overlay's card label; confirm with `aplay -l` after it loads.
 
 devices:
   samplerate: 48000
@@ -38,39 +52,29 @@ devices:
     format: S32_LE
   playback:
     type: Alsa
-    channels: 8
-    device: "hw:LouderRaspberry,0"
+    channels: 4               # 2 lanes x stereo (SDO0 + SDO1)
+    device: "hw:LouderLanes,0"   # PLACEHOLDER — set to the overlay's card name
     format: S32_LE
 
 mixers:
-  # 2-channel stereo source → 8-channel TDM frame. Mid + ribbon get true
-  # L/R; woofer is a -6 dB L+R mono sum; slots 3/6/7 stay silent.
-  stereo_to_tdm8:
+  # 2-ch stereo source -> 4-ch (two stereo lanes). D0 (ch0/1) carries the
+  # mid+sub band, D1 (ch2/3) the ribbon band — both true stereo L/R.
+  stereo_to_lanes:
     channels:
       in: 2
-      out: 8
+      out: 4
     mapping:
-      - dest: 0           # Mid L
+      - dest: 0           # D0 L  (mid + sub feed)
         sources: [{channel: 0, gain: 0}]
-      - dest: 1           # Mid R
+      - dest: 1           # D0 R
         sources: [{channel: 1, gain: 0}]
-      - dest: 2           # Woofer (mono sum)
-        sources:
-          - {channel: 0, gain: -6}
-          - {channel: 1, gain: -6}
-      - dest: 4           # Ribbon L
+      - dest: 2           # D1 L  (ribbon)
         sources: [{channel: 0, gain: 0}]
-      - dest: 5           # Ribbon R
+      - dest: 3           # D1 R
         sources: [{channel: 1, gain: 0}]
 
 filters:
-  # ─── Crossover (LR4 = 24 dB/oct), PLACEHOLDER frequencies ─────────────────
-  xover_woofer_lp:
-    type: BiquadCombo
-    parameters: {type: LinkwitzRileyLowpass,  freq: 250,  order: 4}
-  xover_mid_hp:
-    type: BiquadCombo
-    parameters: {type: LinkwitzRileyHighpass, freq: 250,  order: 4}
+  # ─── mid<->ribbon crossover (LR4 24 dB/oct), PLACEHOLDER ~3 kHz ────────────
   xover_mid_lp:
     type: BiquadCombo
     parameters: {type: LinkwitzRileyLowpass,  freq: 3000, order: 4}
@@ -78,13 +82,16 @@ filters:
     type: BiquadCombo
     parameters: {type: LinkwitzRileyHighpass, freq: 3000, order: 4}
 
-  # ─── Woofer subsonic protection (8" sealed) ───────────────────────────────
+  # NOTE: the sub<->mid split (~120 Hz) is NOT here — it lives in the X2 chips
+  # (mid HP + sub LP). ch0/1 must stay full-range below the 3 kHz LP.
+
+  # ─── woofer/sub subsonic protection — harmless to the mid (it HPs in-chip) ─
   woofer_subsonic:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 30, order: 6}
 
-  # ─── Ribbon protection (software half; the other half is a series film
-  #     cap in the wiring + the flat-amp's low safe-boot gain) ───────────────
+  # ─── ribbon protection (software half; series film cap + conservative AGAIN
+  #     are the hardware half) ──────────────────────────────────────────────
   ribbon_protect_hp:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 2500, order: 4}
@@ -92,7 +99,9 @@ filters:
     type: Limiter
     parameters: {clip_limit: -3.0, soft_clip: true}
 
-  # ─── Per-driver loudness/tonality (bridge patches these at runtime) ───────
+  # ─── bass/loudness tonality on the D0 band (bridge patches these at runtime;
+  #     the sub chip's LP keeps the boost on the sub, the mid HP keeps it off
+  #     the mids) ───────────────────────────────────────────────────────────
   bass_shelf:
     type: Biquad
     parameters: {type: Lowshelf, freq: 120, gain: 4, q: 0.7}
@@ -106,44 +115,36 @@ filters:
     type: Biquad
     parameters: {type: Highshelf, freq: 8000, gain: 0, q: 0.7}
 
-  # ─── Output limiters on the powered drivers ───────────────────────────────
-  woofer_limiter:
-    type: Limiter
-    parameters: {clip_limit: -1.0, soft_clip: true}
-  mid_limiter:
+  # ─── output limiters ──────────────────────────────────────────────────────
+  d0_limiter:
     type: Limiter
     parameters: {clip_limit: -1.0, soft_clip: true}
 
   # ─── REW EQ — EMPTY per driver, filled after in-situ measurement ──────────
-  rew_mid_l_1:    {type: Gain, parameters: {gain: 0}}
-  rew_mid_r_1:    {type: Gain, parameters: {gain: 0}}
-  rew_woofer_1:   {type: Gain, parameters: {gain: 0}}
+  rew_d0_l_1: {type: Gain, parameters: {gain: 0}}
+  rew_d0_r_1: {type: Gain, parameters: {gain: 0}}
   rew_ribbon_l_1: {type: Gain, parameters: {gain: 0}}
   rew_ribbon_r_1: {type: Gain, parameters: {gain: 0}}
 
 pipeline:
-  # Fan the 2-ch source out to the 8-ch TDM frame first.
   - type: Mixer
-    name: stereo_to_tdm8
+    name: stereo_to_lanes
 
-  # ── ch0 Mid L ──
+  # ── ch0  D0 L (mid + sub band, full-range below 3 kHz) ──
   - type: Filter
     channels: [0]
-    names: [xover_mid_hp, xover_mid_lp, air_lift, rew_mid_l_1, mid_limiter]
-  # ── ch1 Mid R ──
+    names: [woofer_subsonic, bass_shelf, sub_punch, timpani_body,
+            xover_mid_lp, rew_d0_l_1, d0_limiter]
+  # ── ch1  D0 R ──
   - type: Filter
     channels: [1]
-    names: [xover_mid_hp, xover_mid_lp, air_lift, rew_mid_r_1, mid_limiter]
-  # ── ch2 Woofer ──
+    names: [woofer_subsonic, bass_shelf, sub_punch, timpani_body,
+            xover_mid_lp, rew_d0_r_1, d0_limiter]
+  # ── ch2  D1 L (ribbon) ──
   - type: Filter
     channels: [2]
-    names: [woofer_subsonic, bass_shelf, sub_punch, timpani_body,
-            xover_woofer_lp, rew_woofer_1, woofer_limiter]
-  # ── ch4 Ribbon L ──
-  - type: Filter
-    channels: [4]
     names: [ribbon_protect_hp, xover_ribbon_hp, air_lift, rew_ribbon_l_1, ribbon_limiter]
-  # ── ch5 Ribbon R ──
+  # ── ch3  D1 R (ribbon) ──
   - type: Filter
-    channels: [5]
+    channels: [3]
     names: [ribbon_protect_hp, xover_ribbon_hp, air_lift, rew_ribbon_r_1, ribbon_limiter]
