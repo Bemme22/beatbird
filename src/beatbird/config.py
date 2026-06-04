@@ -325,6 +325,28 @@ class Idle(BaseModel):
     idle_message_interval_s: float = 45.0
 
 
+class Timing(BaseModel):
+    """Main-loop poll / push cadences. Defaults reproduce the historical
+    bridge.py module constants exactly (no behaviour change when unset). Made
+    per-profile so platforms tune separately — a Pi 5 (LoungePi) can poll
+    tighter, a Pi Zero 2W can relax these to save cycles/heat."""
+    # Status snapshot to display + amp-fault read cadence.
+    status_interval_s: float = 5.0
+    # go-librespot /status poll.
+    spotify_poll_interval_s: float = 2.0
+    # Snapserver poll.
+    snapcast_poll_interval_s: float = 3.0
+    # Signal-level (energy ring) sampling — the hot path.
+    level_poll_interval_s: float = 0.1
+    # How often the bridge pushes a fresh state line to the display while
+    # actively playing vs idle.
+    state_push_playing_s: float = 0.2
+    state_push_idle_s: float = 2.0
+    # Restart go-librespot after this many consecutive hung /status polls
+    # (× spotify_poll_interval_s = the real timeout, ~30 s at the defaults).
+    spotify_health_restart_threshold: int = 15
+
+
 # ─── Top-level ───────────────────────────────────────────────────────────────
 
 class Profile(BaseModel):
@@ -340,6 +362,7 @@ class Profile(BaseModel):
     sources: Sources = Field(default_factory=Sources)
     web: Web = Field(default_factory=Web)
     idle: Idle = Field(default_factory=Idle)
+    timing: Timing = Field(default_factory=Timing)
 
     # Hardware instance id (Pi CPU serial → short hash), injected by
     # load_profile(). None on a box without a readable serial (dev/CI), where

@@ -341,8 +341,12 @@ to avoid losing HA history.
   fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift.
 - [ ] **`beat-1.yml` / `beat-2.yml` split** — collapses under the identity
   split (above); until then they're per-unit dupes.
-- [ ] **Module-level timing constants in `bridge.py`** → profile-driven so
-  Pi Zero 2W vs Pi 5 tune separately.
+- [x] **Module-level timing constants in `bridge.py`** → profile-driven
+  (2026-06-04, prep/big-rocks) — `config.Timing` (status/spotify/snapcast poll,
+  level-poll, state-push playing/idle, spotify-health threshold) on
+  `profile.timing`; bridge reads `self._*` set in `__init__`. Defaults reproduce
+  the old constants exactly (no behaviour change); a Pi 5 can now poll tighter,
+  a Pi Zero 2W relax. (`test_config.py::test_timing_*`.)
 - [ ] **dead `dma_done_count`** in firmware `main.cpp` — remove.
 
 ### Web UI / polish

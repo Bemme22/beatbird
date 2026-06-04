@@ -43,9 +43,8 @@ from beatbird import system
 
 log = logging.getLogger("beatbird.bridge")
 
-STATUS_INTERVAL = 5.0
-SPOTIFY_POLL_INTERVAL = 2.0
-SNAPCAST_POLL_INTERVAL = 3.0
+# Main-loop poll/push cadences are profile-driven (profile.timing → per-bridge
+# self._status_interval etc., set in __init__). Defaults live in config.Timing.
 
 # Persistent runtime state — survives reboots through the writable path
 # /var/lib/beatbird (ReadWritePaths on the bridge service). Currently
@@ -72,18 +71,15 @@ def sd_notify_local(msg: str) -> None:
             s.sendto(msg.encode("utf-8"), sock_path)
     except OSError:
         pass
-LEVEL_POLL_INTERVAL = 0.1
-STATE_PUSH_PLAYING = 0.2
-STATE_PUSH_IDLE = 2.0
-# Restart go-librespot if /status hangs for this many consecutive polls.
-# At SPOTIFY_POLL_INTERVAL=2s, 15 = 30s of unresponsiveness before action.
-SPOTIFY_HEALTH_RESTART_THRESHOLD = 15
-# Standby grace + flap-rotation pacing moved to the profile (idle.* — they're
-# per-speaker UX): self._standby_timeout_s, self._idle_message_interval.
+# Level-poll / state-push cadences + the go-librespot health threshold also
+# moved to profile.timing (self._level_poll_interval, self._state_push_*,
+# self._spotify_health_restart_threshold). Standby grace + flap-rotation pacing
+# live in profile.idle (self._standby_timeout_s, self._idle_message_interval).
 # Driver/amp longevity: when a TAS amp reports OT (over-temperature) in its
 # CHAN_FAULT register, hard-cap the volume to this level until it cools. The
-# fault bit was already read every STATUS_INTERVAL but previously only
-# displayed — now it actually backs the volume off so the chip + voice coils
+# fault bit was already read every status tick (profile.timing.status_interval_s)
+# but previously only displayed — now it actually backs the volume off so the
+# chip + voice coils
 # get thermal relief instead of cooking at whatever level triggered it.
 AMP_OT_VOLUME_CAP_PCT = 60
 
@@ -338,6 +334,18 @@ class BeatBirdBridge:
         self._rss_weight = profile.idle.rss_weight
         self._standby_timeout_s = profile.idle.standby_timeout_s
         self._idle_message_interval = profile.idle.idle_message_interval_s
+
+        # Main-loop poll/push cadences — profile-driven (profile.timing) so a
+        # Pi 5 can poll tighter and a Pi Zero 2W can relax to save cycles.
+        # Defaults reproduce the historical module constants exactly.
+        t = profile.timing
+        self._status_interval = t.status_interval_s
+        self._spotify_poll_interval = t.spotify_poll_interval_s
+        self._snapcast_poll_interval = t.snapcast_poll_interval_s
+        self._level_poll_interval = t.level_poll_interval_s
+        self._state_push_playing = t.state_push_playing_s
+        self._state_push_idle = t.state_push_idle_s
+        self._spotify_health_restart_threshold = t.spotify_health_restart_threshold
 
         # Runtime overrides from the web UI settings page. We poll the
         # file's mtime once per status tick (every 5 s) and re-apply on
@@ -880,7 +888,7 @@ class BeatBirdBridge:
         # internal state can lag the bridge's view, so PLAYPAUSE could resolve
         # the wrong direction and either no-op or pause-then-resume.
         if cmd == "PLAYPAUSE":
-            # self.playback is up to SPOTIFY_POLL_INTERVAL stale — fetch a
+            # self.playback is up to one spotify poll stale — fetch a
             # synchronous fresh view to avoid resolving the wrong direction
             # (e.g. another device toggled state since our last poll).
             fresh = self.spotify.get_state()
@@ -936,10 +944,10 @@ class BeatBirdBridge:
             # Threshold reached exactly once → kick the service. Counter
             # resets only after a successful poll so we don't restart in a
             # tight loop if the restart itself doesn't recover.
-            if self._spotify_fail_count == SPOTIFY_HEALTH_RESTART_THRESHOLD:
+            if self._spotify_fail_count == self._spotify_health_restart_threshold:
                 log.warning(
                     "librespot unresponsive for ~%ds, restarting service",
-                    int(self._spotify_fail_count * SPOTIFY_POLL_INTERVAL),
+                    int(self._spotify_fail_count * self._spotify_poll_interval),
                 )
                 try:
                     subprocess.run(
@@ -1392,7 +1400,7 @@ class BeatBirdBridge:
     def _handle_amp_thermal(self) -> None:
         """Back the volume off when a TAS amp reports over-temperature.
 
-        The CHAN_FAULT OT bit is read every STATUS_INTERVAL; here we act on
+        The CHAN_FAULT OT bit is read every status tick; here we act on
         it. Rising edge → cap to AMP_OT_VOLUME_CAP_PCT + emit an HA error
         event so the thermal episode is in the timeline. While hot, hold the
         cap (re-apply if the user tries to push back up). Falling edge → lift
@@ -1785,7 +1793,7 @@ class BeatBirdBridge:
                     self.display.poll()
 
                 # System stats (every 5s)
-                if now - self.t_last_status >= STATUS_INTERVAL:
+                if now - self.t_last_status >= self._status_interval:
                     self.t_last_status = now
                     try:
                         self._refresh_system()
@@ -1801,7 +1809,7 @@ class BeatBirdBridge:
                         log.error("overrides poll: %s", e)
 
                 # Source polling (every 2s)
-                if now - self.t_last_spotify >= SPOTIFY_POLL_INTERVAL:
+                if now - self.t_last_spotify >= self._spotify_poll_interval:
                     self.t_last_spotify = now
                     try:
                         self._poll_spotify()
@@ -1813,7 +1821,7 @@ class BeatBirdBridge:
                         log.error("bt poll: %s", e)
 
                 # Snapcast source detection (every 3s — cheap TCP poll)
-                if self.snapcast and now - self.t_last_snapcast >= SNAPCAST_POLL_INTERVAL:
+                if self.snapcast and now - self.t_last_snapcast >= self._snapcast_poll_interval:
                     self.t_last_snapcast = now
                     try:
                         self._poll_snapcast()
@@ -1862,7 +1870,7 @@ class BeatBirdBridge:
 
                 # Signal level
                 level_interval = (
-                    LEVEL_POLL_INTERVAL
+                    self._level_poll_interval
                     if self.playback == Playback.PLAYING
                     else 2.0
                 )
@@ -1875,9 +1883,9 @@ class BeatBirdBridge:
 
                 # State push
                 push_interval = (
-                    STATE_PUSH_PLAYING
+                    self._state_push_playing
                     if self.playback == Playback.PLAYING
-                    else STATE_PUSH_IDLE
+                    else self._state_push_idle
                 )
                 if now - self.t_last_state_push >= push_interval:
                     self.t_last_state_push = now

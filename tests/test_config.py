@@ -106,3 +106,31 @@ def test_amp_deep_sleep_enable_parses():
     })
     assert p.audio.amp_deep_sleep.enabled is True
     assert p.audio.amp_deep_sleep.timeout_s == 300
+
+
+# ─── Main-loop timing (profile-driven poll cadences) ────────────────────────
+
+def test_timing_defaults_match_historical_constants():
+    """Defaults must reproduce the old bridge.py module constants exactly, so
+    making them profile-driven is a no-op for every existing speaker."""
+    t = Profile.model_validate({"soundcard": {"driver": "louder-hat-plus-1x"}}).timing
+    assert t.status_interval_s == 5.0
+    assert t.spotify_poll_interval_s == 2.0
+    assert t.snapcast_poll_interval_s == 3.0
+    assert t.level_poll_interval_s == 0.1
+    assert t.state_push_playing_s == 0.2
+    assert t.state_push_idle_s == 2.0
+    assert t.spotify_health_restart_threshold == 15
+
+
+def test_timing_overrides_parse():
+    p = Profile.model_validate({
+        "soundcard": {"driver": "louder-hat-plus-1x"},
+        "timing": {"status_interval_s": 2.0, "level_poll_interval_s": 0.05,
+                   "spotify_health_restart_threshold": 30},
+    })
+    assert p.timing.status_interval_s == 2.0
+    assert p.timing.level_poll_interval_s == 0.05
+    assert p.timing.spotify_health_restart_threshold == 30
+    # untouched fields keep their defaults
+    assert p.timing.snapcast_poll_interval_s == 3.0
