@@ -38,25 +38,36 @@ ALSA channel-pairs map ch0/1→SDO0, ch2/3→SDO1, … positionally. Works, but 
 DAC must sit on its own lane — DACs that physically share one data line can't be
 addressed independently this way.
 
-## Boards that DO multi-channel TDM properly: Rockchip (RK3588 / RK3568)
+## Boards that DO multi-channel TDM properly: Rockchip (RK3566 / RK3568 / RK3588)
 
 The Rockchip **I2S_TDM** controller is a real TDM controller (multi-slot on one
-data line), unlike bcm2835/RP1.
+data line), unlike bcm2835/RP1. It's in the WHOLE RK35xx line — including the
+**cheap** parts — so you do NOT need the pricey RK3588.
 
-- **RK3588**: 4 I²S interfaces; I2S0/I2S1 do **8 channels**. Boards: Radxa Rock
-  5A/5B, Orange Pi 5 / 5 Plus, Banana Pi BPI-M7.
-- **RK3568**: tested stable at **8-ch I²S/TDM up to 384 kHz** (Radxa CM3).
+| SoC | I²S/TDM | Example boards | Price |
+|-----|---------|----------------|-------|
+| **RK3566** (budget pick) | I2S_TDM, multi-slot 8-ch | **Radxa Zero 3W** (Pi-Zero-2-W form factor, 40-pin header!), Orange Pi 3B, Geniatech XPI-3566-Zero | **~€15–35** |
+| RK3568 | I2S_TDM tested stable **8-ch up to 384 kHz** | Radxa CM3, Rock 3 | ~€40–60 |
+| RK3588 | 4 I²S; I2S0/1 do 8-ch | Radxa Rock 5A/5B, Orange Pi 5(+), Banana Pi M7 | €60–120 (overkill) |
+
+The **Radxa Zero 3W (~€20–30, RK3566)** is the sweet spot: Pi-Zero-2-W form
+factor + 40-pin header, so the existing TAS HAT boards mount + roughly line up
+(verify the I²S/I²C pin functions against the RK3566 pinmux — may need a jumper
+or two), and the whole stack (CamillaDSP + Python control + USB-serial display)
+runs on its Armbian/Debian.
 
 → On a Rockchip host the *original* "3 DAC chips on one shared I²S line, each
 reading its own TDM slots" design works directly — including a dual-chip board
 (both chips just read different slots on the shared line, which is exactly what
-TDM is for), as long as the chips have distinct I²C addresses.
+TDM is for), as long as the chips have distinct I²C addresses. **No rewiring, no
+in-chip-crossover compromise, full CamillaDSP — with the existing TAS boards.**
 
-**Cost:** platform migration. A Pi-specific codec driver + device-tree overlay
-must be re-authored for the Rockchip I2S_TDM node (different DT node, pinctrl,
-GPIO refs, kernel). The codec driver core is usually SoC-agnostic; the DT/overlay
-+ provisioning is the real work. Userspace (CamillaDSP, any Python control stack)
-runs on any ARM Linux. Board ≈ €60–120.
+**Cost = effort, not money.** The cheap board is ~€25; the real work is porting
+the Pi-specific codec driver + device-tree overlay to the Rockchip I2S_TDM node
+(new DT node, pinctrl, GPIO refs, rebuild against the Armbian kernel). The codec
+driver core is usually SoC-agnostic; the DT/overlay + provisioning is the lift,
+and audio/DT on non-Pi SBCs is fiddlier with less community support — budget it
+realistically (not an afternoon).
 
 ## "HAT in between" with a TDM-capable processor (ADAU1452 / SigmaDSP)
 
@@ -88,11 +99,13 @@ Sources: [diyAudio — 8-channel DSP + CamillaPi interface options](https://www.
 | Option | New HW | Effort | Crossover home | Multi-chip-on-one-line OK? |
 |---|---|---|---|---|
 | Pi 5 multi-lane | none | low (overlay) | CamillaDSP (mostly) | ✗ each chip needs its own lane |
-| Rockchip RK3588/68 + real TDM | ~€80 board | medium (driver/DT port) | CamillaDSP (fully) | ✅ yes (shared line, TDM slots) |
+| **Rockchip RK3566 + real TDM** | **~€25 board** | medium (driver/DT port) | CamillaDSP (fully) | ✅ yes (shared line, TDM slots) |
 | ADAU1452 TDM HAT | DSP board | medium–high | SigmaStudio (or split) | ✅ (but DSP moves off CamillaDSP) |
 
 **Bottom line:** for full software DSP with existing TAS-style amp boards and
-chips that share data lines, a **Rockchip RK3588/RK3568 host with real TDM** is
-the cleanest path (the original shared-line design just works); a Pi 5 with
-multi-lane is the no-new-hardware route but constrains you to one DAC chip per
-lane; an ADAU1452 HAT is a niche middle option that usually isn't worth it.
+chips that share data lines, a **cheap Rockchip RK3566 host (e.g. Radxa Zero 3W,
+~€25) with real TDM** is the cleanest path — the original shared-line design just
+works, the cost is porting effort not money. A Pi 5 with multi-lane is the
+no-new-hardware route but constrains you to one DAC chip per lane (forcing one
+in-chip crossover with our boards). An ADAU1452 HAT is a niche middle option that
+usually isn't worth it.
