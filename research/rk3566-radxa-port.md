@@ -47,13 +47,40 @@ just doesn't pre-wire it:**
   names the 40-pin header GPIOs, and the `i2s1m0` pin group is defined in the
   pinctrl dtsi, so the header-pin mapping is derivable.
 
-**Verdict: feasible, but a build-it-yourself overlay, not plug-and-play.** The
-make-or-break (does the SoC do TDM?) is settled YES; the work is a custom DT.
+### ⛔ SHOWSTOPPER (2026-06-04, kernel/DT, no board): i2s1 is NOT on the Zero 3W header
 
-Remaining desk step (de-risk further before the board): cross-reference the board
-DT's header GPIO line-names (pins 3/5/7…40) with the `i2s1m0_sclktx/lrcktx/sdo0`
-pin group to predict exactly which header pins carry I2S1 (and whether they clash
-with anything). On the board, `gpio readall` / `rsetup` confirms it.
+Cross-referenced the i2s1 pin groups (`rk3568-pinctrl.dtsi`) against the Zero 3W's
+header GPIO line-names (`rk3566-radxa-zero-3.dtsi`). The 8-ch TDM controller i2s1
+needs its clocks **SCLK_TX + LRCK_TX** on the header to drive external codecs — and
+for **every** mux variant they aren't:
+
+| i2s1 mux | SCLK_TX | LRCK_TX | on the 40-pin header? |
+|---|---|---|---|
+| M0 | GPIO1_A3 | GPIO1_A5 | ✗ (GPIO1 exposes only A0=pin3, A1=pin5, A4=pin37) |
+| M1 | GPIO3_C7 | GPIO3_D0 | ✗ (header GPIO3 stops at C4) |
+| M2 | GPIO2_D1 | GPIO2_D2 | ✗ (header has **no** GPIO2 pins at all) |
+
+A couple of i2s1 *data* lanes graze the header (M2 SDO2=GPIO3_C1=pin22,
+SDO3=GPIO3_C2=pin32) but **without the bit/word clock on the header there is no
+external I²S via i2s1.** The header (mostly GPIO3+GPIO4) only carries the 2-channel
+i2s instances — i.e. no better than the Pi.
+
+**Conclusion: the Radxa Zero 3W is the WRONG board for the shared-line TDM design.
+The RK3566 *SoC* does 8-ch TDM, but this *board* doesn't break i2s1 out.** The
+kernel/DT check caught it before wiring — exactly why we checked.
+
+**Options now:**
+1. **Different board that exposes i2s1** — verify the header GPIO map the same way
+   BEFORE buying. Candidates to check: Orange Pi 3B (RK3566, larger header), a
+   Radxa CM3 + carrier (the "8-ch tested" result was on the CM3, which breaks out
+   far more I/O than a Zero). The check is: do the `i2s1*_sclktx/lrcktx` GPIOs
+   land on that board's header?
+2. **Keep the Pi-5 multi-lane compromise** (free, works, one in-chip crossover).
+3. The two Zero 3W aren't wasted — they're capable general SBCs (Pi replacement
+   for a 2-channel speaker, or other projects).
+
+The rest of the porting plan below still applies to *whatever* RK35xx board does
+expose i2s1.
 
 ## If 8-ch TDM is available — the port
 
