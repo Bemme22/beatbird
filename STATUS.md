@@ -1,6 +1,25 @@
 # BeatBird — Project Status
 
-> Last updated: 2026-05-30
+> Last updated: 2026-06-04
+
+## Recent — branch `prep/big-rocks` (2026-06-04, unmerged)
+
+A batch of mergeable + prep work, all CI-green (104 tests, ruff clean), **gated
+items flagged**. On `main`: the WiFi/mDNS self-heal (`996ef5d`).
+
+- **Identity split phases 2–4** (`73c4b21`, `97f8d16`) — `Identity.model` +
+  derived `resolved_speaker_id / hostname / friendly_name` (CPU-serial instance
+  id); browser-rename via a `friendly_name` settings-override (BlueZ alias + HA
+  device re-publish + web). Back-compat (every profile pins all three). Phase 5
+  (collapse beat-1/2) gated on the live HA broker.
+- **Bluetooth dbus-fast step 1** (`a285c70`) — `BluetoothBus` plumbing, dormant.
+- **Loudness Hybrid step 1** (`0a52a57`) — native `Loudness` A/B config variants;
+  no production config/controller touched. Gated on an audible A/B.
+- **Bridge timing** (`664dc31`) — main-loop poll cadences → `profile.timing`.
+- **WiFi/mDNS self-heal** (`main 996ef5d`) — NM `powersave=2`, watchdog detects
+  IPv4-loss + forces DHCP, avahi IPv4-only. Apply on tmpfs speakers via
+  overlayroot-chroot; static IP (`secrets/static-ip.conf`) is the hard fix.
+- Decisions recorded in `docs/{native-loudness,identity-split,bluetooth-dbus-fast}.md`.
 
 ## Active speakers
 
@@ -302,7 +321,14 @@ module (`src/leds/strip_render.cpp`, FastLED RMT, "VU bubble" off
 `State::app.energy`, ≤60 % brightness cap for the 5 A buck). (4) enclosure
 build (off-repo). (5) final crossover by ear.
 
-### 🅿️ Identity split — model / instance / user-label (parked, maturing)
+### 🛠️ Identity split — model / instance / user-label (phases 1–4 DONE, prep/big-rocks)
+
+> **Update 2026-06-04:** phases 1–4 implemented (see Recent, top). Decided: full
+> plan — CPU-serial instance id, derived `<model>-<short-id>`, browser-editable
+> friendly_name, pin existing `speaker_id`s then collapse the profiles. Remaining
+> phases 5 (MQTT pin + beat.yml collapse — gated on the live HA broker) and 6
+> (provisioning hostname). Full record: [docs/identity-split.md](docs/identity-split.md).
+
 
 Separate the profile's `friendly_name` (currently doubles as device-class
 AND per-unit name) into three layers: hardware-class (profile YAML),
@@ -333,21 +359,26 @@ to avoid losing HA history.
   `GET /api/volume` every 2.5 s so the slider follows the display knob / other
   clients, guarded by a 1.5 s last-touch window + activeElement check so a drag
   is never stomped.
-- [ ] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** → move to
-  `audio.volume.safe_first_boot_pct` (Lounge may want lower).
-- [ ] **`SpotifyClient._call` return convention** (None/`{}`/dict) — tighten
-  to a consistent shape; `get_state()` can return a degenerate empty dict.
-- [ ] **`sources/bluetooth.py` hand-rolled D-Bus parsing** (~400 LOC,
-  fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift.
-- [ ] **`beat-1.yml` / `beat-2.yml` split** — collapses under the identity
-  split (above); until then they're per-unit dupes.
+- [x] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** → `audio.volume.safe_first_boot_pct`
+  (done earlier; bridge reads `self.vol_safe_first_boot`).
+- [x] **`SpotifyClient._call` return convention** (prep/big-rocks 37061ad) —
+  contract documented (None=failed / dict=2xx body / `{}`=content-less);
+  `get_state()` hardened (`if not status` handles the degenerate `{}`).
+- [~] **`sources/bluetooth.py` hand-rolled D-Bus parsing** → `dbus-fast`
+  (prep/big-rocks a285c70) — **step 1 done**: `BluetoothBus` plumbing (lazy
+  daemon-loop + sync facade), nothing wired yet. Read-paths next (gated on a
+  live adapter). [docs/bluetooth-dbus-fast.md](docs/bluetooth-dbus-fast.md).
+- [~] **`beat-1.yml` / `beat-2.yml` split** — unblocked by the identity split
+  (phases 2–4 done, prep/big-rocks). Collapse itself = phase 5, **gated on the
+  live HA broker** (pin the `speaker_id`s before merging or HA history orphans).
 - [x] **Module-level timing constants in `bridge.py`** → profile-driven
   (2026-06-04, prep/big-rocks) — `config.Timing` (status/spotify/snapcast poll,
   level-poll, state-push playing/idle, spotify-health threshold) on
   `profile.timing`; bridge reads `self._*` set in `__init__`. Defaults reproduce
   the old constants exactly (no behaviour change); a Pi 5 can now poll tighter,
   a Pi Zero 2W relax. (`test_config.py::test_timing_*`.)
-- [ ] **dead `dma_done_count`** in firmware `main.cpp` — remove.
+- [x] **dead `dma_done_count`** in firmware `main.cpp` — removed (+ its dead
+  `-Wvolatile` pragma).
 
 ### Web UI / polish
 - [x] **"Persist settings" button** (2026-06-03, commit bc2001e) — on
@@ -387,9 +418,24 @@ to avoid losing HA history.
   configs are discovered by prefix (`config/camilladsp/<name>*.yml`) — drop a YAML
   + `git pull` and it appears. Full web→bridge flow verified on the Zipp.
   TODO: `beat-meas.yml` + deploy the web commit to the Beat (was offline).
-- [ ] **Live vol mapping / `capture_samplerate`** — configs hardcode
-  `capture_samplerate: 44100`; verify every source feeds 44.1k or a 48k source
-  hitting the loopback pitches/speeds. (Surfaced during the DSP-switcher work.)
+- [!] **`capture_samplerate` contradicts the dmix rate** (analysed 2026-06-04) —
+  the **only** writer to the loopback is the `beatbird_mix` dmix, whose slave is
+  pinned **`rate 48000`** (`config/alsa/beatbird-asound.conf:41`, via an outer
+  `plug` that resamples every source up to 48k). But **every** CamillaDSP config
+  captures `hw:Loopback,1` at **`capture_samplerate: 44100`** + a Synchronous
+  resampler 44.1→48k. The ALSA `aloop` does NOT resample — it copies 1:1, so the
+  two sides cannot both be the runtime cable rate; one is silently overridden by
+  open-order negotiation. The speakers play at correct pitch, so they agree at
+  runtime — but the configs lie and it's fragile. (Tell: `lt300-meas.yml` already
+  dropped `capture_samplerate` — "REW runs 48 kHz natively".)
+  - **Diagnostic (read-only, on a reachable speaker, during music):**
+    `cat /proc/asound/Loopback/pcm0p/sub0/hw_params` (dmix side) +
+    `…/pcm1c/sub0/hw_params` (CamillaDSP side) → the real agreed rate on each.
+    A 440 Hz reference track should read 440 Hz.
+  - **Proposed fix (gated on that check):** make the configs honest — almost
+    certainly `capture_samplerate: 48000` + drop the Synchronous resampler (match
+    the dmix master; no resample, no pitch risk), like the meas configs. Only if
+    the cable is genuinely 44.1k would dmix need lowering instead.
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
@@ -397,11 +443,15 @@ to avoid losing HA history.
   there; just add tiles.
 
 ### CamillaDSP optimisation ideas (surfaced 2026-06-03)
-- [ ] **Native `Loudness` filter** — replace the manual bass-gain PatchConfig
-  with CamillaDSP's built-in ISO-226 Loudness processor. Removes the patch-on-
-  every-volume-change coefficient jump (a click source) + the drift-bug risk +
-  the whole LoudnessController. BUT the browser voicing feature is built on the
-  manual approach — would need rethinking. Biggest architectural lever.
+- [~] **Native `Loudness` filter** — DECIDED **Hybrid** (static voicing stays as
+  EQ filters, native filter owns the volume-dependent boost). **Step 1 done**
+  (prep/big-rocks 0a52a57): A/B config variants `beat-loud.yml` +
+  `zipp-mini-2-loud.yml` (production EQ + a native `Loudness` filter), switchable
+  via the existing DSP-config switcher — **no production config / controller
+  touched**. Step 2 (mode flag + controller rework + web mapping) gated on the
+  audible A/B. Findings + procedure: [docs/native-loudness.md](docs/native-loudness.md).
+  Note: native low-shelf <70 Hz vs the Zipp's 80–120 Hz comp → Beat is the
+  cleaner native fit.
 - [ ] **Gain-staging / headroom** — the bass path stacks ~+14 dB; even with the
   soft-clip limiter, sustained bass slams it (the click/pop suspect). A small
   global pre-attenuation would keep the limiter off most of the time. Use the new
