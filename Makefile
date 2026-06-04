@@ -90,6 +90,16 @@ update: check-profile ## git pull + re-render configs + restart services
 	sudo systemctl restart beatbird-bridge camilladsp go-librespot 2>/dev/null || true
 	@echo "==> Updated."
 
+BRANCH ?= main
+
+code-update: ## Fast code-only self-update via the helper (overlayroot-aware, no config re-render). make code-update [BRANCH=main]
+	sudo beatbird-update $(BRANCH)
+
+deploy: ## Remote code deploy from the dev box: make deploy HOST=beatpi.fritz.box [BRANCH=main]
+	@test -n "$(HOST)" || { echo "Usage: make deploy HOST=<speaker> [BRANCH=main]"; exit 1; }
+	ssh $(HOST) sudo beatbird-update $(BRANCH)
+	@echo "==> Deployed $(BRANCH) to $(HOST)."
+
 status: ## systemd status for all beatbird services
 	@systemctl --no-pager --lines=10 status \
 		beatbird-bridge camilladsp go-librespot louder-hat-init snapclient 2>/dev/null || true
