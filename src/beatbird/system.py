@@ -2,10 +2,51 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import subprocess
 
 log = logging.getLogger("beatbird.system")
+
+
+# ─── Hardware instance identity (identity-split phase 1) ──────────────────────
+# Decision-free building block for docs/identity-split.md: a short, stable
+# per-board id from the Pi CPU serial. Survives an SD reflash (board-tied),
+# unlike /etc/machine-id. The split's naming/MQTT decisions build on this.
+
+def _short_id_from_serial(serial: str) -> str:
+    """Well-mixed 4-hex short id from a hardware serial. Hashed (not the raw
+    tail) so visually-similar serials don't collide on the last digits."""
+    return hashlib.sha256(serial.strip().encode()).hexdigest()[:4]
+
+
+def cpu_serial() -> str | None:
+    """The Pi's board serial, or None if unreadable (non-Pi / dev box).
+    Prefers the devicetree node, falls back to /proc/cpuinfo."""
+    try:
+        with open("/sys/firmware/devicetree/base/serial-number", "rb") as f:
+            s = f.read().rstrip(b"\x00").decode("ascii", "ignore").strip()
+            if s:
+                return s
+    except Exception:
+        pass
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("Serial"):
+                    val = line.split(":", 1)[1].strip()
+                    if val and set(val) != {"0"}:   # ignore all-zero placeholder
+                        return val
+    except Exception:
+        pass
+    return None
+
+
+def hardware_instance_id() -> str | None:
+    """Short, stable per-board id (4 hex) from the CPU serial, or None if the
+    serial can't be read. The stable unit identity for the identity split."""
+    s = cpu_serial()
+    return _short_id_from_serial(s) if s else None
 
 
 def cpu_temp() -> float:
