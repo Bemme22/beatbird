@@ -344,7 +344,10 @@ to avoid losing HA history.
   Added `tests/test_spotify_state.py` (8 tests: None contract + artist/album
   fallbacks + duration clamp) — the parsing had zero coverage before.
 - [ ] **`sources/bluetooth.py` hand-rolled D-Bus parsing** (~400 LOC,
-  fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift.
+  fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift. NOTE: do this
+  on the bench with a real phone — it's a field-validated path (Android + iPhone)
+  and a blind rewrite has no offline verification; regressions wouldn't surface
+  until a device fails to pair/stream.
 - [ ] **`beat-1.yml` / `beat-2.yml` split** — collapses under the identity
   split (above); until then they're per-unit dupes.
 - [x] **Module-level timing constants in `bridge.py`** (2026-06-03, commit
@@ -432,7 +435,15 @@ to avoid losing HA history.
 - [ ] **Household setup epic** — superseded by / merges with the identity
   split (hostapd captive-portal onboarding, factory-reset flag).
 - [ ] Genre-EQ presets via PatchConfig.
-- [ ] Rotate file logging (`/var/log/beatbird/bridge.log`).
+- [x] Rotate file logging (`/var/log/beatbird/bridge.log`) (2026-06-05) — new
+  stdlib-only `beatbird.logging_setup` (size-rotated `RotatingFileHandler`, opt-in
+  via `BEATBIRD_LOG_FILE`, tunable `BEATBIRD_LOG_MAX_BYTES` / `_BACKUP_COUNT`).
+  Default behaviour unchanged (stdout → journald); an unwritable path degrades
+  to stdout-only instead of crashing at boot. 7 tests. **To actually enable on a
+  speaker:** set `BEATBIRD_LOG_FILE=/var/log/beatbird/bridge.log` in
+  `/etc/beatbird/env` AND add `ReadWritePaths=/var/log/beatbird` (+ a tmpfiles/dir
+  create) to the bridge unit in `install/70-bridge.sh` — that install wiring is
+  left for a bench pass since it can't be verified off-device.
 - [ ] Cover-art background — parked across all speakers (ESP32-S3 too slow
   for the 466×466 JPEG composite; needs smaller/pre-decoded/partial-redraw).
 - [ ] Spectrum reanimation — needs `/etc/asound.conf` dsnoop + `[fft]`

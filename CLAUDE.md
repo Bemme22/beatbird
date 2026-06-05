@@ -106,6 +106,11 @@ this when adding integrations.
 Other Pi-side entry points (`pyproject.toml [project.scripts]`):
 `beatbird-web` (FastAPI dashboard, port 8080), `beatbird-firmware-update`.
 
+Logging is set up in `beatbird.logging_setup` (kept stdlib-only so it's
+testable without importing the bridge's heavy deps). stdout → journald by
+default; `BEATBIRD_LOG_FILE` adds an opt-in size-rotated file that degrades to
+stdout-only if the path isn't writable. Level via `BEATBIRD_LOGLEVEL`.
+
 ## Install scripts
 
 `install/[0-9]*.sh` are **numbered, idempotent, single-role** — `make install`
