@@ -405,20 +405,23 @@ to avoid losing HA history.
   (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
-- [ ] **Particle-text materialize + disperse on track change** (mock:
-  `docs/mockups/play-scintillation.html`) — title+artist are rendered AS a point
-  cloud. Five-phase timeline: *gather* (old points collect into a churning cloud
-  that hides the old text) → *form* (particles ease onto the new glyphs' sampled
-  points → text materialises) → *hold* (briefly crisp + readable) → *disperse* →
-  *ambient* (the points spread back out into a music-reactive scatter field during
-  playback). Next track change re-gathers them. Each particle caches three goals
-  (cloud-home / glyph-target / ambient-home); `energy_smoothed` drives the ambient
-  field's visibility threshold + brightness (more music → denser field). Mock samples
-  glyph points via an offscreen canvas. **Firmware port:** sample target points ONCE
-  per `Dirty::TITLE` from the LVGL font bitmap, cache in a `scint_layer` pool, run
-  only the phase-lerp per frame. Tunable (gather/form/hold/disperse times, cloud
-  spread/turbulence, ambient spread/density/drift, point density/size, dust, crispen,
-  music-breathe).
+- [ ] **Player particle-text + standby flip-char** (mock:
+  `docs/mockups/play-scintillation.html`) — two distinct text languages:
+  - **Play** — title/artist are *built* from a point cloud, then stay as normal crisp
+    LVGL text; only the building points disperse. Timeline on `Dirty::TITLE`: *gather*
+    (old points collect into a churning cloud) → *form* (points ease onto the new
+    glyphs' sampled points) → text solidifies and STAYS readable → *disperse* →
+    *ambient* (the building points spread back out into a music-reactive field;
+    `energy_smoothed` sets its density/brightness). Each particle caches three goals
+    (cloud-home / glyph-target / ambient-home). Firmware: keep the real LVGL label for
+    readability, add a `scint_layer` pool that samples glyph targets ONCE per
+    `Dirty::TITLE` and runs the phase-lerp per frame.
+  - **Standby** — go fully flip-char (split-flap) for ALL text, not just the idle
+    line: clock, temperature, condition, date each animate via `split_flap.cpp`
+    (random-glyph cycling, staggered, locking to target). Fixed chars (`:` `°` space)
+    don't cycle. The clock flips on each minute tick; all lines flip in on standby
+    entry. This replaces/extends the current single-label SplitFlap usage on standby.
+  Mock is tunable for both (flap tick/cycles/stagger; particle timing/spread/density).
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
