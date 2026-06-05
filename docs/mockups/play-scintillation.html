@@ -92,8 +92,8 @@ button.primary:hover { background:var(--accent-glow); }
       <div class="card play">
         <h2>Action (laufender Play)</h2>
         <div class="row"><label>Spektrum-Stärke</label><input id="spectrum" type="range" min="0" max="100" value="75"><span class="val" id="spectrumV"></span></div>
-        <div class="row"><label>Beat-Puls</label><input id="beat" type="range" min="0" max="100" value="60"><span class="val" id="beatV"></span></div>
-        <div class="row"><label>Energie-Glühen</label><input id="glow" type="range" min="0" max="100" value="45"><span class="val" id="glowV"></span></div>
+        <div class="row"><label>Vol-Ring-Animation</label><input id="volAnim" type="range" min="0" max="100" value="12"><span class="val" id="volAnimV"></span></div>
+        <div class="row"><label>Energie-Glühen</label><input id="glow" type="range" min="0" max="100" value="18"><span class="val" id="glowV"></span></div>
         <div class="row"><label>Feld-Dichte</label><input id="ambDensity" type="range" min="0" max="100" value="40"><span class="val" id="ambDensityV"></span></div>
         <div class="row"><label>Feld-Drift</label><input id="ambDrift" type="range" min="0" max="100" value="45"><span class="val" id="ambDriftV"></span></div>
       </div>
@@ -104,8 +104,8 @@ button.primary:hover { background:var(--accent-glow); }
         <div class="row"><label>Form-Zeit</label><input id="formMs" type="range" min="300" max="2000" value="900"><span class="val" id="formMsV"></span></div>
         <div class="row"><label>Halte-Zeit</label><input id="holdMs" type="range" min="0" max="6000" value="1400"><span class="val" id="holdMsV"></span></div>
         <div class="row"><label>Verteil-Zeit</label><input id="disperseMs" type="range" min="400" max="3500" value="1500"><span class="val" id="disperseMsV"></span></div>
-        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="60"><span class="val" id="spreadV"></span></div>
-        <div class="row"><label>Form-Blitz</label><input id="flash" type="range" min="0" max="100" value="55"><span class="val" id="flashV"></span></div>
+        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="42"><span class="val" id="spreadV"></span></div>
+        <div class="row"><label>Form-Blitz</label><input id="flash" type="range" min="0" max="100" value="25"><span class="val" id="flashV"></span></div>
       </div>
 
       <div class="card play">
@@ -114,7 +114,7 @@ button.primary:hover { background:var(--accent-glow); }
         <div class="row"><label>Sampling</label><input id="stride" type="range" min="2" max="6" value="3"><span class="val" id="strideV"></span></div>
         <div class="row"><label>Text-Deckkraft</label><input id="crispen" type="range" min="0" max="100" value="100"><span class="val" id="crispenV"></span></div>
         <div class="row"><label>Punkt-Atmen</label><input id="shimmer" type="range" min="0" max="100" value="40"><span class="val" id="shimmerV"></span></div>
-        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="50"><span class="val" id="turbV"></span></div>
+        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="25"><span class="val" id="turbV"></span></div>
       </div>
 
       <div class="card standby">
@@ -144,7 +144,7 @@ const octx=off.getContext('2d',{willReadFrequently:true});
 const $=id=>document.getElementById(id), P={};
 function bind(id,fmt){ const el=$(id),out=$(id+'V'); const upd=()=>{ P[id]=+el.value; if(out&&fmt) out.textContent=fmt(+el.value); }; el.addEventListener('input',upd); upd(); }
 bind('particles',v=>v); bind('fps',v=>v);
-bind('spectrum',v=>v+'%'); bind('beat',v=>v+'%'); bind('glow',v=>v+'%');
+bind('spectrum',v=>v+'%'); bind('volAnim',v=>v+'%'); bind('glow',v=>v+'%');
 bind('ambDensity',v=>v+'%'); bind('ambDrift',v=>v+'%');
 bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms'); bind('holdMs',v=>(v/1000).toFixed(1)+'s'); bind('disperseMs',v=>v+'ms');
 bind('spread',v=>v+'%'); bind('flash',v=>v+'%');
@@ -255,9 +255,11 @@ let volume=62, progress=0.32;
 
 function dot(x,y,r,color,alpha){ if(alpha<=0.012||r<=0) return; ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
 const volPos=[]; for(let i=0;i<VOL_DOT_COUNT;i++){ const ang=(i/VOL_DOT_COUNT)*6.2832-Math.PI/2; volPos.push([C+Math.cos(ang)*VOL_RING_R,C+Math.sin(ang)*VOL_RING_R]); }
-function drawVolRing(E,tMs){ const lit=Math.round(volume*VOL_DOT_COUNT/100),PPD=6.2832/24, kick=beatPulse*(P.beat/100);
+function drawVolRing(E,tMs){ const lit=Math.round(volume*VOL_DOT_COUNT/100),PPD=6.2832/24;
+  // va=0 → fully static ring (no wobble, no beat kick, constant opacity).
+  const va=P.volAnim/100, kick=beatPulse*va;
   for(let i=0;i<VOL_DOT_COUNT;i++){ if(i===0) continue; const [x,y]=volPos[i];
-    if(i<lit){ const wob=1+E*0.65*Math.sin(tMs*0.005+i*PPD)+kick*0.5; dot(x,y,Math.max(2,VOL_DOT_R*wob),kick>0.4?ACCENT_GLOW:ACCENT,Math.min(255,217+E*38)/255); }
+    if(i<lit){ const wob=1+va*(E*0.65*Math.sin(tMs*0.005+i*PPD))+kick*0.5; dot(x,y,Math.max(2,VOL_DOT_R*wob),kick>0.4?ACCENT_GLOW:ACCENT,Math.min(255,217+va*E*38)/255); }
     else dot(x,y,VOL_DOT_R_DIM,ACCENT_DIM,160/255); } }
 function drawProgress(){ for(let i=0;i<PROG_SEG;i++){ const frac=i/(PROG_SEG-1),a=(PROG_START+frac*PROG_SWEEP)*Math.PI/180;
   const x=C+Math.cos(a)*PROG_RING_R,y=C+Math.sin(a)*PROG_RING_R,on=frac<=progress; dot(x,y,on?1.6:1.2,on?ACCENT:ACCENT_DIM,on?0.95:0.5); } }
@@ -271,10 +273,11 @@ function drawSpectrum(now){ const k=P.spectrum/100; if(k<=0) return; let ops=0;
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ops++; }
   return ops;
 }
-function drawGlow(E,now){ const k=P.glow/100; if(k<=0) return 0; const p=Math.min(1,E*0.7+beatPulse*0.6);
-  // a few stacked translucent circles ≈ a cheap halo (no full-screen gradient)
-  dot(C,C, 26+p*70, ACCENT, 0.05*k*p);
-  dot(C,C, 14+p*40, ACCENT_GLOW, 0.06*k*p);
+function drawGlow(E,now){ const k=P.glow/100; if(k<=0) return 0; const p=Math.min(1,E*0.55+beatPulse*0.25);
+  // a couple of stacked translucent circles ≈ a cheap, subtle halo (no
+  // full-screen gradient). Kept gentle — the centre shouldn't pulse hard.
+  dot(C,C, 24+p*52, ACCENT, 0.035*k*p);
+  dot(C,C, 12+p*30, ACCENT_GLOW, 0.045*k*p);
   return 2;
 }
 function drawSolidText(alpha){ if(alpha<=0.02) return 0; ctx.textAlign='center'; ctx.textBaseline='middle';
