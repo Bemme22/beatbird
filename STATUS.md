@@ -405,6 +405,17 @@ to avoid losing HA history.
   (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
+- [ ] **Play-state scintillation + track tune-in** (mock:
+  `docs/mockups/play-scintillation.html`) — adopt the standby `scint_draw_cb`
+  ambient-dot field into the player, music-reactive: dot density/brightness/twinkle
+  scale with `energy_smoothed` (via `energy_dyn()`), spectral jumps in
+  `app.spectrum[]` throw brief sparkle pops. On track change (`Dirty::TITLE`) a
+  `noise∈[0,1]` is set to 1 and exp-decays (~1.3 s), rendering a dense re-randomised
+  static burst that resolves to clear ("tuning in"). A text-safe ellipse around
+  `TITLE_Y_OFFSET`/`ARTIST_Y_OFFSET` attenuates particle/noise alpha so title+artist
+  stay readable. Firmware: new `scint_layer` in `screen_player.cpp` drawn z-below the
+  rings/text, ticked at ~20 fps like standby. Mock is tunable (density, peak opa,
+  decay, text-mask, dissolve) to dial the feel before writing C++.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
