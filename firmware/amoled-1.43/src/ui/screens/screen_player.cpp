@@ -293,8 +293,14 @@ struct PlayDot {
     float base;     // per-dot brightness 0.55..1
 };
 static constexpr int PLAY_DOTS = 180;          // ESP draw budget (≈ rings + this)
-static PlayDot pdots[PLAY_DOTS];
-static bool    pdots_seeded = false;
+// Heap-allocated, NOT a static array: 180 × sizeof(PlayDot) ≈ 10.8 KB would
+// blow the static .dram0_0_seg segment (a hard link-time ceiling separate from
+// the larger runtime heap the LVGL DMA buffers already draw from). malloc'd
+// once in seed_play_dots() out of that runtime heap instead. If the alloc
+// fails the field simply never renders — pdots stays null and every consumer
+// bails — while the cheap energy pulse (vol-ring + source-marker) keeps working.
+static PlayDot *pdots        = nullptr;
+static bool    pdots_seeded  = false;
 
 enum CloudPhase : uint8_t { CL_AMBIENT, CL_GATHER, CL_HOLD, CL_DISPERSE };
 static CloudPhase cl_phase = CL_AMBIENT;
@@ -314,6 +320,10 @@ static inline float smoothstep01(float x) {
 }
 
 static void seed_play_dots() {
+    if (!pdots) {
+        pdots = (PlayDot *)malloc(sizeof(PlayDot) * PLAY_DOTS);
+        if (!pdots) return;        // OOM → field disabled, energy pulse unaffected
+    }
     for (int i = 0; i < PLAY_DOTS; i++) {
         PlayDot &p = pdots[i];
         float a = frand() * 6.2832f, rr = sqrtf(frand());
@@ -347,6 +357,7 @@ static inline float play_ambient_alpha(const PlayDot &p, float fE, uint32_t now)
 
 static void scint_draw_cb(lv_event_t *e) {
     if (!pdots_seeded) seed_play_dots();
+    if (!pdots) return;                       // alloc failed → no field this frame
     lv_layer_t *layer = lv_event_get_layer(e);
     const uint32_t now = millis();
     float fE = energy_dyn(energy_smoothed);          // 0..1.2
@@ -392,9 +403,11 @@ static void scint_draw_cb(lv_event_t *e) {
 
 // Advance the cloud phase machine (called from update()).
 static void cloud_tick(uint32_t now) {
+    if (!pdots) return;                       // no field allocated → nothing to advance
+    auto snapshot = []() { for (int i = 0; i < PLAY_DOTS; i++) { pdots[i].fx = pdots[i].x; pdots[i].fy = pdots[i].y; } };
     switch (cl_phase) {
-        case CL_GATHER:   if (now - cl_start >= CL_GATHER_MS)   { for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; } cl_phase = CL_HOLD;     cl_start = now; } break;
-        case CL_HOLD:     if (now - cl_start >= CL_HOLD_MS)     { for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; } cl_phase = CL_DISPERSE; cl_start = now; } break;
+        case CL_GATHER:   if (now - cl_start >= CL_GATHER_MS)   { snapshot(); cl_phase = CL_HOLD;     cl_start = now; } break;
+        case CL_HOLD:     if (now - cl_start >= CL_HOLD_MS)     { snapshot(); cl_phase = CL_DISPERSE; cl_start = now; } break;
         case CL_DISPERSE: if (now - cl_start >= CL_DISPERSE_MS) { cl_phase = CL_AMBIENT; cl_start = now; } break;
         default: break;
     }
@@ -402,7 +415,8 @@ static void cloud_tick(uint32_t now) {
 
 static void cloud_trigger() {
     if (!pdots_seeded) seed_play_dots();
-    for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; }   // gather from wherever they are now
+    if (!pdots) return;                                 // alloc failed → skip the cloud entirely
+    for (int i = 0; i < PLAY_DOTS; i++) { pdots[i].fx = pdots[i].x; pdots[i].fy = pdots[i].y; }   // gather from wherever they are now
     cl_phase = CL_GATHER;
     cl_start = millis();
 }
