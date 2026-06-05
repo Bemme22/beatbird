@@ -135,7 +135,7 @@ InnoMaker `plughw:sndrpihifiberry,0` / `S16_LE` premise is stale; the Louder Hat
 Plus 1X conversion is done). `capture_samplerate 44100` + Synchronous already in
 place. So this part = confirm only, no change.
 
-### 🎚️ Native CamillaDSP `Loudness` filter — retire the bridge-side patch loop (EVAL)
+### 🎚️ Native CamillaDSP `Loudness` filter — retire the bridge-side patch loop (BUILT, AWAITING A/B)
 
 **Idea:** CamillaDSP 4.x ships a native `Loudness` filter (volume-coupled
 equal-loudness compensation: `reference_level` + `low_boost` / `high_boost`).
@@ -155,15 +155,20 @@ curve has tunable `knee_low`/`knee_high` + per-filter `max_boost`; the native
 filter is a fixed ISO-226 shape with just reference/low/high. Have to A/B whether
 the canned curve sounds as good as the tuned one.
 
-**Plan (config + ears, not a big code lift):** add a `beat-loudness-native.yml`
-as a *third* A/B candidate alongside the current hybrid — swap the gain-patched
-shelves for one `Loudness` filter in the pipeline, `reference_level` calibrated
-to the typical listening SPL. Drive it via the existing `dsp_config` override so
-the bridge auto-suspends loudness patching while it's active (same mechanism as
-`beat-meas.yml`). If it wins by ear → delete `loudness.py` + the patch loop.
+**Already built (prep/big-rocks):** `config/camilladsp/beat-loud.yml` IS this
+variant — same static EQ as production `beat.yml`, but with CamillaDSP's native
+`Loudness` filter at the front of both channels instead of the patch-controller.
+Design notes in `docs/native-loudness.md`. Selectable live via the web DSP
+switcher (`/advanced` → "Loud"); while active the bridge auto-suspends the
+per-volume PatchConfig loudness (same mechanism as `beat-meas.yml`), so the only
+volume-dependent lift is the native filter. Deployed + confirmed selectable on
+the Beat (`/api/dsp-configs` lists `beat-loud`) 2026-06-05.
 
-> Slots into the ongoing **Loudness A/B** bench work (below in Backlog). Parked
-> as EVAL — a handful of other audio/test items are open first; no code yet.
+**Open = the A/B by ear** (Beat): switch "Produktion (Voicing)" ↔ "Loud" at a
+few volumes, listen for whether the native ISO-226 curve holds the bass as well
+as the tuned patch curve across the range. **If it wins → delete `loudness.py`
++ the bridge patch/suspend loop** and promote the native filter into production
+`beat.yml` (+ `zipp-mini-2.yml`).
 
 ### 🔧 LoungePi — 3-DAC, all-active CamillaDSP (TDM DESIGN DEAD → Pi 5 multi-lane)
 
