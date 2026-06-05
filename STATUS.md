@@ -427,8 +427,13 @@ to avoid losing HA history.
     line: clock, temperature, condition, date each animate via `split_flap.cpp`
     (random-glyph cycling, staggered, locking to target). Fixed chars (`:` `°` space)
     don't cycle. The clock flips on each minute tick; all lines flip in on standby
-    entry. This replaces/extends the current single-label SplitFlap usage on standby.
-  Mock is tunable for both (flap tick/cycles/stagger; particle timing/spread/density).
+    entry. KEEPS the existing standby ambient scintillation dot field and the
+    dot-vocabulary weather icons (sun/cloud/rain/snow/thunder) from
+    `screen_standby.cpp` — only the text rendering changes to flip-char.
+  Play transitions are alpha-low-passed (per-particle + solid text) so phase
+  boundaries don't snap; the form flash uses bell easing. Mock is tunable for both
+  (flap tick/cycles/stagger, scintillation count/opacity, weather; particle
+  timing/spread/density, vol-ring animation off-by-default).
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.

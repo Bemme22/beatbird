@@ -118,10 +118,13 @@ button.primary:hover { background:var(--accent-glow); }
       </div>
 
       <div class="card standby">
-        <h2>Standby — Flip-Char (unverändert)</h2>
+        <h2>Standby — Flip-Char + Funkeln + Wetter</h2>
+        <div class="btns" style="margin-bottom:6px"><button id="btnWx">☁ Wetter wechseln</button></div>
         <div class="row"><label>Tick-Tempo</label><input id="flapTick" type="range" min="30" max="140" value="70"><span class="val" id="flapTickV"></span></div>
         <div class="row"><label>Zyklen / Zeichen</label><input id="flapCycles" type="range" min="2" max="12" value="5"><span class="val" id="flapCyclesV"></span></div>
         <div class="row"><label>Stagger</label><input id="flapStagger" type="range" min="0" max="4" value="1"><span class="val" id="flapStaggerV"></span></div>
+        <div class="row"><label>Funkel-Anzahl</label><input id="scintN" type="range" min="0" max="11" value="11"><span class="val" id="scintNV"></span></div>
+        <div class="row"><label>Funkel-Stärke</label><input id="scintOpa" type="range" min="0" max="60" value="23"><span class="val" id="scintOpaV"></span></div>
       </div>
     </div>
   </div>
@@ -150,6 +153,7 @@ bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms'); bind('holdMs',v=>(v/1000)
 bind('spread',v=>v+'%'); bind('flash',v=>v+'%');
 bind('dotR',v=>(v/10).toFixed(1)+'px'); bind('stride',v=>v+'px'); bind('crispen',v=>v+'%'); bind('shimmer',v=>v+'%'); bind('turb',v=>v+'%');
 bind('flapTick',v=>v+'ms'); bind('flapCycles',v=>v); bind('flapStagger',v=>v);
+bind('scintN',v=>v); bind('scintOpa',v=>v+'%');
 
 let energyManual=-1;
 $('energy').addEventListener('input',e=>{ energyManual=+e.target.value/100; $('energyV').textContent=(+e.target.value)+'%'; });
@@ -201,21 +205,51 @@ class Flap {
 }
 let hh=14,mm=32,clockStr='14:32',tempStr='18°',condStr='PARTLY CLOUDY',dateStr='FR 06 JUN';
 function advanceClock(){ mm++; if(mm>=60){mm=0;hh=(hh+1)%24;} clockStr=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
-const STANDBY_LINES=[
-  {flap:new Flap(),get:()=>clockStr,y:150,size:96,col:TEXT_PRIMARY},
-  {flap:new Flap(),get:()=>tempStr, y:262,size:52,col:TEXT_PRIMARY},
-  {flap:new Flap(),get:()=>condStr, y:330,size:24,col:TEXT_SECOND},
-  {flap:new Flap(),get:()=>dateStr, y:382,size:20,col:TEXT_SECOND},
+const STANDBY_LINES=[                                   // layout leaves room for the weather icon at y≈196
+  {flap:new Flap(),get:()=>clockStr,y:100,size:74,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>tempStr, y:272,size:46,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>condStr, y:332,size:22,col:TEXT_SECOND},
+  {flap:new Flap(),get:()=>dateStr, y:380,size:20,col:TEXT_SECOND},
 ];
+
+// ── Standby scintillation — port of screen_standby.cpp scint_draw_cb ─────────
+// Hand-placed ambient dots, each an independent sine-modulated alpha. Peaks
+// well below the text so it reads as "alive", not noise.
+const SCINT_POS=[[110,90],[360,85],[220,30],[410,200],[60,210],[380,330],[85,350],[195,430],[330,445],[145,165],[320,250]];
+const scint=SCINT_POS.map((p,i)=>({x:p[0],y:p[1],r:2+(i&1),phase:(i*547)%6000,period:3000+((i*911)%3000)}));
+function drawScint(now){ const N=Math.min(scint.length,P.scintN|0), peak=P.scintOpa/100; let ops=0;
+  for(let i=0;i<N;i++){ const s=scint[i]; const ph=((now+s.phase)%s.period)/s.period, v=0.5+0.5*Math.sin(ph*6.2832), a=peak*v;
+    if(a<0.02) continue; dot(s.x,s.y,s.r,ACCENT,a); ops++; } return ops; }
+
+// ── Weather icons — dot vocabulary, port of screen_standby.cpp ──────────────
+let wxIcon=1; const WX_NAME=['CLEAR','PARTLY CLOUDY','CLOUDY','FOG','RAIN','SNOW','THUNDERSTORM'];
+function roundRectPath(x,y,w,h,r){ ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function wxCloud(cx,cy,a){ dot(cx-17,cy-1,8,ACCENT,a); dot(cx-6,cy-8,10,ACCENT,a); dot(cx+7,cy-6,10,ACCENT,a); dot(cx+17,cy+1,8,ACCENT,a);
+  ctx.globalAlpha=a; ctx.fillStyle=ACCENT; ctx.beginPath(); roundRectPath(cx-20,cy+1,40,10,5); ctx.fill(); }
+function drawWeather(now){ const cx=C,cy=196,t=now*0.001; let ops=0;
+  const rays=(sx,sy,R,baseO,sr)=>{ for(let i=0;i<8;i++){ const a=i*45*Math.PI/180; dot(sx+Math.cos(a)*R,sy+Math.sin(a)*R,sr,ACCENT,baseO+0.15*Math.sin(t*2+i*0.6)); ops++; } };
+  switch(wxIcon){
+    case 0: dot(cx,cy,9,ACCENT,1); rays(cx,cy,28,0.75,3.5); ops++; break;
+    case 1: { const sx=cx-22,sy=cy-12; dot(sx,sy,7,ACCENT,1); rays(sx,sy,19,0.6,2.4); wxCloud(cx+10+2*Math.sin(t*0.4),cy+8,0.9); ops+=6; break; }
+    case 2: case 3: { wxCloud(cx+4*Math.sin(t*0.35),cy,1); wxCloud(cx+5*Math.sin(t*0.25+1.5)-14,cy-12,0.5); ops+=12; break; }
+    case 4: { wxCloud(cx,cy-8,1); const xo=[-12,0,12]; for(let i=0;i<3;i++){ const ph=((t/1.4)+i*0.27)%1,yo=14+18*ph,a=ph>0.85?(1-ph)/0.15:1; dot(cx+xo[i],cy+yo,3,ACCENT,a); ops++; } ops+=6; break; }
+    case 5: { wxCloud(cx,cy-8,1); const xo=[-14,0,14]; for(let i=0;i<3;i++){ dot(cx+xo[i],cy+22+2*Math.sin(t*0.8+i*1.7),2.5,ACCENT,1); ops++; } ops+=6; break; }
+    case 6: { wxCloud(cx,cy-8,1); const cyc=now%3200,bo=cyc<120?1-(cyc/120)*0.6:0.4; dot(cx+2,cy+14,3,ACCENT,bo); dot(cx-3,cy+18,3,ACCENT,bo); dot(cx+2,cy+22,3,ACCENT,bo); ops+=9; break; }
+  }
+  return ops;
+}
+function setWeather(i,now){ wxIcon=((i%7)+7)%7; condStr=WX_NAME[wxIcon]; STANDBY_LINES[2].flap.set(condStr,now); }
+
 function standbyFlipAll(now){ for(const L of STANDBY_LINES){ L.flap.cur=""; L.flap.set(L.get(),now); } }
 function standbyTick(now){ advanceClock(); STANDBY_LINES[0].flap.set(clockStr,now); }
 function drawStandby(now){
+  let ops=drawScint(now) + drawWeather(now);
   ctx.textAlign='center'; ctx.textBaseline='middle';
   for(const L of STANDBY_LINES){ const txt=L.flap.frame(now); const fs=fit(ctx,txt,L.size); ctx.font=lineFont(fs);
     ctx.globalAlpha=1; ctx.fillStyle=L.col; ctx.fillText(txt,C,L.y); }
   dot(C,438,3,ACCENT,0.35+0.35*Math.sin(now*0.0016));
   $('phaseLbl').textContent = STANDBY_LINES.some(L=>L.flap.anim)?'flip':'idle';
-  drawnOps = STANDBY_LINES.length + 1;
+  drawnOps = ops + STANDBY_LINES.length + 1;
 }
 
 // ════════════ PLAY — particle materialize + action ══════════════════════════
@@ -242,13 +276,15 @@ function ambientHome(){ const R=PROG_RING_R-24; for(;;){ const x=Math.random()*S
 for(let i=0;i<POOL;i++){ const h=cloudHome(),am=ambientHome();
   part.push({ x:h.x,y:h.y,fx:h.x,fy:h.y,chx:h.x,chy:h.y,tx:h.x,ty:h.y,ax:am.x,ay:am.y,
     active:false, base:0.55+Math.random()*0.45, glow:Math.random()<0.16, athr:Math.pow(Math.random(),1.3),
-    aper:2.5+Math.random()*4, sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 }); }
+    da:0, aper:2.5+Math.random()*4, sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 }); }
 function assignTargets(pts,N){ for(let i=0;i<POOL;i++){ const p=part[i];
-  if(i<N && i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; } else p.active=false; } }
+  if(i<N && i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; }
+  else { p.active=false; p.tx=p.chx; p.ty=p.chy; } } }   // inactive rest at cloud, fade out
 function snapshotFrom(){ for(const p of part){ p.fx=p.x; p.fy=p.y; } }
 $('spread').addEventListener('change',()=>{ for(const p of part){ const h=cloudHome(); p.chx=h.x; p.chy=h.y; } });
 
 let phase='ambient', phaseStart=0, pp=1, strideCache=-1, pendingApply=null, flashStart=-1, drawnOps=0;
+let gdt=0.016, solidDa=1;   // gdt = last frame dt; solidDa = low-passed solid-text alpha (kills the snap)
 function smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
 function triggerReform(applyFn){ pendingApply=applyFn||null; snapshotFrom(); phase='gather'; phaseStart=performance.now(); }
 let volume=62, progress=0.32;
@@ -288,20 +324,23 @@ function ambientAlpha(p,fieldE,now){ const lvl=(P.ambDensity/100)*(0.30+0.70*fie
 function drawParticles(E,now){ const N=P.particles|0; if(N<=0) return 0;
   const turbMax=(P.turb/100)*14, r=(P.dotR/10), shimmer=(P.shimmer/100)*E*2.4, drift=(P.ambDrift/100)*7;
   const fieldE=Math.min(1,E), cloudF=phase==='gather'?pp:(phase==='form'?1-pp:0); let ops=0;
-  for(let i=0;i<N;i++){ const p=part[i]; let bx,by,alpha;
-    if(phase==='gather'){ bx=p.fx+(p.chx-p.fx)*pp; by=p.fy+(p.chy-p.fy)*pp; alpha=p.base*0.55; }
-    else if(phase==='form'){ bx=p.fx+(p.tx-p.fx)*pp; by=p.fy+(p.ty-p.fy)*pp; alpha=p.active?(0.30+0.70*pp)*p.base:(1-pp)*0.45*p.base; }
-    else if(phase==='hold'){ bx=p.tx; by=p.ty; alpha=p.active?p.base*0.85:0; }
-    else if(phase==='disperse'){ bx=p.fx+(p.ax-p.fx)*pp; by=p.fy+(p.ay-p.fy)*pp; const tA=p.active?p.base*0.85:0,aA=ambientAlpha(p,fieldE,now); alpha=tA*(1-pp)+aA*pp; }
-    else { bx=p.ax; by=p.ay; alpha=ambientAlpha(p,fieldE,now); }
+  const ak=1-Math.exp(-gdt*10);   // alpha low-pass → no pops at phase boundaries
+  for(let i=0;i<N;i++){ const p=part[i]; let bx,by,ta;
+    if(phase==='gather'){ bx=p.fx+(p.chx-p.fx)*pp; by=p.fy+(p.chy-p.fy)*pp; ta=p.base*0.55; }
+    else if(phase==='form'){ bx=p.fx+(p.tx-p.fx)*pp; by=p.fy+(p.ty-p.fy)*pp; ta=p.active?(0.30+0.70*pp)*p.base:(1-pp)*0.45*p.base; }
+    else if(phase==='hold'){ bx=p.tx; by=p.ty; ta=p.active?p.base*0.85:0; }
+    else if(phase==='disperse'){ bx=p.fx+(p.ax-p.fx)*pp; by=p.fy+(p.ay-p.fy)*pp; const tA=p.active?p.base*0.85:0,aA=ambientAlpha(p,fieldE,now); ta=tA*(1-pp)+aA*pp; }
+    else { bx=p.ax; by=p.ay; ta=ambientAlpha(p,fieldE,now); }
     if(cloudF>0){ bx+=Math.sin(now*0.001*p.sx+p.ph)*cloudF*turbMax; by+=Math.cos(now*0.001*p.sy+p.ph)*cloudF*turbMax; }
     if(phase==='hold'||phase==='disperse'||phase==='ambient'){ bx+=Math.cos(now*0.0017+p.ph)*shimmer; by+=Math.sin(now*0.0017+p.ph*1.3)*shimmer;
       if(phase==='ambient'){ bx+=Math.sin(now*0.0004*p.sx+p.ph)*drift; by+=Math.cos(now*0.0004*p.sy+p.ph)*drift; } }
-    if(alpha>0.012){ dot(bx,by,r,p.glow?ACCENT_GLOW:ACCENT,alpha); ops++; } }
+    p.da += (ta - p.da)*ak;
+    if(p.da>0.012){ dot(bx,by,r,p.glow?ACCENT_GLOW:ACCENT,p.da); ops++; } }
   return ops;
 }
-function drawFlash(now){ if(flashStart<0||P.flash<=0) return 0; const t=(now-flashStart)/360; if(t>=1){ flashStart=-1; return 0; }
-  const r=60+t*170; ctx.globalAlpha=(1-t)*0.5*(P.flash/100); ctx.strokeStyle=ACCENT_GLOW; ctx.lineWidth=2.5*(1-t)+0.5;
+function drawFlash(now){ if(flashStart<0||P.flash<=0) return 0; const t=(now-flashStart)/560; if(t>=1){ flashStart=-1; return 0; }
+  // bell easing (0 at both ends) so the ring eases in/out instead of popping.
+  const r=70+t*150, bell=Math.sin(t*Math.PI); ctx.globalAlpha=bell*0.38*(P.flash/100); ctx.strokeStyle=ACCENT_GLOW; ctx.lineWidth=2.0;
   ctx.beginPath(); ctx.arc(C,C,r,0,6.2832); ctx.stroke(); return 1; }
 
 function drawPlay(now){
@@ -320,8 +359,14 @@ function drawPlay(now){
   ops+=drawSpectrum(now);
   drawProgress(); drawVolRing(E,now); drawSourceMarker(); ops+=24+PROG_SEG+1;
   ops+=drawFlash(now);
-  let solid; if(phase==='gather') solid=1-smooth(Math.min(1,e/(P.scatterMs*0.6))); else if(phase==='form') solid=smooth(Math.max(0,(pp-0.78)/0.22)); else solid=1;
-  ops+=drawSolidText(solid*(P.crispen/100));
+  // Solid-text alpha: fade old out across the whole gather, fade new in across
+  // the back half of form — then low-pass it so neither end snaps.
+  let solidTarget;
+  if(phase==='gather') solidTarget=1-smooth(Math.min(1,e/P.scatterMs));
+  else if(phase==='form') solidTarget=smooth(Math.max(0,(pp-0.40)/0.60));
+  else solidTarget=1;
+  solidDa += (solidTarget - solidDa)*(1-Math.exp(-gdt*9));
+  ops+=drawSolidText(solidDa*(P.crispen/100));
   drawnOps=ops;
 }
 
@@ -332,6 +377,7 @@ function setMode(m){ if(mode===m) return; mode=m; $('btnPlayMode').classList.tog
   if(m==='standby') standbyFlipAll(performance.now()); else triggerReform(null); }
 $('btnPlayMode').addEventListener('click',()=>setMode('play'));
 $('btnStandbyMode').addEventListener('click',()=>setMode('standby'));
+$('btnWx').addEventListener('click',()=>{ setMode('standby'); setWeather(wxIcon+1,performance.now()); });
 setInterval(()=>{ if(mode==='standby' && !STANDBY_LINES.some(L=>L.flap.anim)) standbyTick(performance.now()); }, 7000);
 
 // ── ESP-budget badge ────────────────────────────────────────────────────────
@@ -343,7 +389,7 @@ function updateBadge(){ const b=$('espBadge'); const ops=drawnOps|0; $('espOps')
 let last=performance.now(), lastDraw=0;
 function frame(now){
   requestAnimationFrame(frame);
-  const interval=1000/P.fps; if(now-lastDraw<interval) return; const dt=Math.min(0.05,(now-lastDraw)/1000); lastDraw=now;
+  const interval=1000/P.fps; if(now-lastDraw<interval) return; const dt=Math.min(0.05,(now-lastDraw)/1000); lastDraw=now; gdt=dt;
   updateAudio(dt,now/1000);
   ctx.clearRect(0,0,SIZE,SIZE); ctx.globalAlpha=1;
   ctx.save(); ctx.beginPath(); ctx.arc(C,C,C,0,6.2832); ctx.clip(); ctx.fillStyle='#000'; ctx.fillRect(0,0,SIZE,SIZE);
