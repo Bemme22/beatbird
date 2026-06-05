@@ -405,19 +405,20 @@ to avoid losing HA history.
   (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
-- [ ] **Particle-text materialize on track change** (mock:
+- [ ] **Particle-text materialize + disperse on track change** (mock:
   `docs/mockups/play-scintillation.html`) — title+artist are rendered AS a point
-  cloud. On track change (`Dirty::TITLE`): phase 1 *scatter* (old letters explode
-  into a dense churning cloud that hides the old text), phase 2 *form* (particles
-  ease onto the new glyphs' sampled points → new text materialises out of the
-  cloud). `energy_smoothed` makes the formed letters breathe with the music; the
-  final state can sharpen to crisp text (crispen knob) for readability. Mock samples
-  glyph points by rasterising text to an offscreen canvas. **Firmware port:** sample
-  the Title+Artist target points ONCE per `Dirty::TITLE` from the LVGL font bitmap
-  (per-frame pixel sampling is too costly on the S3), cache them in a `scint_layer`
-  particle pool, then only the cloud↔target lerp runs per frame on a `morph∈[0,1]`
-  timeline. Mock is tunable (scatter/form time, spread, turbulence, point
-  density/size, dust, crispen, music-breathe).
+  cloud. Five-phase timeline: *gather* (old points collect into a churning cloud
+  that hides the old text) → *form* (particles ease onto the new glyphs' sampled
+  points → text materialises) → *hold* (briefly crisp + readable) → *disperse* →
+  *ambient* (the points spread back out into a music-reactive scatter field during
+  playback). Next track change re-gathers them. Each particle caches three goals
+  (cloud-home / glyph-target / ambient-home); `energy_smoothed` drives the ambient
+  field's visibility threshold + brightness (more music → denser field). Mock samples
+  glyph points via an offscreen canvas. **Firmware port:** sample target points ONCE
+  per `Dirty::TITLE` from the LVGL font bitmap, cache in a `scint_layer` pool, run
+  only the phase-lerp per frame. Tunable (gather/form/hold/disperse times, cloud
+  spread/turbulence, ambient spread/density/drift, point density/size, dust, crispen,
+  music-breathe).
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
