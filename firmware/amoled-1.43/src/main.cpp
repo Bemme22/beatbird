@@ -457,6 +457,24 @@ void loop()
     ScreenStandby::update();
     ScreenSettings::update();
 
+    // Firmware-version handshake. The one-shot send_version() at boot races the
+    // bridge's serial open — the ESP boots faster than the bridge (re)starts, so
+    // the bridge usually misses "FW:<ver>" and its diagnose page shows "?".
+    // connected_to_pi latches true on the first line FROM the bridge, i.e. once
+    // it's actually listening; resend the version a few times then (3× ~600 ms
+    // apart survives a dropped line without polluting the stream forever).
+    static uint8_t  fw_resends_left = 3;
+    static uint32_t fw_next_resend  = 0;
+    if (fw_resends_left && State::app.connected_to_pi) {
+        uint32_t now = millis();
+        if (fw_next_resend == 0) fw_next_resend = now;   // arm on first connect
+        if (now >= fw_next_resend) {
+            Proto::send_version();
+            fw_next_resend = now + 600;
+            fw_resends_left--;
+        }
+    }
+
     check_dim();
 
     Proto::send_heartbeat();

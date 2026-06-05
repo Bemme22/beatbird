@@ -99,15 +99,6 @@ static float    energy_smoothed    = 0.0f;
 static uint32_t source_pulse_until = 0;
 static constexpr uint32_t SOURCE_PULSE_MS = 300;
 
-// Volume-change "wave" — when the volume changes, a brighter/larger
-// hotspot travels once around the ring (CW, ~700 ms). Pure cosmetic
-// feedback; doesn't replace the volume-arc rendering, just rides on
-// top of it. A fresh volume change aborts any in-flight pulse and
-// starts a new one (volume_pulse_start_ms = millis()).
-static uint32_t volume_pulse_start_ms = 0;
-static constexpr uint32_t VOLUME_PULSE_MS    = 700;
-static constexpr float    VOLUME_PULSE_WIDTH = 3.0f;   // ± dots from wave centre that still get a boost
-
 // Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
 static int   prog_x[60],   prog_y[60];
@@ -267,250 +258,30 @@ static inline float energy_dyn(float raw) {
     return e;
 }
 
-// ─── Track-change particle cloud + ambient energy field ─────────────────────
-// SAFE (non-glyph) variant: the title/artist stay normal solid labels for
-// legibility; this z-below layer adds (a) a low ambient dot field that
-// breathes with energy_smoothed, and (b) a gather → hold → disperse cloud
-// over the text block on every track change (Dirty::TITLE) as the eye-catcher.
-// No per-pixel glyph sampling (too heavy on the S3) — literal letter-forming
-// from the mock is a later upgrade to tune on the simulator.
-//
-// Driven only by energy_smoothed (from the LV: field). Deliberately NOT using
-// app.spectrum[] — FX bands are disabled in every active profile, so a
-// spectrum widget would render dead on real hardware.
-static lv_obj_t *scint_layer = nullptr;
-
-struct PlayDot {
-    float hx, hy;   // cloud home (clustered over the text block)
-    float ax, ay;   // ambient home (spread across the inner disc)
-    float fx, fy;   // 'from' snapshot at the last phase change
-    float x,  y;    // current position
-    float da;       // displayed alpha 0..1 (low-passed → no pops)
-    float athr;     // ambient visibility threshold vs energy
-    float ph;       // sin phase
-    float sx, sy;   // per-dot drift speeds
-    bool  glow;
-    float base;     // per-dot brightness 0.55..1
-};
-static constexpr int PLAY_DOTS = 180;          // ESP draw budget (≈ rings + this)
-// Heap-allocated, NOT a static array: 180 × sizeof(PlayDot) ≈ 10.8 KB would
-// blow the static .dram0_0_seg segment (a hard link-time ceiling separate from
-// the larger runtime heap the LVGL DMA buffers already draw from). malloc'd
-// once in seed_play_dots() out of that runtime heap instead. If the alloc
-// fails the field simply never renders — pdots stays null and every consumer
-// bails — while the cheap energy pulse (vol-ring + source-marker) keeps working.
-static PlayDot *pdots        = nullptr;
-static bool    pdots_seeded  = false;
-
-enum CloudPhase : uint8_t { CL_AMBIENT, CL_GATHER, CL_HOLD, CL_DISPERSE };
-static CloudPhase cl_phase = CL_AMBIENT;
-static uint32_t   cl_start = 0;
-static uint32_t   last_scint_render = 0;
-static constexpr uint32_t CL_GATHER_MS   = 480;
-static constexpr uint32_t CL_HOLD_MS     = 700;
-static constexpr uint32_t CL_DISPERSE_MS = 1600;
-
-static const int CLOUD_CY = Theme::CENTER +
-    (Theme::TITLE_Y_OFFSET + Theme::ARTIST_Y_OFFSET) / 2;
-
-static inline float frand() { return (float)random(0, 10001) / 10000.0f; }
-static inline float smoothstep01(float x) {
-    if (x < 0.0f) x = 0.0f; if (x > 1.0f) x = 1.0f;
-    return x * x * (3.0f - 2.0f * x);
-}
-
-static void seed_play_dots() {
-    if (!pdots) {
-        pdots = (PlayDot *)malloc(sizeof(PlayDot) * PLAY_DOTS);
-        if (!pdots) return;        // OOM → field disabled, energy pulse unaffected
-    }
-    for (int i = 0; i < PLAY_DOTS; i++) {
-        PlayDot &p = pdots[i];
-        float a = frand() * 6.2832f, rr = sqrtf(frand());
-        p.hx = (float)Theme::CENTER + cosf(a) * (150.0f * rr);
-        p.hy = (float)CLOUD_CY      + sinf(a) * ( 70.0f * rr);
-        for (;;) {                                   // ambient home inside the prog ring
-            float x = frand() * 466.0f, y = frand() * 466.0f;
-            float dx = x - (float)Theme::CENTER, dy = y - (float)Theme::CENTER;
-            float d2 = dx * dx + dy * dy;
-            if (d2 < 162.0f * 162.0f && d2 > 26.0f * 26.0f) { p.ax = x; p.ay = y; break; }
-        }
-        p.x = p.fx = p.ax; p.y = p.fy = p.ay; p.da = 0.0f;
-        p.athr = powf(frand(), 1.3f);
-        p.ph = frand() * 6.2832f;
-        p.sx = 0.5f + frand() * 1.6f;
-        p.sy = 0.5f + frand() * 1.6f;
-        p.glow = frand() < 0.16f;
-        p.base = 0.55f + frand() * 0.45f;
-    }
-    pdots_seeded = true;
-}
-
-// Ambient (resting) alpha — a dot is visible only once energy clears its
-// threshold, so louder material lights up progressively more of the field.
-static inline float play_ambient_alpha(const PlayDot &p, float fE, uint32_t now) {
-    float lvl = 0.40f * (0.30f + 0.70f * fE);
-    if (p.athr > lvl) return 0.0f;
-    float tw = 0.45f + 0.55f * sinf((float)now * 0.0016f + p.ph);
-    return p.base * (0.12f + 0.50f * fE) * tw;
-}
-
-static void scint_draw_cb(lv_event_t *e) {
-    if (!pdots_seeded) seed_play_dots();
-    if (!pdots) return;                       // alloc failed → no field this frame
-    lv_layer_t *layer = lv_event_get_layer(e);
-    const uint32_t now = millis();
-    float fE = energy_dyn(energy_smoothed);          // 0..1.2
-    if (fE > 1.0f) fE = 1.0f;
-
-    float pp = 1.0f;
-    if (cl_phase == CL_GATHER)        pp = smoothstep01((float)(now - cl_start) / (float)CL_GATHER_MS);
-    else if (cl_phase == CL_DISPERSE) pp = smoothstep01((float)(now - cl_start) / (float)CL_DISPERSE_MS);
-
-    // Gentle energy glow — two stacked translucent circles (cheap halo, no gradient).
-    float gp = fE * 0.55f;
-    draw_dot(layer, Theme::CENTER, CLOUD_CY, (int)(24 + gp * 46), Theme::accent,
-             (lv_opa_t)(int)(0.035f * 255.0f * gp));
-    draw_dot(layer, Theme::CENTER, CLOUD_CY, (int)(12 + gp * 26), Theme::accent_glow,
-             (lv_opa_t)(int)(0.045f * 255.0f * gp));
-
-    const float ak = 0.28f;                          // alpha low-pass (~30 fps) → no pops
-    for (int i = 0; i < PLAY_DOTS; i++) {
-        PlayDot &p = pdots[i];
-        float bx, by, ta;
-        switch (cl_phase) {
-            case CL_GATHER:
-                bx = p.fx + (p.hx - p.fx) * pp; by = p.fy + (p.hy - p.fy) * pp; ta = p.base * 0.55f; break;
-            case CL_HOLD:
-                bx = p.hx; by = p.hy; ta = p.base * 0.85f; break;
-            case CL_DISPERSE:
-                bx = p.fx + (p.ax - p.fx) * pp; by = p.fy + (p.ay - p.fy) * pp;
-                ta = p.base * 0.85f * (1.0f - pp) + play_ambient_alpha(p, fE, now) * pp; break;
-            default:
-                bx = p.ax; by = p.ay; ta = play_ambient_alpha(p, fE, now); break;
-        }
-        if (cl_phase == CL_AMBIENT || cl_phase == CL_DISPERSE) {
-            bx += sinf((float)now * 0.0004f * p.sx + p.ph) * 5.0f;
-            by += cosf((float)now * 0.0004f * p.sy + p.ph) * 5.0f;
-        }
-        p.x = bx; p.y = by;
-        p.da += (ta - p.da) * ak;
-        if (p.da > 0.02f)
-            draw_dot(layer, (int)bx, (int)by, 1,
-                     p.glow ? Theme::accent_glow : Theme::accent, (lv_opa_t)(int)(p.da * 255.0f));
-    }
-}
-
-// Advance the cloud phase machine (called from update()).
-static void cloud_tick(uint32_t now) {
-    if (!pdots) return;                       // no field allocated → nothing to advance
-    auto snapshot = []() { for (int i = 0; i < PLAY_DOTS; i++) { pdots[i].fx = pdots[i].x; pdots[i].fy = pdots[i].y; } };
-    switch (cl_phase) {
-        case CL_GATHER:   if (now - cl_start >= CL_GATHER_MS)   { snapshot(); cl_phase = CL_HOLD;     cl_start = now; } break;
-        case CL_HOLD:     if (now - cl_start >= CL_HOLD_MS)     { snapshot(); cl_phase = CL_DISPERSE; cl_start = now; } break;
-        case CL_DISPERSE: if (now - cl_start >= CL_DISPERSE_MS) { cl_phase = CL_AMBIENT; cl_start = now; } break;
-        default: break;
-    }
-}
-
-static void cloud_trigger() {
-    if (!pdots_seeded) seed_play_dots();
-    if (!pdots) return;                                 // alloc failed → skip the cloud entirely
-    for (int i = 0; i < PLAY_DOTS; i++) { pdots[i].fx = pdots[i].x; pdots[i].fy = pdots[i].y; }   // gather from wherever they are now
-    cl_phase = CL_GATHER;
-    cl_start = millis();
-}
+// ─── Energy pulse (lightweight) ─────────────────────────────────────────────
+// The full-screen particle field that used to live here judders on the real
+// ESP32-S3: a screen-sized `scint_layer` invalidated every frame forces LVGL to
+// recomposite the whole 466² disc (cover JPEG + all ring layers) at 30–60 Hz.
+// Removed. The energy pulse now lives ONLY in the source-marker breathing
+// (small object → tiny invalidate, see update()), which is cheap and smooth.
+// The cloud/particle prototype is preserved in git history on this branch;
+// reviving it needs a bounded partial-invalidate, tuned on the SDL sim first.
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
-
-// Distance between two dot indices around the 24-dot ring (shorter way).
-static inline float vol_ring_distance(int i, float center) {
-    float raw = fabsf((float)i - center);
-    return raw < 12.0f ? raw : 24.0f - raw;
-}
 
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
     int lit = (vol * 24 + 50) / 100;
-
-    // Wave phase 0..1, or -1 if no pulse active.
-    const uint32_t now_ms = millis();
-    float wave_phase = -1.0f;
-    if (volume_pulse_start_ms != 0) {
-        uint32_t elapsed = now_ms - volume_pulse_start_ms;
-        if (elapsed < VOLUME_PULSE_MS) {
-            wave_phase = (float)elapsed / (float)VOLUME_PULSE_MS;
-        } else {
-            volume_pulse_start_ms = 0;   // self-clean expired pulse
-        }
-    }
-    // Wave centre as a (fractional) dot index. Ease-out so the hotspot
-    // launches fast and trails off — feels more deliberate than linear.
-    float wave_centre = -1.0f;
-    if (wave_phase >= 0.0f) {
-        float p = 1.0f - (1.0f - wave_phase) * (1.0f - wave_phase);   // ease-out quad
-        wave_centre = p * 24.0f;
-    }
-    // Envelope: dies as the pulse approaches its end so it doesn't
-    // hard-cut at frame n→n+1 when wave_phase crosses 1.0.
-    const float wave_env = (wave_phase < 0.0f)
-                           ? 0.0f
-                           : 1.0f - wave_phase * wave_phase;   // 1→0 quadratic
-    // Phase-2 energy modulation. The dynamic-range remap (energy_dyn) is
-    // critical: raw RMS sits in 0.55..0.93 during music, which on its own
-    // makes the wobble look identical on quiet and loud passages. After
-    // remap, quiet → ~0.5, loud → ~1.2, and amplitude 0.65 expands that
-    // into a ±33 % (quiet) to ±78 % (loud) radius swing — clearly visible.
-    // Sine freq 0.005 ≈ 1.25 s cycle; per-dot phase offset i*0.5 makes
-    // the wobble travel around the ring instead of pulsing in sync.
-    const float E = energy_dyn(energy_smoothed);
-    const float t = (float)millis();
-    // Phase shift 2π/24 ≈ 0.262 rad spreads one full sine cycle across
-    // the 24 dot positions, so no two dots are simultaneously at the
-    // minimum radius. Previous 0.5 rad clustered dots i and i+12
-    // roughly in-phase, which at peak energy collapsed half the ring
-    // to r=1 at the same moment and read as "vol arc disappeared at
-    // 100 %". Min radius floor bumped to 2 so even at the lowest sine
-    // peak the lit dot stays visible (matches the unlit-dot radius).
-    constexpr float PHASE_PER_DOT = 6.2832f / 24.0f;
-    for (int i = 0; i < 24; i++) {
-        if (i == 0) continue;
-        bool is_lit = (i < lit);
-
-        // Per-dot wave boost (0..1). Linear falloff over ±WIDTH dots,
-        // multiplied by the global envelope so the boost fades out as
-        // the pulse expires.
-        float wboost = 0.0f;
-        if (wave_centre >= 0.0f) {
-            float d = vol_ring_distance(i, wave_centre);
-            if (d < VOLUME_PULSE_WIDTH) {
-                wboost = (1.0f - d / VOLUME_PULSE_WIDTH) * wave_env;
-            }
-        }
-
-        if (is_lit) {
-            // Energy wobble strongly damped (0.65 → 0.12) per design feedback:
-            // the ring should read as a near-static volume indicator, with the
-            // "action" living in the particle field instead. The volume-change
-            // wave (wboost) is kept at full strength — it's deliberate user
-            // feedback on a knob turn, not ambient music motion.
-            float wob = 1.0f + E * 0.12f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
-            float r_f  = (float)Theme::VOL_DOT_R * wob * (1.0f + 0.60f * wboost);
-            int   r    = (int)roundf(r_f);
-            if (r < 2) r = 2;
-            int o_int  = 217 + (int)(E * 10.0f) + (int)(wboost * 38.0f);
-            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
-            draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
-        } else {
-            // Unlit dots get a softer wave: bumps opacity, doesn't
-            // grow radius. Reads as "the wave is passing through here"
-            // even on the dim half of the ring.
-            int r_dim = Theme::VOL_DOT_R_DIM + (int)(wboost * 2.0f);
-            int o_int = 160 + (int)(wboost * 70.0f);
-            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
-            draw_dot(layer, vol_x[i], vol_y[i], r_dim, Theme::accent_dim, o);
-        }
+    // Static volume indicator — redrawn only on Dirty::VOLUME / Dirty::ACCENT,
+    // never per-frame. Animating this screen-sized layer every frame (the old
+    // energy wobble + volume wave) is exactly what juddered the S3; the energy
+    // pulse now lives in the small source-marker instead.
+    for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
+        if (i < lit)
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)217);
+        else
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
     }
 }
 
@@ -887,9 +658,6 @@ void create() {
         lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
         return o;
     };
-    // Particle field + track-change cloud + energy glow. Created first so it
-    // sits z-below the rings, labels and CenterStage (text stays readable).
-    scint_layer  = make_layer(scint_draw_cb);
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
 
@@ -1076,8 +844,7 @@ void update() {
 
     if (State::is_dirty(State::Dirty::TITLE)) {
         // Player moved off the flip-char (that now lives only on standby).
-        // The title/artist are plain solid labels for legibility; the track
-        // change is announced by the particle cloud (cloud_trigger below).
+        // The title/artist are plain solid labels for legibility.
         if (State::app.title.length()) {
             const char *t = State::app.title.c_str();
             set_scroll_speed_pxs(lbl_title, t, 30);
@@ -1091,7 +858,6 @@ void update() {
             lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
         }
         title_phase = 0; title_pending = "";
-        cloud_trigger();                       // gather → hold → disperse over the new title
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
@@ -1139,9 +905,7 @@ void update() {
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
         // Volume text widget gone — vol ring + CenterStage's MUTE cover it now.
-        // Kick a fresh wave pulse; the energy-render loop below keeps
-        // invalidating vol_layer at 60 Hz while it's in flight.
-        volume_pulse_start_ms = millis();
+        // One static redraw of the ring; no per-frame wave (that juddered).
         lv_obj_invalidate(vol_layer);
         State::clear_dirty(State::Dirty::VOLUME);
     }
@@ -1150,46 +914,28 @@ void update() {
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // Energy-driven repaint at ~60 Hz while playing.
+    // Source-marker "breathing" — the ONLY per-frame animation now. The marker
+    // is a small object, so set_style_* invalidates just its (transformed) box —
+    // cheap, unlike invalidating a screen-sized ring layer every frame (which is
+    // what juddered the S3). ~30 Hz is plenty for a soft pulse.
     //
-    // Asymmetric envelope: fast attack (alpha=0.45) when the bridge
-    // pushes a louder peak than what's currently rendered, slow release
-    // (alpha=0.08) on the way down. Classic peak-meter response —
-    // transients (kick, snare, plucked bass) PUNCH up immediately and
-    // then breathe out, instead of being averaged into invisibility by
-    // a symmetric low-pass. Combined with the bridge-side switch to
-    // capture_peak (instead of capture_rms) this is what makes the
-    // ring feel reactive on instrumental / percussive music.
-    //
-    // When state != PLAYING, the target collapses to 0 and the loop
-    // keeps running (cheaply, under the release alpha) until the
-    // smoothed value decays — without this the source-marker would
-    // freeze at its last opacity instead of fading back to idle.
-    const bool volume_pulse_active = (
-        volume_pulse_start_ms != 0
-        && (millis() - volume_pulse_start_ms) < VOLUME_PULSE_MS
-    );
+    // Asymmetric envelope on energy_smoothed: fast attack (0.45) on a louder
+    // peak than currently rendered, slow release (0.08) on the way down —
+    // peak-meter response (capture_peak from the LV: field) so transients punch.
+    // When state != PLAYING the target collapses to 0 and the loop keeps running
+    // cheaply until it decays, so the marker fades back to idle, not freezes.
     const bool keep_animating =
         (State::app.state == State::PLAY_PLAYING) ||
         (energy_smoothed > 0.01f) ||
-        (millis() < source_pulse_until) ||   // keep ticking through a source-switch pulse
-        volume_pulse_active ||               // and through a volume-wave pulse
-        (cl_phase != CL_AMBIENT);            // and through a track-change particle cloud
+        (millis() < source_pulse_until);     // and through a source-switch pulse
     if (keep_animating) {
         uint32_t now = millis();
-        if (now - last_energy_render >= 16) {
+        if (now - last_energy_render >= 33) {
             last_energy_render = now;
             const float target = (State::app.state == State::PLAY_PLAYING)
                                ? State::app.energy : 0.0f;
             const float alpha  = (target > energy_smoothed) ? 0.45f : 0.08f;
             energy_smoothed += (target - energy_smoothed) * alpha;
-            lv_obj_invalidate(vol_layer);
-            // Source marker pulse — opacity AND size driven by the same
-            // sin the vol dots use, with the dynamic-remapped energy as
-            // the amplitude. Without the remap the marker pulses at a
-            // near-constant depth regardless of how loud the music is.
-            // Frequency matches the vol-ring (0.005) so the whole player
-            // breathes together.
             if (source_marker && !in_standby && !in_shutdown) {
                 const float E_dyn = energy_dyn(energy_smoothed);
                 const float wob   = sinf((float)now * 0.005f);  // -1..+1
@@ -1199,10 +945,9 @@ void update() {
                 if (o_i > 255) o_i = 255;
                 lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
                 int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak
-                // One-shot source-switch pulse blended on top — ease-out
-                // ramp from +50 % size back to baseline over 300 ms. Adds
-                // a "click" feedback for the user when MA / Spotify hands
-                // off the speaker.
+                // One-shot source-switch pulse blended on top — ease-out ramp
+                // from +50 % size back to baseline over 300 ms ("click" feedback
+                // when MA / Spotify hands off the speaker).
                 if (now < source_pulse_until) {
                     float remaining = (float)(source_pulse_until - now)
                                     / (float)SOURCE_PULSE_MS;     // 1.0 → 0.0
@@ -1210,15 +955,6 @@ void update() {
                 }
                 lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
-        }
-        // Particle field + track-change cloud — advance the phase machine and
-        // repaint at ~30 fps (plenty for a soft field; lighter than the 60 Hz
-        // vol-ring tick). The field self-fades when energy decays, so this
-        // stops being invalidated shortly after playback pauses.
-        if (now - last_scint_render >= 33) {
-            last_scint_render = now;
-            cloud_tick(now);
-            if (scint_layer) lv_obj_invalidate(scint_layer);
         }
     }
     // Drop the legacy spectrum / energy dirty bits — they no longer drive
