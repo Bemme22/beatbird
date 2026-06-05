@@ -756,9 +756,10 @@ void update()
         State::clear_dirty(State::Dirty::ACCENT);
     }
 
-    // Clock
+    // Clock — flip-char on every minute tick (the ':' stays fixed; only the
+    // digits cycle). SplitFlap::set_text no-ops if the text is unchanged.
     if (State::app.clockStr != last_clock_rendered) {
-        lv_label_set_text(lbl_clock, State::app.clockStr.c_str());
+        SplitFlap::set_text(lbl_clock, State::app.clockStr.c_str());
         last_clock_rendered = State::app.clockStr;
     }
 
@@ -784,14 +785,14 @@ void update()
             // truncated mid-string (lost the trailing "1°").
             char buf[32];
             snprintf(buf, sizeof(buf), "%d\xC2\xB0", State::weather.temp_c);
-            lv_label_set_text(lbl_temp, buf);
+            SplitFlap::set_text(lbl_temp, buf);
 
             snprintf(buf, sizeof(buf), "H %d\xC2\xB0  \xC2\xB7  L %d\xC2\xB0",
                      State::weather.high_c, State::weather.low_c);
-            lv_label_set_text(lbl_highlow, buf);
+            SplitFlap::set_text(lbl_highlow, buf);
 
-            lv_label_set_text(lbl_condition,
-                              condition_label_text(State::weather.icon));
+            SplitFlap::set_text(lbl_condition,
+                                condition_label_text(State::weather.icon));
 
             lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
@@ -808,7 +809,7 @@ void update()
             lv_obj_add_flag  (lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (icon_obj,      LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(lbl_condition, "WETTER NICHT VERFUEGBAR");
+            SplitFlap::set_text(lbl_condition, "WETTER NICHT VERFUEGBAR");
             lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
         }
         lv_obj_invalidate(icon_obj);

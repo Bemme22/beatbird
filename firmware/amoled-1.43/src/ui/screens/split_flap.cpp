@@ -17,6 +17,22 @@ namespace SplitFlap {
 // Mono is essentially ASCII; non-ASCII would render as tofu mid-flap.
 static const char *FLAP_CHARS    = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 static constexpr int FLAP_CHARS_LEN     = 37;
+
+// A position only cycles random glyphs if its target is an alphanumeric (the
+// random alphabet itself is uppercase, but lowercase targets still cycle and
+// then lock to their lowercase glyph — preserving the player's mixed-case
+// title flap). Everything else — spaces, ':' (clock), punctuation, and the
+// *bytes* of multi-byte UTF-8 sequences like '°'/'·' (all ≥ 0x80, hence < 0
+// as signed char) — is passed straight through to the target and never
+// scrambled. This lets the standby clock ("14:32") and weather lines
+// ("H 18°  ·  L 12°") flip the digits/letters while the colon, spaces, degree
+// and middot stay intact (cycling individual UTF-8 bytes would render tofu).
+// Fixed positions are also treated as already-done so they don't block
+// completion.
+static inline bool is_flap_char(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '-';
+}
 static constexpr int FLAP_TICKS_PER_POS = 5;
 static constexpr uint32_t FLAP_TICK_MS  = 70;
 static constexpr int FLAP_POS_STAGGER   = 1;     // tick(s) between adjacent position starts
@@ -53,8 +69,9 @@ struct Anim {
     bool            forced_left_align;
 };
 
-// Concurrent slots: title, artist, maybe boot wordmark later.
-static constexpr int MAX_ANIMS = 4;
+// Concurrent slots: player title+artist, OR standby clock+temp+highlow+
+// condition+idle-flap (5) when the whole standby board flips in at once.
+static constexpr int MAX_ANIMS = 6;
 static Anim anims[MAX_ANIMS];
 static bool slot_used[MAX_ANIMS];
 
@@ -100,6 +117,12 @@ static void tick_cb(lv_timer_t *t) {
 
     bool all_done = true;
     for (int i = 0; i < a->positions; i++) {
+        if (!is_flap_char(a->target[i])) {
+            // Fixed char (space / ':' / UTF-8 byte) — show it immediately,
+            // never cycle, and don't count it against completion.
+            a->buf[i] = a->target[i];
+            continue;
+        }
         if (a->tick < a->pos_start[i]) {
             // Position hasn't reached its lock-in phase yet — keep
             // cycling random glyphs so the user sees motion across the
@@ -246,8 +269,12 @@ void set_text(lv_obj_t *label, const char *new_text) {
     // from frame 0 masks that jump — the eye reads the random chars as
     // "the flap has started" rather than "the text repositioned".
     for (int i = 0; i < positions; i++) {
-        a->buf[i]       = FLAP_CHARS[random(0, FLAP_CHARS_LEN)];
         a->target[i]    = (i < new_len) ? new_text[i] : ' ';
+        // Seed fixed chars with their final value so they're stable from
+        // frame 0 (multi-byte UTF-8 bytes never flicker through glyphs).
+        a->buf[i]       = is_flap_char(a->target[i])
+                            ? FLAP_CHARS[random(0, FLAP_CHARS_LEN)]
+                            : a->target[i];
         a->pos_ticks[i] = 0;
         int stagger_idx = reverse ? (positions - 1 - i) : i;
         a->pos_start[i] = (int8_t)(stagger_idx * FLAP_POS_STAGGER);
