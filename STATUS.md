@@ -405,17 +405,19 @@ to avoid losing HA history.
   (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
-- [ ] **Play-state scintillation + track tune-in** (mock:
-  `docs/mockups/play-scintillation.html`) — adopt the standby `scint_draw_cb`
-  ambient-dot field into the player, music-reactive: dot density/brightness/twinkle
-  scale with `energy_smoothed` (via `energy_dyn()`), spectral jumps in
-  `app.spectrum[]` throw brief sparkle pops. On track change (`Dirty::TITLE`) a
-  `noise∈[0,1]` is set to 1 and exp-decays (~1.3 s), rendering a dense re-randomised
-  static burst that resolves to clear ("tuning in"). A text-safe ellipse around
-  `TITLE_Y_OFFSET`/`ARTIST_Y_OFFSET` attenuates particle/noise alpha so title+artist
-  stay readable. Firmware: new `scint_layer` in `screen_player.cpp` drawn z-below the
-  rings/text, ticked at ~20 fps like standby. Mock is tunable (density, peak opa,
-  decay, text-mask, dissolve) to dial the feel before writing C++.
+- [ ] **Particle-text materialize on track change** (mock:
+  `docs/mockups/play-scintillation.html`) — title+artist are rendered AS a point
+  cloud. On track change (`Dirty::TITLE`): phase 1 *scatter* (old letters explode
+  into a dense churning cloud that hides the old text), phase 2 *form* (particles
+  ease onto the new glyphs' sampled points → new text materialises out of the
+  cloud). `energy_smoothed` makes the formed letters breathe with the music; the
+  final state can sharpen to crisp text (crispen knob) for readability. Mock samples
+  glyph points by rasterising text to an offscreen canvas. **Firmware port:** sample
+  the Title+Artist target points ONCE per `Dirty::TITLE` from the LVGL font bitmap
+  (per-frame pixel sampling is too costly on the S3), cache them in a `scint_layer`
+  particle pool, then only the cloud↔target lerp runs per frame on a `morph∈[0,1]`
+  timeline. Mock is tunable (scatter/form time, spread, turbulence, point
+  density/size, dust, crispen, music-breathe).
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.

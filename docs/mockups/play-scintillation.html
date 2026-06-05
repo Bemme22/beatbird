@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BeatBird — Play-State Scintillation + Track-Tune-In Mock</title>
+<title>BeatBird — Particle-Text Materialize Mock</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
@@ -15,66 +15,48 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
 
 :root {
-  /* beat-1 champagne-gold defaults from theme.h Color:: */
-  --accent:       #F0CB7B;
+  --accent:       #F0CB7B;  /* champagne gold (theme.h ACCENT_DEFAULT) */
   --accent-glow:  #FFE6B3;
   --accent-dim:   #3C321E;
-  --text-primary: #F4EFE0;  /* cream  */
-  --text-second:  #A89E89;  /* linen  */
-  --alert:        #C73E2C;  /* rust   */
+  --text-primary: #F4EFE0;
+  --text-second:  #A89E89;
   --src-spotify:  #1ED760;
   --bg:           #0a0a0a;
   --card:         #141414;
   --line:         #262626;
 }
 * { box-sizing: border-box; }
-html, body {
-  margin: 0; padding: 0; min-height: 100vh;
-  font-family: 'Space Mono', monospace;
-  background: var(--bg); color: #d8d8d8;
-}
-.shell {
-  max-width: 1180px; margin: 0 auto; padding: 28px 22px;
-  display: grid; grid-template-columns: 466px 1fr; gap: 34px; align-items: start;
-}
-@media (max-width: 980px){ .shell{ grid-template-columns: 1fr; justify-items:center; } }
+html, body { margin:0; padding:0; min-height:100vh;
+  font-family:'Space Mono',monospace; background:var(--bg); color:#d8d8d8; }
+.shell { max-width:1180px; margin:0 auto; padding:28px 22px;
+  display:grid; grid-template-columns:466px 1fr; gap:34px; align-items:start; }
+@media (max-width:980px){ .shell{ grid-template-columns:1fr; justify-items:center; } }
 
-h1 { font-size: 17px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0 0 4px; }
-.sub { font-size: 12px; color: #888; margin: 0 0 22px; line-height: 1.5; }
+h1 { font-size:17px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 4px; }
+.sub { font-size:12px; color:#888; margin:0 0 22px; line-height:1.5; }
 
-/* The round panel */
-.panel-wrap { width: 466px; }
-canvas#disc {
-  width: 466px; height: 466px; border-radius: 50%;
-  background: #000; display: block;
-  box-shadow: 0 0 0 10px #0c0c0c, 0 0 60px -10px var(--accent), 0 22px 60px -20px #000;
-}
-.legend { font-size: 11px; color:#777; margin-top:14px; line-height:1.6; }
-.legend b { color: var(--text-second); font-weight:400; }
+.panel-wrap { width:466px; }
+canvas#disc { width:466px; height:466px; border-radius:50%; background:#000; display:block;
+  box-shadow:0 0 0 10px #0c0c0c, 0 0 60px -10px var(--accent), 0 22px 60px -20px #000; }
+.legend { font-size:11px; color:#777; margin-top:14px; line-height:1.6; }
+.legend b { color:var(--text-second); font-weight:400; }
 
-/* Controls */
 .controls { display:flex; flex-direction:column; gap:18px; }
-.card {
-  background: var(--card); border: 1px solid var(--line);
-  border-radius: 14px; padding: 16px 18px;
-}
-.card h2 { font-size: 12px; letter-spacing:.12em; text-transform:uppercase; color:#bbb; margin:0 0 14px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.card h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#bbb; margin:0 0 14px; }
 .row { display:flex; align-items:center; gap:12px; margin:11px 0; }
-.row label { flex: 0 0 168px; font-size: 12px; color:#aaa; }
-.row input[type=range]{ flex:1; accent-color: var(--accent); }
-.row .val { flex: 0 0 52px; text-align:right; font-size:12px; color: var(--accent-glow); }
+.row label { flex:0 0 168px; font-size:12px; color:#aaa; }
+.row input[type=range]{ flex:1; accent-color:var(--accent); }
+.row .val { flex:0 0 56px; text-align:right; font-size:12px; color:var(--accent-glow); }
 .btns { display:flex; flex-wrap:wrap; gap:10px; }
-button {
-  font-family:'Space Mono',monospace; font-size:12px; letter-spacing:.05em;
-  background:#1d1d1d; color:#eaeaea; border:1px solid #333; border-radius:9px;
-  padding:9px 14px; cursor:pointer; transition: all .12s;
-}
-button:hover { border-color: var(--accent); color: var(--accent-glow); }
-button.primary { background: var(--accent); color:#1a1408; border-color:var(--accent); font-weight:700; }
-button.primary:hover { background: var(--accent-glow); }
-.toggle.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-glow); }
+button { font-family:'Space Mono',monospace; font-size:12px; letter-spacing:.05em;
+  background:#1d1d1d; color:#eaeaea; border:1px solid #333; border-radius:9px; padding:9px 14px; cursor:pointer; transition:all .12s; }
+button:hover { border-color:var(--accent); color:var(--accent-glow); }
+button.primary { background:var(--accent); color:#1a1408; border-color:var(--accent); font-weight:700; }
+button.primary:hover { background:var(--accent-glow); }
+.toggle.on { background:var(--accent-dim); border-color:var(--accent); color:var(--accent-glow); }
 .note { font-size:11px; color:#6f6f6f; line-height:1.6; }
-.note code { color: var(--accent-glow); background:#191919; padding:1px 5px; border-radius:4px; }
+.note code { color:var(--accent-glow); background:#191919; padding:1px 5px; border-radius:4px; }
 .pill { display:inline-block; font-size:10px; padding:2px 8px; border-radius:20px; background:#191919; border:1px solid #333; color:#999; }
 </style>
 </head>
@@ -84,76 +66,66 @@ button.primary:hover { background: var(--accent-glow); }
   <div class="panel-wrap">
     <canvas id="disc" width="466" height="466"></canvas>
     <div class="legend">
-      <b>Live-Mock</b> der vorgeschlagenen Play-State-Animation. Synthetischer
-      Audio-Envelope treibt <b>energy</b> (0..1, wie <code>LV:</code>) und einen
-      16-Band-<b>spectrum</b> (wie <code>FX:</code>). „Track wechseln" feuert den
-      Tune-In-Rausch-Burst (= <code>Dirty::TITLE</code>).<br>
-      Der dunkle Ellipsen-Umriss zeigt die <b>Text-Schutzzone</b> (Debug).
+      <b>Particle-Text-Mock.</b> Titel/Artist <em>bestehen</em> aus Punkten. Beim
+      Trackwechsel zerfallen sie zu einer dichten Wolke (alter Text verschwindet),
+      dann materialisiert sich der neue Text aus der Wolke. <code>energy</code>
+      (synthetisch, wie <code>LV:</code>) lässt die geformten Buchstaben mit der
+      Musik atmen.
     </div>
   </div>
 
   <div>
-    <h1>Play-State Scintillation &amp; Track Tune-In</h1>
+    <h1>Particle-Text Materialize</h1>
     <p class="sub">
-      Adaptiert die Standby-Funkeln (<code>scint_draw_cb</code>) in den Player,
-      moduliert mit der Musik. Beim Trackwechsel „rauscht" das Bild und wird dann
-      klar — im Textbereich abgeschwächt, damit Titel/Artist lesbar bleiben.
+      Trackwechsel = <code>Dirty::TITLE</code>: <b>scatter</b> (alter Text → Wolke)
+      → <b>form</b> (Wolke → neuer Text). Die Punktdichte beim Scatter verdeckt den
+      alten Text vollständig.
     </p>
 
     <div class="controls">
-
       <div class="card">
         <h2>Transport</h2>
         <div class="btns">
-          <button id="btnTrack" class="primary">⤳ Track wechseln (Tune-In)</button>
-          <button id="btnPlay"  class="toggle on">⏸ Pause</button>
-          <button id="btnBeat">◉ Beat-Hit</button>
+          <button id="btnTrack" class="primary">⤳ Track wechseln</button>
+          <button id="btnPlay" class="toggle on">⏸ Pause</button>
         </div>
         <div class="row" style="margin-top:14px">
           <label>energy (manuell)</label>
           <input id="energy" type="range" min="0" max="100" value="0">
           <span class="val" id="energyV">auto</span>
         </div>
-        <p class="note" style="margin:6px 0 0">
-          Schieber = manuell übersteuern; bei <span class="pill">auto</span> läuft der
-          synthetische Musik-Envelope.
-        </p>
+        <p class="note" style="margin:6px 0 0">Doppelklick auf den Schieber = zurück auf <span class="pill">auto</span>.</p>
       </div>
 
       <div class="card">
-        <h2>Scintillation (musik-reaktiv)</h2>
-        <div class="row"><label>Dichte bei Peak</label><input id="density" type="range" min="0" max="220" value="130"><span class="val" id="densityV"></span></div>
-        <div class="row"><label>Grund-Funkeln (idle)</label><input id="ambient" type="range" min="0" max="40" value="11"><span class="val" id="ambientV"></span></div>
-        <div class="row"><label>Peak-Helligkeit</label><input id="peak" type="range" min="0" max="100" value="58"><span class="val" id="peakV"></span></div>
-        <div class="row"><label>Funkel-Tempo</label><input id="speed" type="range" min="0" max="100" value="55"><span class="val" id="speedV"></span></div>
-        <div class="row"><label>Spectrum-Sparkles</label><input id="sparkle" type="range" min="0" max="100" value="70"><span class="val" id="sparkleV"></span></div>
+        <h2>Morph-Timing</h2>
+        <div class="row"><label>Scatter-Zeit</label><input id="scatterMs" type="range" min="150" max="1200" value="520"><span class="val" id="scatterMsV"></span></div>
+        <div class="row"><label>Form-Zeit</label><input id="formMs" type="range" min="300" max="2200" value="1050"><span class="val" id="formMsV"></span></div>
+        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="62"><span class="val" id="spreadV"></span></div>
+        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="55"><span class="val" id="turbV"></span></div>
       </div>
 
       <div class="card">
-        <h2>Track Tune-In (Rauschen → klar)</h2>
-        <div class="row"><label>Rausch-Stärke</label><input id="noiseAmt" type="range" min="0" max="100" value="85"><span class="val" id="noiseAmtV"></span></div>
-        <div class="row"><label>Abkling-Zeit</label><input id="noiseDecay" type="range" min="300" max="2500" value="1300"><span class="val" id="noiseDecayV"></span></div>
-        <div class="row"><label>Text-Schutz</label><input id="textMask" type="range" min="0" max="100" value="82"><span class="val" id="textMaskV"></span></div>
-        <div class="row"><label>Text-Dissolve</label><input id="textDissolve" type="range" min="0" max="100" value="45"><span class="val" id="textDissolveV"></span></div>
-        <div class="btns" style="margin-top:6px">
-          <button id="btnMask" class="toggle on">Schutzzone zeigen</button>
-        </div>
+        <h2>Punkte &amp; Text</h2>
+        <div class="row"><label>Punkt-Dichte</label><input id="stride" type="range" min="2" max="6" value="3"><span class="val" id="strideV"></span></div>
+        <div class="row"><label>Punkt-Größe</label><input id="dotR" type="range" min="6" max="22" value="11"><span class="val" id="dotRV"></span></div>
+        <div class="row"><label>Extra-Wolkenstaub</label><input id="dust" type="range" min="0" max="100" value="45"><span class="val" id="dustV"></span></div>
+        <div class="row"><label>Schärfen am Ende</label><input id="crispen" type="range" min="0" max="100" value="55"><span class="val" id="crispenV"></span></div>
+        <div class="row"><label>Musik-Atmen</label><input id="shimmer" type="range" min="0" max="100" value="40"><span class="val" id="shimmerV"></span></div>
       </div>
 
       <div class="card">
-        <h2>Firmware-Mapping</h2>
+        <h2>Firmware-Hinweis</h2>
         <p class="note">
-          Umsetzung: ein <code>scint_layer</code> im Player (wie Standby), gezeichnet
-          <em>unter</em> Vol-Ring/Text. Dichte/Helligkeit/Tempo skalieren mit
-          <code>energy_smoothed</code> (remap via <code>energy_dyn()</code>); Sparkles
-          aus Sprüngen in <code>app.spectrum[]</code>. Tune-In = ein
-          <code>noise∈[0,1]</code>, auf 1 gesetzt bei <code>Dirty::TITLE</code>, pro
-          Frame exp. abklingend. Die Text-Ellipse um <code>TITLE_Y_OFFSET</code>/
-          <code>ARTIST_Y_OFFSET</code> multipliziert Partikel-/Rausch-Alpha mit
-          <code>(1−textMask)</code>.
+          Auf dem ESP32-S3 ist Pixel-Sampling pro Frame zu teuer. Umsetzung dort:
+          die Glyph-Zielpunkte <em>einmalig</em> beim <code>Dirty::TITLE</code> aus
+          dem LVGL-Font-Bitmap sampeln (Title+Artist in ein kleines Mono-Buffer
+          rendern), in einem <code>scint_layer</code>-Pool cachen, dann nur die
+          Partikel-Lerp pro Frame zeichnen (Wolke↔Ziel). Scatter/Form als
+          <code>morph∈[0,1]</code>-Zeitleiste; <code>energy_smoothed</code> treibt
+          das Atmen der geformten Buchstaben.
         </p>
       </div>
-
     </div>
   </div>
 </div>
@@ -161,319 +133,237 @@ button.primary:hover { background: var(--accent-glow); }
 <script>
 "use strict";
 // ── Geometry mirrors firmware/amoled-1.43/include/theme.h ──────────────────
-const SIZE = 466, C = 233;
-const VOL_RING_R = 218, VOL_DOT_R = 4, VOL_DOT_R_DIM = 2, VOL_DOT_COUNT = 24;
-const PROG_RING_R = 192, PROG_SEG = 60, PROG_START = 135, PROG_SWEEP = 270;
-const TITLE_Y = 190, ARTIST_Y = 265;          // CENTER + TITLE_Y_OFFSET(-43)/ARTIST_Y_OFFSET(+32)
-const ACCENT = '#F0CB7B', ACCENT_GLOW = '#FFE6B3', ACCENT_DIM = '#3C321E';
-const TEXT_PRIMARY = '#F4EFE0', TEXT_SECOND = '#A89E89', SRC_SPOTIFY = '#1ED760';
+const SIZE=466, C=233;
+const VOL_RING_R=218, VOL_DOT_R=4, VOL_DOT_R_DIM=2, VOL_DOT_COUNT=24;
+const PROG_RING_R=192, PROG_SEG=60, PROG_START=135, PROG_SWEEP=270;
+const TITLE_Y=200, ARTIST_Y=268;     // a touch lower than play screen so the two rows clear
+const ACCENT='#F0CB7B', ACCENT_GLOW='#FFE6B3', ACCENT_DIM='#3C321E';
+const TEXT_PRIMARY='#F4EFE0', TEXT_SECOND='#A89E89', SRC_SPOTIFY='#1ED760';
+const TEXT_CY=(TITLE_Y+ARTIST_Y)/2;
 
-const cv = document.getElementById('disc');
-const ctx = cv.getContext('2d');
+const cv=document.getElementById('disc'), ctx=cv.getContext('2d');
+const off=document.createElement('canvas'); off.width=SIZE; off.height=SIZE;
+const octx=off.getContext('2d', {willReadFrequently:true});
 
-// ── Controls plumbing ──────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const P = {};   // live param values
-function bind(id, fmt){ const el=$(id), out=$(id+'V');
+// ── Controls ────────────────────────────────────────────────────────────────
+const $=id=>document.getElementById(id), P={};
+function bind(id,fmt){ const el=$(id),out=$(id+'V');
   const upd=()=>{ P[id]=+el.value; if(out&&fmt) out.textContent=fmt(+el.value); };
   el.addEventListener('input',upd); upd(); }
-bind('density',  v=>v);
-bind('ambient',  v=>v);
-bind('peak',     v=>v+'%');
-bind('speed',    v=>v+'%');
-bind('sparkle',  v=>v+'%');
-bind('noiseAmt', v=>v+'%');
-bind('noiseDecay', v=>v+'ms');
-bind('textMask', v=>v+'%');
-bind('textDissolve', v=>v+'%');
+bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms');
+bind('spread',v=>v+'%'); bind('turb',v=>v+'%');
+bind('stride',v=>v+'px'); bind('dotR',v=>(v/10).toFixed(1)+'px');
+bind('dust',v=>v+'%'); bind('crispen',v=>v+'%'); bind('shimmer',v=>v+'%');
 
-let energyManual = -1;   // -1 = auto
-$('energy').addEventListener('input', e=>{
-  energyManual = +e.target.value/100;
-  $('energyV').textContent = (+e.target.value)+'%';
-});
-$('energy').addEventListener('dblclick', ()=>{ energyManual=-1; $('energy').value=0; $('energyV').textContent='auto'; });
+let energyManual=-1;
+$('energy').addEventListener('input',e=>{ energyManual=+e.target.value/100; $('energyV').textContent=(+e.target.value)+'%'; });
+$('energy').addEventListener('dblclick',()=>{ energyManual=-1; $('energy').value=0; $('energyV').textContent='auto'; });
+let playing=true;
+$('btnPlay').addEventListener('click',e=>{ playing=!playing; e.target.classList.toggle('on',playing);
+  e.target.textContent=playing?'⏸ Pause':'▶ Play'; });
 
-let playing = true;
-$('btnPlay').addEventListener('click', e=>{
-  playing=!playing; e.target.classList.toggle('on',playing);
-  e.target.textContent = playing? '⏸ Pause' : '▶ Play';
-});
-let showMask = true;
-$('btnMask').addEventListener('click', e=>{ showMask=!showMask; e.target.classList.toggle('on',showMask); });
-
-// ── Synthetic music: energy envelope + 16-band spectrum + beat pattern ─────
-let energyRaw = 0, energySmoothed = 0;
-const spectrum = new Float32Array(16);
-const spectrumPrev = new Float32Array(16);
-let beatPulse = 0;                       // 0..1 decaying kick flash
-const beatTimes = [0,0.5,1.0,1.5];       // 120 BPM-ish kick grid (sec within 2s bar)
-
-function energyDyn(raw){ let e=(raw-0.35)*2.5; return e<0?0:(e>1.2?1.2:e); }  // theme port
-
-function updateAudio(dt, tSec){
-  // Kick on the 4-on-the-floor grid → big transient in energy + low bands.
-  // Trigger when the 2s-bar phase crosses one of the beat times.
-  const bar = tSec % 2.0;
-  const prevBar = (tSec-dt) % 2.0;
-  for(const bt of beatTimes){
-    if(prevBar < bt && bar >= bt){ beatPulse = 1.0; }
-  }
-  beatPulse *= Math.pow(0.0008, dt);     // fast decay (~per-frame)
-
-  // Musical envelope: slow swells + the kick transient + a little noise.
-  const swell = 0.55 + 0.18*Math.sin(tSec*0.6) + 0.10*Math.sin(tSec*1.7+1);
-  let raw = swell + 0.30*beatPulse + (Math.random()-0.5)*0.04;
-  raw = Math.max(0, Math.min(1, raw));
-  energyRaw = playing ? raw : energyRaw*Math.pow(0.02,dt);   // ramp down when paused
-
-  // Effective energy (manual override wins)
+// ── Synthetic music → energy (same shape/feel as screen_player) ─────────────
+let energyRaw=0, energySmoothed=0, beatPulse=0;
+const beatTimes=[0,0.5,1.0,1.5];
+function energyDyn(raw){ let e=(raw-0.35)*2.5; return e<0?0:(e>1.2?1.2:e); }
+function updateAudio(dt,tSec){
+  const bar=tSec%2.0, prevBar=(tSec-dt)%2.0;
+  for(const bt of beatTimes){ if(prevBar<bt && bar>=bt) beatPulse=1; }
+  beatPulse*=Math.pow(0.0008,dt);
+  const swell=0.55+0.18*Math.sin(tSec*0.6)+0.10*Math.sin(tSec*1.7+1);
+  let raw=Math.max(0,Math.min(1,swell+0.30*beatPulse+(Math.random()-0.5)*0.04));
+  energyRaw = playing ? raw : energyRaw*Math.pow(0.02,dt);
   const eff = energyManual>=0 ? energyManual : energyRaw;
-  // Smooth like screen_player: fast attack, slow release.
   const a = eff>energySmoothed ? 0.45 : 0.08;
   energySmoothed += (eff-energySmoothed)*a*(dt*60);
-  energySmoothed = Math.max(0, Math.min(1, energySmoothed));
-
-  // 16 bands: low bands track the kick, highs shimmer. Random walk + decay.
-  for(let i=0;i<16;i++){
-    spectrumPrev[i] = spectrum[i];
-    const lowBias = 1.0 - i/20;
-    let target = energySmoothed*100*lowBias*(0.6+0.8*Math.random());
-    if(i<3) target += beatPulse*70;
-    spectrum[i] += (target-spectrum[i])*Math.min(1, dt*12);
-  }
+  energySmoothed = Math.max(0,Math.min(1,energySmoothed));
 }
 
-// ── Track tune-in state ─────────────────────────────────────────────────────
-let noise = 0;                  // 0..1, =1 on track change, decays
-const TRACKS = [
+// ── Text → target points (sample the rasterised glyphs) ─────────────────────
+const TRACKS=[
   ['ONCE IN A LIFETIME','TALKING HEADS'],
   ['XTAL','APHEX TWIN'],
   ['MIDNIGHT CITY','M83'],
   ['TEARDROP','MASSIVE ATTACK'],
-  ['STROBE','DEADMAU5'],
   ['DAS MODEL','KRAFTWERK'],
+  ['STROBE','DEADMAU5'],
 ];
-let trackIdx = 0;
-let title = TRACKS[0][0], artist = TRACKS[0][1];
-function changeTrack(){
-  trackIdx = (trackIdx+1)%TRACKS.length;
-  title = TRACKS[trackIdx][0]; artist = TRACKS[trackIdx][1];
-  noise = P.noiseAmt/100;
-  progress = 0;
-}
-$('btnTrack').addEventListener('click', changeTrack);
-$('btnBeat').addEventListener('click', ()=>{ beatPulse=1; });
+let trackIdx=0, title=TRACKS[0][0], artist=TRACKS[0][1];
 
-let progress = 0.32;            // 0..1 track position
-
-// ── Scintillation particle pool ─────────────────────────────────────────────
-// Persistent pool inside the disc. Each has an activation threshold; visible
-// when energy >= threshold, so louder music lights up progressively more dots.
-const POOL = 260;
-const part = [];
-function rndInDisc(){
-  // rejection-sample a point inside the inner disc (between centre gap and
-  // just inside the progress ring), so dots never land under the rings.
-  for(;;){
-    const x = Math.random()*SIZE, y = Math.random()*SIZE;
-    const dx=x-C, dy=y-C, d=Math.hypot(dx,dy);
-    if(d < PROG_RING_R-6 && d > 24) return {x,y,d};
+function sampleText(t,a,stride){
+  octx.clearRect(0,0,SIZE,SIZE);
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  // Auto-shrink long titles so they fit the round panel before sampling.
+  let fs=34;
+  octx.font=fs+"px 'Departure Mono','Space Mono',monospace";
+  while(octx.measureText(t).width>404 && fs>16){ fs-=2; octx.font=fs+"px 'Departure Mono','Space Mono',monospace"; }
+  octx.fillText(t,C,TITLE_Y);
+  octx.font="26px 'Departure Mono','Space Mono',monospace";
+  octx.fillText(a,C,ARTIST_Y);
+  const img=octx.getImageData(0,0,SIZE,SIZE).data, pts=[];
+  for(let y=0;y<SIZE;y+=stride){
+    for(let x=0;x<SIZE;x+=stride){
+      if(img[(y*SIZE+x)*4+3]>110)
+        pts.push({x:x+(Math.random()-0.5)*stride, y:y+(Math.random()-0.5)*stride});
+    }
   }
+  for(let i=pts.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const tmp=pts[i]; pts[i]=pts[j]; pts[j]=tmp; }
+  return pts;
+}
+
+// ── Particle pool ───────────────────────────────────────────────────────────
+const POOL=2000;
+const part=[];
+function cloudHome(){
+  const ang=Math.random()*6.2832, rr=Math.sqrt(Math.random());
+  const rx=150*(P.spread/100)+40, ry=84*(P.spread/100)+24;
+  return {x:C+Math.cos(ang)*rx*rr, y:TEXT_CY+Math.sin(ang)*ry*rr};
 }
 for(let i=0;i<POOL;i++){
-  const p = rndInDisc();
-  part.push({
-    x:p.x, y:p.y,
-    r: 1 + (i%3===0?1:0) + (Math.random()<0.12?1:0),   // 1..3 px
-    thr: Math.pow(Math.random(),1.4),                  // activation threshold 0..1
-    phase: Math.random()*6.2832,
-    period: 2.2 + Math.random()*4.0,                   // sec
-    glow: Math.random()<0.18,                          // a few use accent_glow
-  });
+  const h=cloudHome();
+  part.push({ hx:h.x, hy:h.y, tx:h.x, ty:h.y, x:h.x, y:h.y,
+    active:false, base:0.55+Math.random()*0.45,
+    r:1, glow:Math.random()<0.16,
+    sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 });
 }
-// short-lived sparkle pops spawned on spectral onsets
-const sparks = [];
-
-// ── Text safe-zone test (ellipse around title+artist rows) ──────────────────
-const TEXT_CX = C, TEXT_CY = (TITLE_Y+ARTIST_Y)/2;
-const TEXT_RX = 168, TEXT_RY = 64;
-function textMaskFactor(x,y){
-  const nx=(x-TEXT_CX)/TEXT_RX, ny=(y-TEXT_CY)/TEXT_RY;
-  const e = nx*nx+ny*ny;
-  if(e>=1) return 0;                       // outside ellipse → no masking
-  const soft = 1-e;                        // 0 at edge → 1 at center
-  return (P.textMask/100)*Math.min(1, soft*1.6);
+function assignTargets(pts){
+  for(let i=0;i<POOL;i++){
+    const p=part[i];
+    if(i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; }
+    else { p.active=false; const h=cloudHome(); p.tx=h.x; p.ty=h.y; }
+  }
 }
+// (re)seed cloud homes when spread changes mid-run so the look stays live
+function reseedHomes(){ for(const p of part){ const h=cloudHome(); p.hx=h.x; p.hy=h.y; } }
+$('spread').addEventListener('change',reseedHomes);
 
-// ── Drawing helpers ─────────────────────────────────────────────────────────
+// ── Morph state machine ─────────────────────────────────────────────────────
+// morph: 0 = full cloud (no text), 1 = text fully formed.
+let morph=1, phase='idle', phaseStart=0, pendingIdx=0;
+function smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
+function changeTrack(){
+  pendingIdx=(trackIdx+1)%TRACKS.length;
+  phase='scatter'; phaseStart=performance.now();
+}
+$('btnTrack').addEventListener('click',changeTrack);
+
+let volume=62, progress=0.32;
+
+// ── Draw helpers ────────────────────────────────────────────────────────────
 function dot(x,y,r,color,alpha){
-  if(alpha<=0.015||r<=0) return;
+  if(alpha<=0.012||r<=0) return;
   ctx.globalAlpha=alpha; ctx.fillStyle=color;
   ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill();
 }
-
-// vol ring dot positions (skip i==0 like firmware)
-const volPos = [];
-for(let i=0;i<VOL_DOT_COUNT;i++){
-  const ang = (i/VOL_DOT_COUNT)*6.2832 - Math.PI/2;
-  volPos.push([C+Math.cos(ang)*VOL_RING_R, C+Math.sin(ang)*VOL_RING_R]);
-}
-
-let volume = 62;
-
-function drawVolRing(E, tMs){
-  const lit = Math.round(volume*VOL_DOT_COUNT/100);
-  const PHASE_PER_DOT = 6.2832/24;
-  for(let i=0;i<VOL_DOT_COUNT;i++){
-    if(i===0) continue;
-    const [x,y]=volPos[i];
-    if(i<lit){
-      const wob = 1 + E*0.65*Math.sin(tMs*0.005 + i*PHASE_PER_DOT);
-      let r = Math.max(2, VOL_DOT_R*wob);
-      let o = Math.min(255, 217 + E*38)/255;
-      dot(x,y,r,ACCENT,o);
-    } else {
-      dot(x,y,VOL_DOT_R_DIM, ACCENT_DIM, 160/255);
-    }
-  }
+const volPos=[];
+for(let i=0;i<VOL_DOT_COUNT;i++){ const ang=(i/VOL_DOT_COUNT)*6.2832-Math.PI/2;
+  volPos.push([C+Math.cos(ang)*VOL_RING_R, C+Math.sin(ang)*VOL_RING_R]); }
+function drawVolRing(E,tMs){
+  const lit=Math.round(volume*VOL_DOT_COUNT/100), PPD=6.2832/24;
+  for(let i=0;i<VOL_DOT_COUNT;i++){ if(i===0) continue; const [x,y]=volPos[i];
+    if(i<lit){ const wob=1+E*0.65*Math.sin(tMs*0.005+i*PPD);
+      dot(x,y,Math.max(2,VOL_DOT_R*wob),ACCENT,Math.min(255,217+E*38)/255); }
+    else dot(x,y,VOL_DOT_R_DIM,ACCENT_DIM,160/255); }
 }
 function drawProgress(){
-  for(let i=0;i<PROG_SEG;i++){
-    const frac=i/(PROG_SEG-1);
-    const deg = PROG_START + frac*PROG_SWEEP;
-    const a = deg*Math.PI/180;
-    const x=C+Math.cos(a)*PROG_RING_R, y=C+Math.sin(a)*PROG_RING_R;
-    const on = frac<=progress;
-    dot(x,y,on?1.6:1.2, on?ACCENT:ACCENT_DIM, on?0.95:0.5);
-  }
+  for(let i=0;i<PROG_SEG;i++){ const frac=i/(PROG_SEG-1), a=(PROG_START+frac*PROG_SWEEP)*Math.PI/180;
+    const x=C+Math.cos(a)*PROG_RING_R, y=C+Math.sin(a)*PROG_RING_R, on=frac<=progress;
+    dot(x,y,on?1.6:1.2,on?ACCENT:ACCENT_DIM,on?0.95:0.5); }
 }
-function drawSourceMarker(){ dot(C, 18, 5, SRC_SPOTIFY, 0.95); }
+function drawSourceMarker(){ dot(C,18,5,SRC_SPOTIFY,0.95); }
 
-// ── Main scintillation + noise field ────────────────────────────────────────
-function drawField(E, tSec, tMs){
-  const peak = P.peak/100;
-  const speed = 0.4 + (P.speed/100)*1.6;
-  const ambient = P.ambient/100;            // fraction of pool always-on-ish (idle)
-  const densityFrac = P.density/220;        // how many of the pool can light up at peak
-
-  // How "lit" the field is: idle floor + energy-driven, plus noise chaos.
-  const litLevel = Math.min(1, ambient*0.5 + E*densityFrac + noise*0.5);
-
-  for(const p of part){
-    // visible if the field's lit level cleared this particle's threshold
-    if(p.thr > litLevel) continue;
-    const fade = Math.min(1,(litLevel - p.thr)*4);     // soft fade-in near threshold
-    const tw = 0.5 + 0.5*Math.sin(tSec*(6.2832/p.period)*speed + p.phase);
-    // noise jitters position + boosts brightness (TV-static feel)
-    let x=p.x, y=p.y;
-    if(noise>0){ x+=(Math.random()-0.5)*noise*10; y+=(Math.random()-0.5)*noise*10; }
-    let a = peak * tw * fade * (1 + noise*0.8);
-    a *= (1 - textMaskFactor(x,y));                    // protect the text zone
-    dot(x,y,p.r,(p.glow?ACCENT_GLOW:ACCENT),a);
-  }
-
-  // Spectrum sparkles: when a band jumps, pop a few bright short-lived dots.
-  const sp = P.sparkle/100;
-  if(sp>0 && playing){
-    for(let i=0;i<16;i++){
-      const jump = spectrum[i]-spectrumPrev[i];
-      if(jump > 14*(1.2-sp) && Math.random()<sp*0.6){
-        const pos=rndInDisc();
-        sparks.push({x:pos.x,y:pos.y,r:1+Math.random()*2,life:1,
-                     glow:Math.random()<0.5});
-      }
-    }
-  }
-  // Tune-in also throws sparkles while resolving
-  if(noise>0.15 && Math.random()<noise*0.5){
-    const pos=rndInDisc();
-    sparks.push({x:pos.x,y:pos.y,r:1+Math.random()*2,life:1,glow:true});
-  }
-  for(let i=sparks.length-1;i>=0;i--){
-    const s=sparks[i]; s.life-=0.06;
-    if(s.life<=0){ sparks.splice(i,1); continue; }
-    let a = s.life*0.9*(1-textMaskFactor(s.x,s.y));
-    dot(s.x,s.y,s.r*(0.6+s.life*0.7),(s.glow?ACCENT_GLOW:ACCENT),a);
-  }
-
-  // Dense random static burst during tune-in (re-randomised every frame).
-  if(noise>0.02){
-    const count = Math.floor(noise*noise*420);
-    for(let i=0;i<count;i++){
-      const pos=rndInDisc();
-      const a = (0.10+0.35*Math.random())*noise*(1-textMaskFactor(pos.x,pos.y));
-      dot(pos.x,pos.y, Math.random()<0.2?1.6:1.0,
-          Math.random()<0.3?ACCENT_GLOW:ACCENT, a);
-    }
-  }
-}
-
-function drawText(){
-  // Title (font_display_md ~ 22px) + artist (slightly dimmer). Under noise the
-  // text "resolves": jitter + alpha wobble, but kept light so it stays readable
-  // (textDissolve scales the effect; the text zone gets far less noise above).
-  const dis = (P.textDissolve/100)*noise;
+function drawCrispText(crisp){
+  if(crisp<=0.02) return;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-
-  function line(txt, y, px, color, baseA){
-    const jx = (Math.random()-0.5)*dis*6;
-    const jy = (Math.random()-0.5)*dis*3;
-    ctx.font = px+"px 'Departure Mono','Space Mono',monospace";
-    // ghost/static pass while resolving — faint duplicates offset sideways
-    if(dis>0.04){
-      ctx.globalAlpha = baseA*dis*0.5; ctx.fillStyle=ACCENT;
-      ctx.fillText(txt, C+jx+dis*5, y+jy);
-      ctx.fillText(txt, C+jx-dis*5, y+jy);
-    }
-    ctx.globalAlpha = baseA*(1-dis*0.45); ctx.fillStyle=color;
-    ctx.fillText(txt, C+jx, y+jy);
-  }
-  line(title, TITLE_Y, 24, TEXT_PRIMARY, 1.0);
-  line(artist, ARTIST_Y, 20, TEXT_SECOND, 0.95);
+  let fs=34; ctx.font=fs+"px 'Departure Mono','Space Mono',monospace";
+  while(ctx.measureText(title).width>404 && fs>16){ fs-=2; ctx.font=fs+"px 'Departure Mono','Space Mono',monospace"; }
+  ctx.globalAlpha=crisp; ctx.fillStyle=TEXT_PRIMARY; ctx.fillText(title,C,TITLE_Y);
+  ctx.font="26px 'Departure Mono','Space Mono',monospace";
+  ctx.globalAlpha=crisp*0.92; ctx.fillStyle=TEXT_SECOND; ctx.fillText(artist,C,ARTIST_Y);
 }
 
-function drawMaskDebug(){
-  if(!showMask) return;
-  ctx.globalAlpha=0.5; ctx.strokeStyle='#333'; ctx.setLineDash([4,5]); ctx.lineWidth=1;
-  ctx.beginPath(); ctx.ellipse(TEXT_CX,TEXT_CY,TEXT_RX,TEXT_RY,0,0,6.2832); ctx.stroke();
-  ctx.setLineDash([]);
+// ── Particle field ──────────────────────────────────────────────────────────
+function drawParticles(E,tMs){
+  const a=smooth(morph);
+  const turbMax=(P.turb/100)*14;
+  const r=(P.dotR/10);
+  const shimmer=(P.shimmer/100)*E*2.4;
+  for(let i=0;i<POOL;i++){
+    const p=part[i];
+    // lerp cloud-home → target by morph
+    let x=p.hx+(p.tx-p.hx)*a, y=p.hy+(p.ty-p.hy)*a;
+    // turbulence: churns while clouded, near-still when formed; +music breathing
+    const churn=(1-a)*turbMax;
+    x += Math.sin(tMs*0.001*p.sx+p.ph)*churn + Math.cos(tMs*0.0017+p.ph)*shimmer;
+    y += Math.cos(tMs*0.001*p.sy+p.ph)*churn + Math.sin(tMs*0.0017+p.ph*1.3)*shimmer;
+    let alpha;
+    if(p.active) alpha=(0.30+0.70*a)*p.base;     // brighten as they arrive
+    else         alpha=(1-a)*0.45*p.base;        // filler dust fades as text forms
+    const col=(p.active && a>0.85 && p.glow)?ACCENT_GLOW:ACCENT;
+    dot(x,y,r,col,alpha);
+  }
+  // Extra random dust to thicken the cloud during the transition.
+  const dust=P.dust/100;
+  if(dust>0 && a<0.96){
+    const cloud=1-a, count=Math.floor(cloud*cloud*420*dust);
+    const rx=150*(P.spread/100)+50, ry=84*(P.spread/100)+30;
+    for(let i=0;i<count;i++){
+      const ang=Math.random()*6.2832, rr=Math.sqrt(Math.random());
+      const x=C+Math.cos(ang)*rx*rr, y=TEXT_CY+Math.sin(ang)*ry*rr;
+      dot(x,y,Math.random()<0.25?1.4:r*0.7,Math.random()<0.3?ACCENT_GLOW:ACCENT,cloud*Math.random()*0.4);
+    }
+  }
 }
 
 // ── Loop ────────────────────────────────────────────────────────────────────
-let last = performance.now();
+let last=performance.now(), strideCache=-1;
 function frame(now){
-  const dt = Math.min(0.05,(now-last)/1000); last=now;
-  const tSec = now/1000, tMs = now;
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  const tSec=now/1000;
+  updateAudio(dt,tSec);
+  if(playing) progress=Math.min(1,progress+dt/210);
 
-  updateAudio(dt, tSec);
-  if(playing) progress = Math.min(1, progress + dt/210);   // ~3.5 min track
-  if(noise>0) noise *= Math.pow(0.5, dt*1000/P.noiseDecay); // half-life decay
-  if(noise<0.003) noise=0;
+  // morph timeline
+  if(phase==='scatter'){
+    morph=1-smooth((now-phaseStart)/P.scatterMs);
+    if(now-phaseStart>=P.scatterMs){
+      // fully clouded → swap to the new track's targets, then form
+      trackIdx=pendingIdx; title=TRACKS[trackIdx][0]; artist=TRACKS[trackIdx][1];
+      assignTargets(sampleText(title,artist,P.stride));
+      strideCache=P.stride;
+      phase='form'; phaseStart=now; progress=0;
+    }
+  } else if(phase==='form'){
+    morph=smooth((now-phaseStart)/P.formMs);
+    if(now-phaseStart>=P.formMs){ morph=1; phase='idle'; }
+  } else {
+    // idle: re-sample if the point density was changed
+    if(P.stride!==strideCache){ assignTargets(sampleText(title,artist,P.stride)); strideCache=P.stride; }
+  }
 
-  const E = energyDyn(energySmoothed);
-
-  ctx.clearRect(0,0,SIZE,SIZE);
-  ctx.globalAlpha=1;
-  // clip to disc
+  const E=energyDyn(energySmoothed);
+  ctx.clearRect(0,0,SIZE,SIZE); ctx.globalAlpha=1;
   ctx.save(); ctx.beginPath(); ctx.arc(C,C,C,0,6.2832); ctx.clip();
   ctx.fillStyle='#000'; ctx.fillRect(0,0,SIZE,SIZE);
 
-  drawField(E, tSec, tMs);     // z-bottom: ambient + music sparkle + tune-in static
-  drawMaskDebug();
+  drawParticles(E,now);
   drawProgress();
-  drawVolRing(E, tMs);
+  drawVolRing(E,now);
   drawSourceMarker();
-  drawText();                  // z-top, protected
+  // sharpen the final letters once formed (keeps the end state crisp/readable)
+  drawCrispText(smooth(Math.max(0,(morph-0.8)/0.2))*(P.crispen/100));
   ctx.restore();
-
   ctx.globalAlpha=1;
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
 
-// kick things off with a tune-in so the effect is visible on load
-setTimeout(()=>{ noise = 0.85; }, 400);
+// init: sample once fonts are ready, then auto-play a materialize on load
+function init(){
+  assignTargets(sampleText(title,artist,P.stride)); strideCache=P.stride;
+  morph=0; phase='form'; phaseStart=performance.now();
+  requestAnimationFrame(frame);
+}
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(init); else init();
 </script>
 </body>
 </html>
