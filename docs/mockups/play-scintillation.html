@@ -3,21 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BeatBird — Play (particles) + Standby (flip-char) Mock</title>
+<title>BeatBird — Play (action) + Standby (flip-char) Mock</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
 @font-face {
-  font-family: 'Departure Mono';
-  font-style: normal; font-weight: 400; font-display: swap;
-  src: url('https://cdn.jsdelivr.net/npm/@fontsource/departure-mono@latest/files/departure-mono-latin-400-normal.woff2') format('woff2');
+  font-family:'Departure Mono'; font-style:normal; font-weight:400; font-display:swap;
+  src:url('https://cdn.jsdelivr.net/npm/@fontsource/departure-mono@latest/files/departure-mono-latin-400-normal.woff2') format('woff2');
 }
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-:root {
-  --accent:#F0CB7B; --accent-glow:#FFE6B3; --accent-dim:#3C321E;
+:root { --accent:#F0CB7B; --accent-glow:#FFE6B3; --accent-dim:#3C321E;
   --text-primary:#F4EFE0; --text-second:#A89E89; --src-spotify:#1ED760;
-  --bg:#0a0a0a; --card:#141414; --line:#262626;
-}
+  --bg:#0a0a0a; --card:#141414; --line:#262626; --ok:#5BD17A; --warn:#E8B53F; --bad:#D9534F; }
 * { box-sizing:border-box; }
 html, body { margin:0; padding:0; min-height:100vh; font-family:'Space Mono',monospace; background:var(--bg); color:#d8d8d8; }
 .shell { max-width:1180px; margin:0 auto; padding:28px 22px; display:grid; grid-template-columns:466px 1fr; gap:34px; align-items:start; }
@@ -29,11 +26,11 @@ canvas#disc { width:466px; height:466px; border-radius:50%; background:#000; dis
   box-shadow:0 0 0 10px #0c0c0c, 0 0 60px -10px var(--accent), 0 22px 60px -20px #000; }
 .legend { font-size:11px; color:#777; margin-top:14px; line-height:1.6; }
 .legend b { color:var(--text-second); font-weight:400; }
-.phase { display:inline-block; margin-top:8px; font-size:11px; color:var(--accent-glow); }
+.statusline { display:flex; gap:14px; align-items:center; margin-top:10px; font-size:11px; }
+.badge { font-weight:700; padding:3px 10px; border-radius:20px; border:1px solid #333; }
 .controls { display:flex; flex-direction:column; gap:18px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
-.card.play{ border-left:2px solid var(--accent); }
-.card.standby{ border-left:2px solid var(--src-spotify); }
+.card.play{ border-left:2px solid var(--accent); } .card.standby{ border-left:2px solid var(--src-spotify); } .card.perf{ border-left:2px solid var(--warn); }
 .card h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#bbb; margin:0 0 14px; }
 .row { display:flex; align-items:center; gap:12px; margin:11px 0; }
 .row label { flex:0 0 168px; font-size:12px; color:#aaa; }
@@ -47,7 +44,6 @@ button.primary:hover { background:var(--accent-glow); }
 .toggle.on { background:var(--accent-dim); border-color:var(--accent); color:var(--accent-glow); }
 .note { font-size:11px; color:#6f6f6f; line-height:1.6; }
 .note code { color:var(--accent-glow); background:#191919; padding:1px 5px; border-radius:4px; }
-.pill { display:inline-block; font-size:10px; padding:2px 8px; border-radius:20px; background:#191919; border:1px solid #333; color:#999; }
 </style>
 </head>
 <body>
@@ -55,22 +51,24 @@ button.primary:hover { background:var(--accent-glow); }
 
   <div class="panel-wrap">
     <canvas id="disc" width="466" height="466"></canvas>
+    <div class="statusline">
+      <span class="badge" id="espBadge">ESP: —</span>
+      <span id="espOps">— ops/frame</span>
+      <span>mode: <b id="modeLbl" style="color:var(--accent-glow)">play</b> · <span id="phaseLbl">—</span></span>
+    </div>
     <div class="legend">
-      <b>Zwei getrennte Sprachen:</b> <b style="color:var(--accent)">Play</b> baut
-      Titel/Artist aus einer Punktwolke (Text bleibt scharf, nur die Bau-Punkte
-      verteilen sich). <b style="color:var(--src-spotify)">Standby</b> nutzt
-      durchgehend den <b>Flip-Char</b> (Split-Flap) — für <em>alle</em> Texte:
-      Uhr, Temperatur, Bedingung, Datum.
-      <div class="phase">mode: <span id="modeLbl">play</span> · <span id="phaseLbl">—</span></div>
+      <b>Play</b> = mehr Action aus <em>billigen</em> Elementen: radiales Spektrum
+      (<code>FX:</code>), Beat-Puls, Energie-Glühen + ein knappes Partikelfeld.
+      Trackwechsel: die Punkte sammeln sich, formen kurz den Titel und verteilen
+      sich wieder — der echte Text bleibt scharf lesbar. <b>Standby</b> bleibt
+      Flip-Char. Das <b>ESP-Budget</b> zeigt die Zeichen-Last/Frame.
     </div>
   </div>
 
   <div>
-    <h1>Play = Partikel · Standby = Flip-Char</h1>
-    <p class="sub">
-      Play-Event = Trackwechsel (Materialize → solider Text → Punkte verteilen sich).
-      Standby tickt die Uhr per Split-Flap; beim Eintritt flippen alle Zeilen ein.
-    </p>
+    <h1>Play-State — Action &amp; sauberer Trackwechsel</h1>
+    <p class="sub">Alles unter dem ESP32-S3-Budget. Stell „Ziel-FPS" auf 30, um die
+      echte Geräte-Kadenz zu sehen; halte das Badge auf <b style="color:var(--ok)">grün</b>.</p>
 
     <div class="controls">
       <div class="card">
@@ -80,46 +78,50 @@ button.primary:hover { background:var(--accent-glow); }
           <button id="btnStandbyMode" class="toggle">☾ Standby</button>
           <button id="btnEvent" class="primary">⤳ Track wechseln</button>
         </div>
-        <div class="row" style="margin-top:14px">
-          <label>energy (manuell)</label>
-          <input id="energy" type="range" min="0" max="100" value="0">
-          <span class="val" id="energyV">auto</span>
-        </div>
-        <p class="note" style="margin:6px 0 0">energy gilt für Play. Standby tickt alle 7 s eine Minute weiter.</p>
+        <div class="row" style="margin-top:14px"><label>energy (manuell)</label>
+          <input id="energy" type="range" min="0" max="100" value="0"><span class="val" id="energyV">auto</span></div>
+      </div>
+
+      <div class="card perf">
+        <h2>Performance (ESP-Budget)</h2>
+        <div class="row"><label>Partikel-Anzahl</label><input id="particles" type="range" min="0" max="1200" value="300"><span class="val" id="particlesV"></span></div>
+        <div class="row"><label>Ziel-FPS (Vorschau)</label><input id="fps" type="range" min="15" max="60" value="30"><span class="val" id="fpsV"></span></div>
+        <p class="note" style="margin:6px 0 0">Richtwert S3: ~<b>350</b> Dots/Frame @30 FPS sind machbar (die Firmware zeichnet heute schon ~84). Grün ≤ 380, Gelb ≤ 650, sonst Rot.</p>
+      </div>
+
+      <div class="card play">
+        <h2>Action (laufender Play)</h2>
+        <div class="row"><label>Spektrum-Stärke</label><input id="spectrum" type="range" min="0" max="100" value="75"><span class="val" id="spectrumV"></span></div>
+        <div class="row"><label>Beat-Puls</label><input id="beat" type="range" min="0" max="100" value="60"><span class="val" id="beatV"></span></div>
+        <div class="row"><label>Energie-Glühen</label><input id="glow" type="range" min="0" max="100" value="45"><span class="val" id="glowV"></span></div>
+        <div class="row"><label>Feld-Dichte</label><input id="ambDensity" type="range" min="0" max="100" value="40"><span class="val" id="ambDensityV"></span></div>
+        <div class="row"><label>Feld-Drift</label><input id="ambDrift" type="range" min="0" max="100" value="45"><span class="val" id="ambDriftV"></span></div>
+      </div>
+
+      <div class="card play">
+        <h2>Trackwechsel (Hingucker)</h2>
+        <div class="row"><label>Sammel-Zeit</label><input id="scatterMs" type="range" min="150" max="1200" value="480"><span class="val" id="scatterMsV"></span></div>
+        <div class="row"><label>Form-Zeit</label><input id="formMs" type="range" min="300" max="2000" value="900"><span class="val" id="formMsV"></span></div>
+        <div class="row"><label>Halte-Zeit</label><input id="holdMs" type="range" min="0" max="6000" value="1400"><span class="val" id="holdMsV"></span></div>
+        <div class="row"><label>Verteil-Zeit</label><input id="disperseMs" type="range" min="400" max="3500" value="1500"><span class="val" id="disperseMsV"></span></div>
+        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="60"><span class="val" id="spreadV"></span></div>
+        <div class="row"><label>Form-Blitz</label><input id="flash" type="range" min="0" max="100" value="55"><span class="val" id="flashV"></span></div>
+      </div>
+
+      <div class="card play">
+        <h2>Feinheiten</h2>
+        <div class="row"><label>Punkt-Größe</label><input id="dotR" type="range" min="6" max="22" value="11"><span class="val" id="dotRV"></span></div>
+        <div class="row"><label>Sampling</label><input id="stride" type="range" min="2" max="6" value="3"><span class="val" id="strideV"></span></div>
+        <div class="row"><label>Text-Deckkraft</label><input id="crispen" type="range" min="0" max="100" value="100"><span class="val" id="crispenV"></span></div>
+        <div class="row"><label>Punkt-Atmen</label><input id="shimmer" type="range" min="0" max="100" value="40"><span class="val" id="shimmerV"></span></div>
+        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="50"><span class="val" id="turbV"></span></div>
       </div>
 
       <div class="card standby">
-        <h2>Standby — Flip-Char (split_flap.cpp)</h2>
+        <h2>Standby — Flip-Char (unverändert)</h2>
         <div class="row"><label>Tick-Tempo</label><input id="flapTick" type="range" min="30" max="140" value="70"><span class="val" id="flapTickV"></span></div>
         <div class="row"><label>Zyklen / Zeichen</label><input id="flapCycles" type="range" min="2" max="12" value="5"><span class="val" id="flapCyclesV"></span></div>
         <div class="row"><label>Stagger</label><input id="flapStagger" type="range" min="0" max="4" value="1"><span class="val" id="flapStaggerV"></span></div>
-        <p class="note" style="margin:6px 0 0">Defaults spiegeln die Firmware: 70 ms/Tick, 5 Zyklen, Stagger 1. Fix-Zeichen (<code>:</code> <code>°</code> Leerzeichen) flippen nicht.</p>
-      </div>
-
-      <div class="card play">
-        <h2>Play — Materialize (gather → form)</h2>
-        <div class="row"><label>Sammel-Zeit</label><input id="scatterMs" type="range" min="150" max="1200" value="520"><span class="val" id="scatterMsV"></span></div>
-        <div class="row"><label>Form-Zeit</label><input id="formMs" type="range" min="300" max="2200" value="1050"><span class="val" id="formMsV"></span></div>
-        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="62"><span class="val" id="spreadV"></span></div>
-        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="55"><span class="val" id="turbV"></span></div>
-      </div>
-
-      <div class="card play">
-        <h2>Play — Bau-Punkte verteilen (hold → disperse → ambient)</h2>
-        <div class="row"><label>Halte-Zeit</label><input id="holdMs" type="range" min="0" max="6000" value="1400"><span class="val" id="holdMsV"></span></div>
-        <div class="row"><label>Verteil-Zeit</label><input id="disperseMs" type="range" min="400" max="4000" value="1900"><span class="val" id="disperseMsV"></span></div>
-        <div class="row"><label>Ambient-Streuung</label><input id="ambSpread" type="range" min="30" max="100" value="85"><span class="val" id="ambSpreadV"></span></div>
-        <div class="row"><label>Ambient-Dichte</label><input id="ambDensity" type="range" min="10" max="100" value="48"><span class="val" id="ambDensityV"></span></div>
-        <div class="row"><label>Ambient-Drift</label><input id="ambDrift" type="range" min="0" max="100" value="45"><span class="val" id="ambDriftV"></span></div>
-      </div>
-
-      <div class="card play">
-        <h2>Play — Punkte &amp; Text</h2>
-        <div class="row"><label>Punkt-Dichte</label><input id="stride" type="range" min="2" max="6" value="3"><span class="val" id="strideV"></span></div>
-        <div class="row"><label>Punkt-Größe</label><input id="dotR" type="range" min="6" max="22" value="11"><span class="val" id="dotRV"></span></div>
-        <div class="row"><label>Extra-Wolkenstaub</label><input id="dust" type="range" min="0" max="100" value="45"><span class="val" id="dustV"></span></div>
-        <div class="row"><label>Text-Deckkraft</label><input id="crispen" type="range" min="0" max="100" value="100"><span class="val" id="crispenV"></span></div>
-        <div class="row"><label>Bau-Punkt-Atmen</label><input id="shimmer" type="range" min="0" max="100" value="40"><span class="val" id="shimmerV"></span></div>
       </div>
     </div>
   </div>
@@ -127,10 +129,10 @@ button.primary:hover { background:var(--accent-glow); }
 
 <script>
 "use strict";
-// ── Geometry mirrors firmware/amoled-1.43/include/theme.h ──────────────────
 const SIZE=466, C=233;
 const VOL_RING_R=218, VOL_DOT_R=4, VOL_DOT_R_DIM=2, VOL_DOT_COUNT=24;
 const PROG_RING_R=192, PROG_SEG=60, PROG_START=135, PROG_SWEEP=270;
+const SPEC_R=170, SPEC_BARS=40;                 // radial spectrum just inside progress
 const TITLE_Y=200, ARTIST_Y=268, TEXT_CY=233;
 const ACCENT='#F0CB7B', ACCENT_GLOW='#FFE6B3', ACCENT_DIM='#3C321E';
 const TEXT_PRIMARY='#F4EFE0', TEXT_SECOND='#A89E89', SRC_SPOTIFY='#1ED760';
@@ -139,121 +141,92 @@ const cv=document.getElementById('disc'), ctx=cv.getContext('2d');
 const off=document.createElement('canvas'); off.width=SIZE; off.height=SIZE;
 const octx=off.getContext('2d',{willReadFrequently:true});
 
-// ── Controls ────────────────────────────────────────────────────────────────
 const $=id=>document.getElementById(id), P={};
-function bind(id,fmt){ const el=$(id),out=$(id+'V');
-  const upd=()=>{ P[id]=+el.value; if(out&&fmt) out.textContent=fmt(+el.value); };
-  el.addEventListener('input',upd); upd(); }
+function bind(id,fmt){ const el=$(id),out=$(id+'V'); const upd=()=>{ P[id]=+el.value; if(out&&fmt) out.textContent=fmt(+el.value); }; el.addEventListener('input',upd); upd(); }
+bind('particles',v=>v); bind('fps',v=>v);
+bind('spectrum',v=>v+'%'); bind('beat',v=>v+'%'); bind('glow',v=>v+'%');
+bind('ambDensity',v=>v+'%'); bind('ambDrift',v=>v+'%');
+bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms'); bind('holdMs',v=>(v/1000).toFixed(1)+'s'); bind('disperseMs',v=>v+'ms');
+bind('spread',v=>v+'%'); bind('flash',v=>v+'%');
+bind('dotR',v=>(v/10).toFixed(1)+'px'); bind('stride',v=>v+'px'); bind('crispen',v=>v+'%'); bind('shimmer',v=>v+'%'); bind('turb',v=>v+'%');
 bind('flapTick',v=>v+'ms'); bind('flapCycles',v=>v); bind('flapStagger',v=>v);
-bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms');
-bind('spread',v=>v+'%'); bind('turb',v=>v+'%');
-bind('holdMs',v=>(v/1000).toFixed(1)+'s'); bind('disperseMs',v=>v+'ms');
-bind('ambSpread',v=>v+'%'); bind('ambDensity',v=>v+'%'); bind('ambDrift',v=>v+'%');
-bind('stride',v=>v+'px'); bind('dotR',v=>(v/10).toFixed(1)+'px');
-bind('dust',v=>v+'%'); bind('crispen',v=>v+'%'); bind('shimmer',v=>v+'%');
 
 let energyManual=-1;
 $('energy').addEventListener('input',e=>{ energyManual=+e.target.value/100; $('energyV').textContent=(+e.target.value)+'%'; });
 $('energy').addEventListener('dblclick',()=>{ energyManual=-1; $('energy').value=0; $('energyV').textContent='auto'; });
-
 let mode='play';
 
-// ── Synthetic music → energy (play only) ────────────────────────────────────
+// ── Synthetic music: energy + 16-band spectrum + beat ───────────────────────
 let energyRaw=0, energySmoothed=0, beatPulse=0;
+const spectrum=new Float32Array(16);
 const beatTimes=[0,0.5,1.0,1.5];
 function energyDyn(raw){ let e=(raw-0.35)*2.5; return e<0?0:(e>1.2?1.2:e); }
 function updateAudio(dt,tSec){
   const bar=tSec%2.0, prevBar=(tSec-dt)%2.0;
   for(const bt of beatTimes){ if(prevBar<bt && bar>=bt) beatPulse=1; }
-  beatPulse*=Math.pow(0.0008,dt);
+  beatPulse*=Math.pow(0.0009,dt);
   const swell=0.55+0.18*Math.sin(tSec*0.6)+0.10*Math.sin(tSec*1.7+1);
   let raw=Math.max(0,Math.min(1,swell+0.30*beatPulse+(Math.random()-0.5)*0.04));
   energyRaw = (mode==='play') ? raw : energyRaw*Math.pow(0.2,dt);
   const eff = energyManual>=0 ? energyManual : energyRaw;
   const a = eff>energySmoothed ? 0.45 : 0.08;
-  energySmoothed += (eff-energySmoothed)*a*(dt*60);
-  energySmoothed = Math.max(0,Math.min(1,energySmoothed));
+  energySmoothed += (eff-energySmoothed)*a*(dt*60); energySmoothed=Math.max(0,Math.min(1,energySmoothed));
+  for(let i=0;i<16;i++){ const lowBias=1.0-i/22; let tgt=energySmoothed*100*lowBias*(0.55+0.85*Math.random());
+    if(i<3) tgt+=beatPulse*60; spectrum[i]+=(tgt-spectrum[i])*Math.min(1,dt*11); }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STANDBY — split-flap (port of firmware/.../src/ui/screens/split_flap.cpp)
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════ STANDBY — split-flap (port of split_flap.cpp) ═════════════════
 const FLAP_CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 const rndGlyph=()=>FLAP_CHARS[(Math.random()*FLAP_CHARS.length)|0];
-const isFlapChar=ch=>/[A-Z0-9-]/.test(ch);   // ':' '°' ' ' stay fixed, never cycle
-
+const isFlapChar=ch=>/[A-Z0-9-]/.test(ch);
 class Flap {
   constructor(){ this.cur=""; this.disp=""; this.anim=null; }
-  set(target, now){
-    target=(target||"").toUpperCase();
+  set(target,now){ target=(target||"").toUpperCase();
     if(target===this.cur && !this.anim){ this.disp=target; return; }
-    const oldLen=this.cur.length, newLen=target.length, positions=Math.max(oldLen,newLen);
-    const reverse=newLen<oldLen, posStart=[], posTicks=[], tgt=[];
-    for(let i=0;i<positions;i++){ tgt[i]= i<newLen? target[i] : ' '; posTicks[i]=0;
-      const si=reverse?(positions-1-i):i; posStart[i]=si*P.flapStagger; }
-    this.anim={tgt, positions, newLen, tick:0, posStart, posTicks, last:now, done:false};
-    this.cur=target;
-    this._render();
-  }
-  _step(){
-    const a=this.anim; a.tick++; let allDone=true, buf="";
+    const oldLen=this.cur.length,newLen=target.length,positions=Math.max(oldLen,newLen);
+    const reverse=newLen<oldLen,posStart=[],posTicks=[],tgt=[];
+    for(let i=0;i<positions;i++){ tgt[i]=i<newLen?target[i]:' '; posTicks[i]=0; const si=reverse?(positions-1-i):i; posStart[i]=si*P.flapStagger; }
+    this.anim={tgt,positions,newLen,tick:0,posStart,posTicks,last:now,done:false}; this.cur=target; this._render(); }
+  _step(){ const a=this.anim; a.tick++; let allDone=true,buf="";
     for(let i=0;i<a.positions;i++){ const ch=a.tgt[i];
-      if(!isFlapChar(ch)){ buf+=ch; continue; }                         // fixed char
-      if(a.tick<a.posStart[i]){ buf+=rndGlyph(); allDone=false; continue; } // pre-start churn
-      if(a.posTicks[i]>=P.flapCycles){ buf+=ch; continue; }             // locked to target
-      buf+=rndGlyph(); a.posTicks[i]++; allDone=false;                  // cycling
-    }
-    this.disp=buf; if(allDone) a.done=true;
-  }
-  _render(){ // paint the scrambled first frame immediately
-    const a=this.anim; let buf="";
-    for(let i=0;i<a.positions;i++){ const ch=a.tgt[i]; buf+= isFlapChar(ch)?rndGlyph():ch; }
-    this.disp=buf;
-  }
-  frame(now){
-    if(!this.anim) return this.disp;
+      if(!isFlapChar(ch)){ buf+=ch; continue; }
+      if(a.tick<a.posStart[i]){ buf+=rndGlyph(); allDone=false; continue; }
+      if(a.posTicks[i]>=P.flapCycles){ buf+=ch; continue; }
+      buf+=rndGlyph(); a.posTicks[i]++; allDone=false; }
+    this.disp=buf; if(allDone) a.done=true; }
+  _render(){ const a=this.anim; let buf=""; for(let i=0;i<a.positions;i++){ const ch=a.tgt[i]; buf+=isFlapChar(ch)?rndGlyph():ch; } this.disp=buf; }
+  frame(now){ if(!this.anim) return this.disp;
     while(now-this.anim.last>=P.flapTick && !this.anim.done){ this.anim.last+=P.flapTick; this._step(); }
-    if(this.anim.done){ this.disp=this.cur; this.anim=null; }
-    return this.disp;
-  }
+    if(this.anim.done){ this.disp=this.cur; this.anim=null; } return this.disp; }
 }
-
-let hh=14, mm=32, clockStr='14:32';
-let tempStr='18°', condStr='PARTLY CLOUDY', dateStr='FR 06 JUN';
+let hh=14,mm=32,clockStr='14:32',tempStr='18°',condStr='PARTLY CLOUDY',dateStr='FR 06 JUN';
 function advanceClock(){ mm++; if(mm>=60){mm=0;hh=(hh+1)%24;} clockStr=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
 const STANDBY_LINES=[
-  {flap:new Flap(), get:()=>clockStr, y:150, size:96, col:TEXT_PRIMARY},
-  {flap:new Flap(), get:()=>tempStr,  y:262, size:52, col:TEXT_PRIMARY},
-  {flap:new Flap(), get:()=>condStr,  y:330, size:24, col:TEXT_SECOND},
-  {flap:new Flap(), get:()=>dateStr,  y:382, size:20, col:TEXT_SECOND},
+  {flap:new Flap(),get:()=>clockStr,y:150,size:96,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>tempStr, y:262,size:52,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>condStr, y:330,size:24,col:TEXT_SECOND},
+  {flap:new Flap(),get:()=>dateStr, y:382,size:20,col:TEXT_SECOND},
 ];
 function standbyFlipAll(now){ for(const L of STANDBY_LINES){ L.flap.cur=""; L.flap.set(L.get(),now); } }
 function standbyTick(now){ advanceClock(); STANDBY_LINES[0].flap.set(clockStr,now); }
-
 function drawStandby(now){
   ctx.textAlign='center'; ctx.textBaseline='middle';
   for(const L of STANDBY_LINES){ const txt=L.flap.frame(now); const fs=fit(ctx,txt,L.size); ctx.font=lineFont(fs);
     ctx.globalAlpha=1; ctx.fillStyle=L.col; ctx.fillText(txt,C,L.y); }
-  // standby heartbeat dot (theme: accent, slow breathe)
   dot(C,438,3,ACCENT,0.35+0.35*Math.sin(now*0.0016));
-  $('phaseLbl').textContent = STANDBY_LINES.some(L=>L.flap.anim) ? 'flip' : 'idle';
+  $('phaseLbl').textContent = STANDBY_LINES.some(L=>L.flap.anim)?'flip':'idle';
+  drawnOps = STANDBY_LINES.length + 1;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  PLAY — particle materialize → solid text → disperse
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════ PLAY — particle materialize + action ══════════════════════════
 const TRACKS=[
-  ['ONCE IN A LIFETIME','TALKING HEADS'], ['XTAL','APHEX TWIN'],
-  ['MIDNIGHT CITY','M83'], ['TEARDROP','MASSIVE ATTACK'],
-  ['DAS MODEL','KRAFTWERK'], ['STROBE','DEADMAU5'],
+  ['ONCE IN A LIFETIME','TALKING HEADS'], ['XTAL','APHEX TWIN'], ['MIDNIGHT CITY','M83'],
+  ['TEARDROP','MASSIVE ATTACK'], ['DAS MODEL','KRAFTWERK'], ['STROBE','DEADMAU5'],
 ];
 let trackIdx=0, title=TRACKS[0][0], artist=TRACKS[0][1];
-
 function lineFont(px){ return px+"px 'Departure Mono','Space Mono',monospace"; }
 function fit(c,t,base){ let fs=base; c.font=lineFont(fs); while(c.measureText(t).width>404 && fs>14){ fs-=2; c.font=lineFont(fs);} return fs; }
-function playLines(){ return [
-  {t:title,  y:TITLE_Y,  size:34, col:TEXT_PRIMARY, a:1.0},
-  {t:artist, y:ARTIST_Y, size:26, col:TEXT_SECOND,  a:0.92}]; }
+function playLines(){ return [ {t:title,y:TITLE_Y,size:34,col:TEXT_PRIMARY,a:1.0}, {t:artist,y:ARTIST_Y,size:26,col:TEXT_SECOND,a:0.92} ]; }
 function sampleText(stride){
   octx.clearRect(0,0,SIZE,SIZE); octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
   for(const L of playLines()){ const fs=fit(octx,L.t,L.size); octx.font=lineFont(fs); octx.fillText(L.t,C,L.y); }
@@ -263,115 +236,119 @@ function sampleText(stride){
   for(let i=pts.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const tmp=pts[i]; pts[i]=pts[j]; pts[j]=tmp; }
   return pts;
 }
-
-const POOL=2000, part=[];
-function cloudHome(){ const ang=Math.random()*6.2832, rr=Math.sqrt(Math.random());
-  const rx=150*(P.spread/100)+40, ry=84*(P.spread/100)+24; return {x:C+Math.cos(ang)*rx*rr, y:TEXT_CY+Math.sin(ang)*ry*rr}; }
-function ambientHome(){ const R=(PROG_RING_R-30)*(P.ambSpread/100)+38;
-  for(;;){ const x=Math.random()*SIZE,y=Math.random()*SIZE; const d=Math.hypot(x-C,y-C); if(d<R && d>26) return {x,y}; } }
-for(let i=0;i<POOL;i++){ const h=cloudHome(), am=ambientHome();
-  part.push({ x:h.x,y:h.y, fx:h.x,fy:h.y, chx:h.x,chy:h.y, tx:h.x,ty:h.y, ax:am.x,ay:am.y,
-    active:false, base:0.55+Math.random()*0.45, glow:Math.random()<0.16,
-    athr:Math.pow(Math.random(),1.3), aper:2.5+Math.random()*4,
-    sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 }); }
-function assignTargets(pts){ for(let i=0;i<POOL;i++){ const p=part[i]; if(i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; } else p.active=false; } }
+const POOL=1200, part=[];
+function cloudHome(){ const ang=Math.random()*6.2832,rr=Math.sqrt(Math.random()); const rx=150*(P.spread/100)+40,ry=84*(P.spread/100)+24; return {x:C+Math.cos(ang)*rx*rr,y:TEXT_CY+Math.sin(ang)*ry*rr}; }
+function ambientHome(){ const R=PROG_RING_R-24; for(;;){ const x=Math.random()*SIZE,y=Math.random()*SIZE; const d=Math.hypot(x-C,y-C); if(d<R&&d>26) return {x,y}; } }
+for(let i=0;i<POOL;i++){ const h=cloudHome(),am=ambientHome();
+  part.push({ x:h.x,y:h.y,fx:h.x,fy:h.y,chx:h.x,chy:h.y,tx:h.x,ty:h.y,ax:am.x,ay:am.y,
+    active:false, base:0.55+Math.random()*0.45, glow:Math.random()<0.16, athr:Math.pow(Math.random(),1.3),
+    aper:2.5+Math.random()*4, sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 }); }
+function assignTargets(pts,N){ for(let i=0;i<POOL;i++){ const p=part[i];
+  if(i<N && i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; } else p.active=false; } }
 function snapshotFrom(){ for(const p of part){ p.fx=p.x; p.fy=p.y; } }
 $('spread').addEventListener('change',()=>{ for(const p of part){ const h=cloudHome(); p.chx=h.x; p.chy=h.y; } });
-$('ambSpread').addEventListener('change',()=>{ for(const p of part){ const h=ambientHome(); p.ax=h.x; p.ay=h.y; } });
 
-let phase='ambient', phaseStart=0, pp=1, strideCache=-1, pendingApply=null;
+let phase='ambient', phaseStart=0, pp=1, strideCache=-1, pendingApply=null, flashStart=-1, drawnOps=0;
 function smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
 function triggerReform(applyFn){ pendingApply=applyFn||null; snapshotFrom(); phase='gather'; phaseStart=performance.now(); }
-
 let volume=62, progress=0.32;
 
-function dot(x,y,r,color,alpha){ if(alpha<=0.012||r<=0) return;
-  ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
-const volPos=[];
-for(let i=0;i<VOL_DOT_COUNT;i++){ const ang=(i/VOL_DOT_COUNT)*6.2832-Math.PI/2; volPos.push([C+Math.cos(ang)*VOL_RING_R, C+Math.sin(ang)*VOL_RING_R]); }
-function drawVolRing(E,tMs){ const lit=Math.round(volume*VOL_DOT_COUNT/100), PPD=6.2832/24;
+function dot(x,y,r,color,alpha){ if(alpha<=0.012||r<=0) return; ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
+const volPos=[]; for(let i=0;i<VOL_DOT_COUNT;i++){ const ang=(i/VOL_DOT_COUNT)*6.2832-Math.PI/2; volPos.push([C+Math.cos(ang)*VOL_RING_R,C+Math.sin(ang)*VOL_RING_R]); }
+function drawVolRing(E,tMs){ const lit=Math.round(volume*VOL_DOT_COUNT/100),PPD=6.2832/24, kick=beatPulse*(P.beat/100);
   for(let i=0;i<VOL_DOT_COUNT;i++){ if(i===0) continue; const [x,y]=volPos[i];
-    if(i<lit){ const wob=1+E*0.65*Math.sin(tMs*0.005+i*PPD); dot(x,y,Math.max(2,VOL_DOT_R*wob),ACCENT,Math.min(255,217+E*38)/255); }
+    if(i<lit){ const wob=1+E*0.65*Math.sin(tMs*0.005+i*PPD)+kick*0.5; dot(x,y,Math.max(2,VOL_DOT_R*wob),kick>0.4?ACCENT_GLOW:ACCENT,Math.min(255,217+E*38)/255); }
     else dot(x,y,VOL_DOT_R_DIM,ACCENT_DIM,160/255); } }
-function drawProgress(){ for(let i=0;i<PROG_SEG;i++){ const frac=i/(PROG_SEG-1), a=(PROG_START+frac*PROG_SWEEP)*Math.PI/180;
-  const x=C+Math.cos(a)*PROG_RING_R, y=C+Math.sin(a)*PROG_RING_R, on=frac<=progress; dot(x,y,on?1.6:1.2,on?ACCENT:ACCENT_DIM,on?0.95:0.5); } }
+function drawProgress(){ for(let i=0;i<PROG_SEG;i++){ const frac=i/(PROG_SEG-1),a=(PROG_START+frac*PROG_SWEEP)*Math.PI/180;
+  const x=C+Math.cos(a)*PROG_RING_R,y=C+Math.sin(a)*PROG_RING_R,on=frac<=progress; dot(x,y,on?1.6:1.2,on?ACCENT:ACCENT_DIM,on?0.95:0.5); } }
 function drawSourceMarker(){ dot(C,18,5,SRC_SPOTIFY,0.95); }
-function drawSolidText(alpha){ if(alpha<=0.02) return; ctx.textAlign='center'; ctx.textBaseline='middle';
-  for(const L of playLines()){ const fs=fit(ctx,L.t,L.size); ctx.font=lineFont(fs); ctx.globalAlpha=alpha*L.a; ctx.fillStyle=L.col; ctx.fillText(L.t,C,L.y); } }
-function ambientAlpha(p,fieldE,now){ const lvl=(P.ambDensity/100)*(0.30+0.70*fieldE);
-  if(p.athr>lvl) return 0; const tw=0.45+0.55*Math.sin(now*0.001*(6.2832/p.aper)+p.ph); return p.base*(0.12+0.55*fieldE)*tw; }
-function drawParticles(E,now){
+function drawSpectrum(now){ const k=P.spectrum/100; if(k<=0) return; let ops=0;
+  ctx.lineCap='round';
+  for(let i=0;i<SPEC_BARS;i++){ const band=spectrum[i<16?i:(31-(i-16))%16]; const lvl=Math.min(1,(band/100));
+    if(lvl<0.04) continue; const ang=(i/SPEC_BARS)*6.2832-Math.PI/2; const len=(4+lvl*30)*k;
+    const x1=C+Math.cos(ang)*SPEC_R, y1=C+Math.sin(ang)*SPEC_R, x2=C+Math.cos(ang)*(SPEC_R-len), y2=C+Math.sin(ang)*(SPEC_R-len);
+    ctx.globalAlpha=(0.22+0.6*lvl)*k; ctx.strokeStyle=lvl>0.72?ACCENT_GLOW:ACCENT; ctx.lineWidth=2.6;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ops++; }
+  return ops;
+}
+function drawGlow(E,now){ const k=P.glow/100; if(k<=0) return 0; const p=Math.min(1,E*0.7+beatPulse*0.6);
+  // a few stacked translucent circles ≈ a cheap halo (no full-screen gradient)
+  dot(C,C, 26+p*70, ACCENT, 0.05*k*p);
+  dot(C,C, 14+p*40, ACCENT_GLOW, 0.06*k*p);
+  return 2;
+}
+function drawSolidText(alpha){ if(alpha<=0.02) return 0; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const L of playLines()){ const fs=fit(ctx,L.t,L.size); ctx.font=lineFont(fs); ctx.globalAlpha=alpha*L.a; ctx.fillStyle=L.col; ctx.fillText(L.t,C,L.y); }
+  return 2; }
+function ambientAlpha(p,fieldE,now){ const lvl=(P.ambDensity/100)*(0.30+0.70*fieldE); if(p.athr>lvl) return 0;
+  const tw=0.45+0.55*Math.sin(now*0.001*(6.2832/p.aper)+p.ph); return p.base*(0.12+0.55*fieldE)*tw; }
+function drawParticles(E,now){ const N=P.particles|0; if(N<=0) return 0;
   const turbMax=(P.turb/100)*14, r=(P.dotR/10), shimmer=(P.shimmer/100)*E*2.4, drift=(P.ambDrift/100)*7;
-  const fieldE=Math.min(1,E), cloudF = phase==='gather'?pp : (phase==='form'?1-pp : 0);
-  for(let i=0;i<POOL;i++){ const p=part[i]; let bx,by,alpha;
+  const fieldE=Math.min(1,E), cloudF=phase==='gather'?pp:(phase==='form'?1-pp:0); let ops=0;
+  for(let i=0;i<N;i++){ const p=part[i]; let bx,by,alpha;
     if(phase==='gather'){ bx=p.fx+(p.chx-p.fx)*pp; by=p.fy+(p.chy-p.fy)*pp; alpha=p.base*0.55; }
     else if(phase==='form'){ bx=p.fx+(p.tx-p.fx)*pp; by=p.fy+(p.ty-p.fy)*pp; alpha=p.active?(0.30+0.70*pp)*p.base:(1-pp)*0.45*p.base; }
     else if(phase==='hold'){ bx=p.tx; by=p.ty; alpha=p.active?p.base*0.85:0; }
-    else if(phase==='disperse'){ bx=p.fx+(p.ax-p.fx)*pp; by=p.fy+(p.ay-p.fy)*pp; const tA=p.active?p.base*0.85:0, aA=ambientAlpha(p,fieldE,now); alpha=tA*(1-pp)+aA*pp; }
+    else if(phase==='disperse'){ bx=p.fx+(p.ax-p.fx)*pp; by=p.fy+(p.ay-p.fy)*pp; const tA=p.active?p.base*0.85:0,aA=ambientAlpha(p,fieldE,now); alpha=tA*(1-pp)+aA*pp; }
     else { bx=p.ax; by=p.ay; alpha=ambientAlpha(p,fieldE,now); }
     if(cloudF>0){ bx+=Math.sin(now*0.001*p.sx+p.ph)*cloudF*turbMax; by+=Math.cos(now*0.001*p.sy+p.ph)*cloudF*turbMax; }
     if(phase==='hold'||phase==='disperse'||phase==='ambient'){ bx+=Math.cos(now*0.0017+p.ph)*shimmer; by+=Math.sin(now*0.0017+p.ph*1.3)*shimmer;
       if(phase==='ambient'){ bx+=Math.sin(now*0.0004*p.sx+p.ph)*drift; by+=Math.cos(now*0.0004*p.sy+p.ph)*drift; } }
-    dot(bx,by,r,p.glow?ACCENT_GLOW:ACCENT,alpha); }
-  const dust=P.dust/100;
-  if(dust>0 && cloudF>0.04){ const count=Math.floor(cloudF*cloudF*420*dust), rx=150*(P.spread/100)+50, ry=84*(P.spread/100)+30;
-    for(let i=0;i<count;i++){ const ang=Math.random()*6.2832, rr=Math.sqrt(Math.random());
-      dot(C+Math.cos(ang)*rx*rr, TEXT_CY+Math.sin(ang)*ry*rr, Math.random()<0.25?1.4:r*0.7, Math.random()<0.3?ACCENT_GLOW:ACCENT, cloudF*Math.random()*0.4); } }
+    if(alpha>0.012){ dot(bx,by,r,p.glow?ACCENT_GLOW:ACCENT,alpha); ops++; } }
+  return ops;
 }
+function drawFlash(now){ if(flashStart<0||P.flash<=0) return 0; const t=(now-flashStart)/360; if(t>=1){ flashStart=-1; return 0; }
+  const r=60+t*170; ctx.globalAlpha=(1-t)*0.5*(P.flash/100); ctx.strokeStyle=ACCENT_GLOW; ctx.lineWidth=2.5*(1-t)+0.5;
+  ctx.beginPath(); ctx.arc(C,C,r,0,6.2832); ctx.stroke(); return 1; }
+
 function drawPlay(now){
-  const E=energyDyn(energySmoothed);
-  const e=now-phaseStart;
+  const E=energyDyn(energySmoothed), e=now-phaseStart;
   if(phase==='gather'){ pp=smooth(e/P.scatterMs);
-    if(e>=P.scatterMs){ if(pendingApply){ pendingApply(); pendingApply=null; } assignTargets(sampleText(P.stride)); strideCache=P.stride; snapshotFrom(); phase='form'; phaseStart=now; progress=0; } }
-  else if(phase==='form'){ pp=smooth(e/P.formMs); if(e>=P.formMs){ phase='hold'; phaseStart=now; } }
+    if(e>=P.scatterMs){ if(pendingApply){ pendingApply(); pendingApply=null; } assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride; snapshotFrom(); phase='form'; phaseStart=now; progress=0; } }
+  else if(phase==='form'){ pp=smooth(e/P.formMs); if(e>=P.formMs){ phase='hold'; phaseStart=now; flashStart=now; } }
   else if(phase==='hold'){ pp=1; if(e>=P.holdMs){ snapshotFrom(); phase='disperse'; phaseStart=now; } }
   else if(phase==='disperse'){ pp=smooth(e/P.disperseMs); if(e>=P.disperseMs){ phase='ambient'; phaseStart=now; } }
-  else { pp=1; if(P.stride!==strideCache){ assignTargets(sampleText(P.stride)); strideCache=P.stride; } }
-  $('phaseLbl').textContent=phase;
-  progress=Math.min(1,progress+0.0008);
-  drawParticles(E,now);
-  drawProgress(); drawVolRing(E,now); drawSourceMarker();
-  let solid;
-  if(phase==='gather') solid=1-smooth(Math.min(1,e/(P.scatterMs*0.6)));
-  else if(phase==='form') solid=smooth(Math.max(0,(pp-0.78)/0.22));
-  else solid=1;
-  drawSolidText(solid*(P.crispen/100));
+  else { pp=1; if(P.stride!==strideCache){ assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride; } }
+  $('phaseLbl').textContent=phase; progress=Math.min(1,progress+0.0008);
+
+  let ops=0;
+  ops+=drawGlow(E,now);
+  ops+=drawParticles(E,now);
+  ops+=drawSpectrum(now);
+  drawProgress(); drawVolRing(E,now); drawSourceMarker(); ops+=24+PROG_SEG+1;
+  ops+=drawFlash(now);
+  let solid; if(phase==='gather') solid=1-smooth(Math.min(1,e/(P.scatterMs*0.6))); else if(phase==='form') solid=smooth(Math.max(0,(pp-0.78)/0.22)); else solid=1;
+  ops+=drawSolidText(solid*(P.crispen/100));
+  drawnOps=ops;
 }
 
-// ── Mode + event wiring ─────────────────────────────────────────────────────
-$('btnEvent').addEventListener('click',()=>{
-  if(mode==='play') triggerReform(()=>{ trackIdx=(trackIdx+1)%TRACKS.length; title=TRACKS[trackIdx][0]; artist=TRACKS[trackIdx][1]; progress=0; });
-  else standbyTick(performance.now());
-});
-function setMode(m){ if(mode===m) return; mode=m;
-  $('btnPlayMode').classList.toggle('on',m==='play'); $('btnStandbyMode').classList.toggle('on',m==='standby');
-  $('btnEvent').textContent = m==='play' ? '⤳ Track wechseln' : '⤳ Minute +1';
-  $('modeLbl').textContent=m;
-  if(m==='standby') standbyFlipAll(performance.now());
-  else triggerReform(null);
-}
+// ── Mode + events ───────────────────────────────────────────────────────────
+$('btnEvent').addEventListener('click',()=>{ if(mode==='play') triggerReform(()=>{ trackIdx=(trackIdx+1)%TRACKS.length; title=TRACKS[trackIdx][0]; artist=TRACKS[trackIdx][1]; progress=0; }); else standbyTick(performance.now()); });
+function setMode(m){ if(mode===m) return; mode=m; $('btnPlayMode').classList.toggle('on',m==='play'); $('btnStandbyMode').classList.toggle('on',m==='standby');
+  $('btnEvent').textContent=m==='play'?'⤳ Track wechseln':'⤳ Minute +1'; $('modeLbl').textContent=m;
+  if(m==='standby') standbyFlipAll(performance.now()); else triggerReform(null); }
 $('btnPlayMode').addEventListener('click',()=>setMode('play'));
 $('btnStandbyMode').addEventListener('click',()=>setMode('standby'));
 setInterval(()=>{ if(mode==='standby' && !STANDBY_LINES.some(L=>L.flap.anim)) standbyTick(performance.now()); }, 7000);
 
-// ── Loop ────────────────────────────────────────────────────────────────────
-let last=performance.now();
+// ── ESP-budget badge ────────────────────────────────────────────────────────
+function updateBadge(){ const b=$('espBadge'); const ops=drawnOps|0; $('espOps').textContent=ops+' ops/frame @ '+P.fps+' FPS';
+  let v,c; if(ops<=380){ v='ESP: OK'; c='var(--ok)'; } else if(ops<=650){ v='ESP: grenzwertig'; c='var(--warn)'; } else { v='ESP: zu viel'; c='var(--bad)'; }
+  b.textContent=v; b.style.color=c; b.style.borderColor=c; }
+
+// ── Loop (throttled to target FPS to preview device cadence) ─────────────────
+let last=performance.now(), lastDraw=0;
 function frame(now){
-  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  requestAnimationFrame(frame);
+  const interval=1000/P.fps; if(now-lastDraw<interval) return; const dt=Math.min(0.05,(now-lastDraw)/1000); lastDraw=now;
   updateAudio(dt,now/1000);
   ctx.clearRect(0,0,SIZE,SIZE); ctx.globalAlpha=1;
-  ctx.save(); ctx.beginPath(); ctx.arc(C,C,C,0,6.2832); ctx.clip();
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,SIZE,SIZE);
+  ctx.save(); ctx.beginPath(); ctx.arc(C,C,C,0,6.2832); ctx.clip(); ctx.fillStyle='#000'; ctx.fillRect(0,0,SIZE,SIZE);
   if(mode==='play') drawPlay(now); else drawStandby(now);
-  ctx.restore(); ctx.globalAlpha=1;
-  requestAnimationFrame(frame);
+  ctx.restore(); ctx.globalAlpha=1; updateBadge();
 }
-function init(){
-  assignTargets(sampleText(P.stride)); strideCache=P.stride;
-  for(const p of part){ p.x=p.chx; p.y=p.chy; p.fx=p.chx; p.fy=p.chy; }
-  phase='form'; phaseStart=performance.now();
-  requestAnimationFrame(frame);
-}
+function init(){ assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride;
+  for(const p of part){ p.x=p.chx; p.y=p.chy; p.fx=p.chx; p.fy=p.chy; } phase='form'; phaseStart=performance.now(); requestAnimationFrame(frame); }
 if(document.fonts && document.fonts.ready) document.fonts.ready.then(init); else init();
 </script>
 </body>

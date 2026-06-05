@@ -405,8 +405,15 @@ to avoid losing HA history.
   (Zipp SSH unreachable — the recurring mDNS issue).
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
-- [ ] **Player particle-text + standby flip-char** (mock:
-  `docs/mockups/play-scintillation.html`) — two distinct text languages:
+- [ ] **Player action + particle-text, standby flip-char** (mock:
+  `docs/mockups/play-scintillation.html`) — **ESP32-S3 draw-budget aware**: the mock
+  shows a live ops/frame badge (green ≤380, the proven baseline is ~84) and a target-FPS
+  throttle (default 30) to preview real device cadence. "More action" comes from cheap
+  elements: a radial 16-band spectrum (`FX:`), a beat pulse on the vol ring + center
+  halo, and an energy glow (stacked translucent circles, NOT a full-screen gradient).
+  Particle count is a budgeted slider (default ~300, was 2000) — the solid LVGL text
+  guarantees legibility so the particles can under-sample the glyphs cheaply. Two
+  distinct text languages:
   - **Play** — title/artist are *built* from a point cloud, then stay as normal crisp
     LVGL text; only the building points disperse. Timeline on `Dirty::TITLE`: *gather*
     (old points collect into a churning cloud) → *form* (points ease onto the new
