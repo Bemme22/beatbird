@@ -135,6 +135,36 @@ InnoMaker `plughw:sndrpihifiberry,0` / `S16_LE` premise is stale; the Louder Hat
 Plus 1X conversion is done). `capture_samplerate 44100` + Synchronous already in
 place. So this part = confirm only, no change.
 
+### 🎚️ Native CamillaDSP `Loudness` filter — retire the bridge-side patch loop (EVAL)
+
+**Idea:** CamillaDSP 4.x ships a native `Loudness` filter (volume-coupled
+equal-loudness compensation: `reference_level` + `low_boost` / `high_boost`).
+It reads CDSP's own volume and scales bass/treble in real time — i.e. exactly
+what BeatBird hand-rolls today in `src/beatbird/audio/loudness.py` + the bridge's
+`PatchConfig` websocket loop that rewrites `bass_shelf` / `air_lift` gains on
+every volume change.
+
+**Why it's worth testing:**
+- Kills the drift-bug class — the native filter is stateless w.r.t. the config,
+  so the compounding base_gain creep is structurally impossible. [[feedback-loudness-feedback-loop]]
+- Real-time in the DSP engine; no websocket round-trip per volume step.
+- Deletes a whole fragile subsystem (`loudness.py` + the patch/suspend dance).
+
+**The trade-off (be honest):** loses the fine-grained curve control — BeatBird's
+curve has tunable `knee_low`/`knee_high` + per-filter `max_boost`; the native
+filter is a fixed ISO-226 shape with just reference/low/high. Have to A/B whether
+the canned curve sounds as good as the tuned one.
+
+**Plan (config + ears, not a big code lift):** add a `beat-loudness-native.yml`
+as a *third* A/B candidate alongside the current hybrid — swap the gain-patched
+shelves for one `Loudness` filter in the pipeline, `reference_level` calibrated
+to the typical listening SPL. Drive it via the existing `dsp_config` override so
+the bridge auto-suspends loudness patching while it's active (same mechanism as
+`beat-meas.yml`). If it wins by ear → delete `loudness.py` + the patch loop.
+
+> Slots into the ongoing **Loudness A/B** bench work (below in Backlog). Parked
+> as EVAL — a handful of other audio/test items are open first; no code yet.
+
 ### 🔧 LoungePi — 3-DAC, all-active CamillaDSP (TDM DESIGN DEAD → Pi 5 multi-lane)
 
 > **⛔ UPDATE 2026-06-04 — the shared-I²S-TDM design below is a DEAD END.** Bench-
