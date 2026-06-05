@@ -267,6 +267,146 @@ static inline float energy_dyn(float raw) {
     return e;
 }
 
+// ─── Track-change particle cloud + ambient energy field ─────────────────────
+// SAFE (non-glyph) variant: the title/artist stay normal solid labels for
+// legibility; this z-below layer adds (a) a low ambient dot field that
+// breathes with energy_smoothed, and (b) a gather → hold → disperse cloud
+// over the text block on every track change (Dirty::TITLE) as the eye-catcher.
+// No per-pixel glyph sampling (too heavy on the S3) — literal letter-forming
+// from the mock is a later upgrade to tune on the simulator.
+//
+// Driven only by energy_smoothed (from the LV: field). Deliberately NOT using
+// app.spectrum[] — FX bands are disabled in every active profile, so a
+// spectrum widget would render dead on real hardware.
+static lv_obj_t *scint_layer = nullptr;
+
+struct PlayDot {
+    float hx, hy;   // cloud home (clustered over the text block)
+    float ax, ay;   // ambient home (spread across the inner disc)
+    float fx, fy;   // 'from' snapshot at the last phase change
+    float x,  y;    // current position
+    float da;       // displayed alpha 0..1 (low-passed → no pops)
+    float athr;     // ambient visibility threshold vs energy
+    float ph;       // sin phase
+    float sx, sy;   // per-dot drift speeds
+    bool  glow;
+    float base;     // per-dot brightness 0.55..1
+};
+static constexpr int PLAY_DOTS = 180;          // ESP draw budget (≈ rings + this)
+static PlayDot pdots[PLAY_DOTS];
+static bool    pdots_seeded = false;
+
+enum CloudPhase : uint8_t { CL_AMBIENT, CL_GATHER, CL_HOLD, CL_DISPERSE };
+static CloudPhase cl_phase = CL_AMBIENT;
+static uint32_t   cl_start = 0;
+static uint32_t   last_scint_render = 0;
+static constexpr uint32_t CL_GATHER_MS   = 480;
+static constexpr uint32_t CL_HOLD_MS     = 700;
+static constexpr uint32_t CL_DISPERSE_MS = 1600;
+
+static const int CLOUD_CY = Theme::CENTER +
+    (Theme::TITLE_Y_OFFSET + Theme::ARTIST_Y_OFFSET) / 2;
+
+static inline float frand() { return (float)random(0, 10001) / 10000.0f; }
+static inline float smoothstep01(float x) {
+    if (x < 0.0f) x = 0.0f; if (x > 1.0f) x = 1.0f;
+    return x * x * (3.0f - 2.0f * x);
+}
+
+static void seed_play_dots() {
+    for (int i = 0; i < PLAY_DOTS; i++) {
+        PlayDot &p = pdots[i];
+        float a = frand() * 6.2832f, rr = sqrtf(frand());
+        p.hx = (float)Theme::CENTER + cosf(a) * (150.0f * rr);
+        p.hy = (float)CLOUD_CY      + sinf(a) * ( 70.0f * rr);
+        for (;;) {                                   // ambient home inside the prog ring
+            float x = frand() * 466.0f, y = frand() * 466.0f;
+            float dx = x - (float)Theme::CENTER, dy = y - (float)Theme::CENTER;
+            float d2 = dx * dx + dy * dy;
+            if (d2 < 162.0f * 162.0f && d2 > 26.0f * 26.0f) { p.ax = x; p.ay = y; break; }
+        }
+        p.x = p.fx = p.ax; p.y = p.fy = p.ay; p.da = 0.0f;
+        p.athr = powf(frand(), 1.3f);
+        p.ph = frand() * 6.2832f;
+        p.sx = 0.5f + frand() * 1.6f;
+        p.sy = 0.5f + frand() * 1.6f;
+        p.glow = frand() < 0.16f;
+        p.base = 0.55f + frand() * 0.45f;
+    }
+    pdots_seeded = true;
+}
+
+// Ambient (resting) alpha — a dot is visible only once energy clears its
+// threshold, so louder material lights up progressively more of the field.
+static inline float play_ambient_alpha(const PlayDot &p, float fE, uint32_t now) {
+    float lvl = 0.40f * (0.30f + 0.70f * fE);
+    if (p.athr > lvl) return 0.0f;
+    float tw = 0.45f + 0.55f * sinf((float)now * 0.0016f + p.ph);
+    return p.base * (0.12f + 0.50f * fE) * tw;
+}
+
+static void scint_draw_cb(lv_event_t *e) {
+    if (!pdots_seeded) seed_play_dots();
+    lv_layer_t *layer = lv_event_get_layer(e);
+    const uint32_t now = millis();
+    float fE = energy_dyn(energy_smoothed);          // 0..1.2
+    if (fE > 1.0f) fE = 1.0f;
+
+    float pp = 1.0f;
+    if (cl_phase == CL_GATHER)        pp = smoothstep01((float)(now - cl_start) / (float)CL_GATHER_MS);
+    else if (cl_phase == CL_DISPERSE) pp = smoothstep01((float)(now - cl_start) / (float)CL_DISPERSE_MS);
+
+    // Gentle energy glow — two stacked translucent circles (cheap halo, no gradient).
+    float gp = fE * 0.55f;
+    draw_dot(layer, Theme::CENTER, CLOUD_CY, (int)(24 + gp * 46), Theme::accent,
+             (lv_opa_t)(int)(0.035f * 255.0f * gp));
+    draw_dot(layer, Theme::CENTER, CLOUD_CY, (int)(12 + gp * 26), Theme::accent_glow,
+             (lv_opa_t)(int)(0.045f * 255.0f * gp));
+
+    const float ak = 0.28f;                          // alpha low-pass (~30 fps) → no pops
+    for (int i = 0; i < PLAY_DOTS; i++) {
+        PlayDot &p = pdots[i];
+        float bx, by, ta;
+        switch (cl_phase) {
+            case CL_GATHER:
+                bx = p.fx + (p.hx - p.fx) * pp; by = p.fy + (p.hy - p.fy) * pp; ta = p.base * 0.55f; break;
+            case CL_HOLD:
+                bx = p.hx; by = p.hy; ta = p.base * 0.85f; break;
+            case CL_DISPERSE:
+                bx = p.fx + (p.ax - p.fx) * pp; by = p.fy + (p.ay - p.fy) * pp;
+                ta = p.base * 0.85f * (1.0f - pp) + play_ambient_alpha(p, fE, now) * pp; break;
+            default:
+                bx = p.ax; by = p.ay; ta = play_ambient_alpha(p, fE, now); break;
+        }
+        if (cl_phase == CL_AMBIENT || cl_phase == CL_DISPERSE) {
+            bx += sinf((float)now * 0.0004f * p.sx + p.ph) * 5.0f;
+            by += cosf((float)now * 0.0004f * p.sy + p.ph) * 5.0f;
+        }
+        p.x = bx; p.y = by;
+        p.da += (ta - p.da) * ak;
+        if (p.da > 0.02f)
+            draw_dot(layer, (int)bx, (int)by, 1,
+                     p.glow ? Theme::accent_glow : Theme::accent, (lv_opa_t)(int)(p.da * 255.0f));
+    }
+}
+
+// Advance the cloud phase machine (called from update()).
+static void cloud_tick(uint32_t now) {
+    switch (cl_phase) {
+        case CL_GATHER:   if (now - cl_start >= CL_GATHER_MS)   { for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; } cl_phase = CL_HOLD;     cl_start = now; } break;
+        case CL_HOLD:     if (now - cl_start >= CL_HOLD_MS)     { for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; } cl_phase = CL_DISPERSE; cl_start = now; } break;
+        case CL_DISPERSE: if (now - cl_start >= CL_DISPERSE_MS) { cl_phase = CL_AMBIENT; cl_start = now; } break;
+        default: break;
+    }
+}
+
+static void cloud_trigger() {
+    if (!pdots_seeded) seed_play_dots();
+    for (auto &p : pdots) { p.fx = p.x; p.fy = p.y; }   // gather from wherever they are now
+    cl_phase = CL_GATHER;
+    cl_start = millis();
+}
+
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
 // Distance between two dot indices around the 24-dot ring (shorter way).
@@ -336,13 +476,16 @@ static void vol_draw_cb(lv_event_t *e) {
         }
 
         if (is_lit) {
-            float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
-            // Wave boost: +60 % radius at peak, additive on top of the
-            // energy wobble so a wave during loud music still pops.
+            // Energy wobble strongly damped (0.65 → 0.12) per design feedback:
+            // the ring should read as a near-static volume indicator, with the
+            // "action" living in the particle field instead. The volume-change
+            // wave (wboost) is kept at full strength — it's deliberate user
+            // feedback on a knob turn, not ambient music motion.
+            float wob = 1.0f + E * 0.12f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
             float r_f  = (float)Theme::VOL_DOT_R * wob * (1.0f + 0.60f * wboost);
             int   r    = (int)roundf(r_f);
             if (r < 2) r = 2;
-            int o_int  = 217 + (int)(E * 38.0f) + (int)(wboost * 38.0f);
+            int o_int  = 217 + (int)(E * 10.0f) + (int)(wboost * 38.0f);
             lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
             draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
         } else {
@@ -730,6 +873,9 @@ void create() {
         lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
         return o;
     };
+    // Particle field + track-change cloud + energy glow. Created first so it
+    // sits z-below the rings, labels and CenterStage (text stays readable).
+    scint_layer  = make_layer(scint_draw_cb);
     vol_layer    = make_layer(vol_draw_cb);
     prog_layer   = make_layer(prog_draw_cb);
 
@@ -915,64 +1061,32 @@ void update() {
     };
 
     if (State::is_dirty(State::Dirty::TITLE)) {
+        // Player moved off the flip-char (that now lives only on standby).
+        // The title/artist are plain solid labels for legibility; the track
+        // change is announced by the particle cloud (cloud_trigger below).
         if (State::app.title.length()) {
-            const char *t   = State::app.title.c_str();
-            const char *old = lv_label_get_text(lbl_title);
+            const char *t = State::app.title.c_str();
             set_scroll_speed_pxs(lbl_title, t, 30);
-
-            // Two-phase only when both the outgoing text needed to scroll
-            // AND the incoming will scroll — that's the case where a
-            // single-phase flap visibly freezes the marquee. For short-
-            // to-short / short-to-long / long-to-short, a single flap is
-            // smooth enough and faster.
-            bool old_scrolls = needs_scroll(lbl_title, old);
-            bool new_scrolls = needs_scroll(lbl_title, t);
-            // Align LEFT when the new text will marquee (SCROLL_CIRCULAR
-            // starts the text at the label's left edge), else CENTER so
-            // short titles still sit pretty on the round display. Without
-            // this, the flap renders the new text centered while CLIP'd,
-            // then SCROLL_CIRCULAR re-anchors to the left edge on the
-            // final tick — visible as a hard snap during the hand-off.
+            // Align LEFT when the text will marquee (SCROLL_CIRCULAR anchors
+            // at the left edge), else CENTER so short titles sit pretty.
             lv_obj_set_style_text_align(lbl_title,
-                new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-            if (old_scrolls && new_scrolls && strcmp(old, t) != 0) {
-                title_pending = t;
-                SplitFlap::set_text(lbl_title, " ");   // disintegrate
-                title_phase = 1;
-            } else {
-                SplitFlap::set_text(lbl_title, t);
-                title_phase = 0;
-                title_pending = "";
-            }
+                needs_scroll(lbl_title, t) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_text(lbl_title, t);
         } else {
-            // No title → quiet placeholder "···" (three U+00B7 mid-dots,
-            // in Departure Mono's range). Skip SplitFlap — the dots are
-            // multi-byte UTF-8 and the per-byte random cycle would briefly
-            // garble the sequence before settling.
+            // No title → quiet placeholder "···" (three U+00B7 mid-dots).
             lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
-            title_phase = 0;
-            title_pending = "";
         }
+        title_phase = 0; title_pending = "";
+        cloud_trigger();                       // gather → hold → disperse over the new title
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
-        const char *a   = State::app.artist.c_str();
-        const char *old = lv_label_get_text(lbl_artist);
+        const char *a = State::app.artist.c_str();
         set_scroll_speed_pxs(lbl_artist, a, 25);
-
-        bool old_scrolls = needs_scroll(lbl_artist, old);
-        bool new_scrolls = needs_scroll(lbl_artist, a);
         lv_obj_set_style_text_align(lbl_artist,
-            new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-        if (old_scrolls && new_scrolls && strcmp(old, a) != 0 && *a) {
-            artist_pending = a;
-            SplitFlap::set_text(lbl_artist, " ");
-            artist_phase = 1;
-        } else {
-            SplitFlap::set_text(lbl_artist, a);
-            artist_phase = 0;
-            artist_pending = "";
-        }
+            needs_scroll(lbl_artist, a) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(lbl_artist, a);
+        artist_phase = 0; artist_pending = "";
         State::clear_dirty(State::Dirty::ARTIST);
     }
 
@@ -1045,7 +1159,8 @@ void update() {
         (State::app.state == State::PLAY_PLAYING) ||
         (energy_smoothed > 0.01f) ||
         (millis() < source_pulse_until) ||   // keep ticking through a source-switch pulse
-        volume_pulse_active;                 // and through a volume-wave pulse
+        volume_pulse_active ||               // and through a volume-wave pulse
+        (cl_phase != CL_AMBIENT);            // and through a track-change particle cloud
     if (keep_animating) {
         uint32_t now = millis();
         if (now - last_energy_render >= 16) {
@@ -1081,6 +1196,15 @@ void update() {
                 }
                 lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
+        }
+        // Particle field + track-change cloud — advance the phase machine and
+        // repaint at ~30 fps (plenty for a soft field; lighter than the 60 Hz
+        // vol-ring tick). The field self-fades when energy decays, so this
+        // stops being invalidated shortly after playback pauses.
+        if (now - last_scint_render >= 33) {
+            last_scint_render = now;
+            cloud_tick(now);
+            if (scint_layer) lv_obj_invalidate(scint_layer);
         }
     }
     // Drop the legacy spectrum / energy dirty bits — they no longer drive

@@ -434,6 +434,19 @@ to avoid losing HA history.
   boundaries don't snap; the form flash uses bell easing. Mock is tunable for both
   (flap tick/cycles/stagger, scintillation count/opacity, weather; particle
   timing/spread/density, vol-ring animation off-by-default).
+  - **FIRMWARE IN PROGRESS** (branch `claude/claude-md-docs-dqarY`, not yet
+    compile-verified — no SDL2/PlatformIO in the web env; build the sim on the dev
+    box: `cd firmware/amoled-1.43 && pio run -e sim`):
+    - Standby flip-char: DONE — `split_flap.cpp` keeps fixed chars (`:`/space/UTF-8
+      bytes) stable; `screen_standby.cpp` flips clock/temp/highlow/condition; scint
+      + weather icons untouched.
+    - Play: DONE (safe variant) — new `scint_layer` in `screen_player.cpp` with an
+      energy-reactive ambient dot field + a gather→hold→disperse particle cloud on
+      `Dirty::TITLE`; title/artist are now plain solid labels (flap removed from the
+      player); vol-ring energy wobble damped 0.65→0.12. `PLAY_DOTS=180` @30fps —
+      tune on the sim for the real S3 budget. Decision: literal glyph-forming
+      ("aus der Punktwolke") deferred — needs font-bitmap sampling, to be added and
+      tuned on the simulator later.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
