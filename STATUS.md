@@ -335,8 +335,14 @@ to avoid losing HA history.
   is never stomped.
 - [x] **`SAFE_FIRST_BOOT_PCT = 25` magic constant** (2026-06-03, commit f021657)
   → `audio.volume.safe_first_boot_pct` (default 25, per-speaker).
-- [ ] **`SpotifyClient._call` return convention** (None/`{}`/dict) — tighten
-  to a consistent shape; `get_state()` can return a degenerate empty dict.
+- [x] **`SpotifyClient._call` return convention** (None/`{}`/dict) (2026-06-05) —
+  the None-vs-`{}` split is load-bearing for the playback-control calls
+  (`close_session` treats a 204→`{}` as success), so it stays. The actual bug
+  was downstream: `get_state()` turned an empty `{}` (204 / unparseable body)
+  into a degenerate `stopped=True` state, which bypassed the librespot health
+  watchdog. Now collapses falsy status to `None` so it counts as a failed poll.
+  Added `tests/test_spotify_state.py` (8 tests: None contract + artist/album
+  fallbacks + duration clamp) — the parsing had zero coverage before.
 - [ ] **`sources/bluetooth.py` hand-rolled D-Bus parsing** (~400 LOC,
   fragile vs BlueZ updates) — migrate to `dbus-fast`. Bigger lift.
 - [ ] **`beat-1.yml` / `beat-2.yml` split** — collapses under the identity

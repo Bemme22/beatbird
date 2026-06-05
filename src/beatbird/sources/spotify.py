@@ -75,7 +75,14 @@ class SpotifyClient:
 
     def get_state(self) -> Optional[SpotifyState]:
         status = self._call("GET", "/status")
-        if status is None:
+        # `_call` returns None on transport/HTTP failure and {} on a 204 or
+        # an unparseable 200 body. Both mean "no usable status" here — a real
+        # go-librespot /status always carries at least `stopped`. Collapsing
+        # the empty dict to None keeps it on the failure path so the bridge's
+        # health watchdog counts it, instead of silently reporting a
+        # degenerate stopped state. (`_call`'s None/{} split stays meaningful
+        # for the playback-control calls, where {} from a 204 = success.)
+        if not status:
             return None
         track = status.get("track") or {}
 
