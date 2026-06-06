@@ -25,11 +25,39 @@
 #include <thread>
 
 // ─── Arduino String → std::string ────────────────────────────────────────────
-// All firmware uses just .c_str() / .length() / operator==(c-string) / += /
-// String(const char*) — verified by grep across src/. If a future file adds
-// Arduino-specific methods (.toInt(), .indexOf(), …), either rewrite the
-// caller in portable C++ or wrap std::string in a tiny String class here.
-using String = std::string;
+// Thin std::string subclass that adds the few Arduino String methods the UI
+// code uses (indexOf / substring / charAt — verified by grep across src/), with
+// Arduino semantics (indexOf returns -1 on miss; substring(a,b) is the [a,b)
+// range). Everything else (.c_str() / .length() / == / += / String(const char*))
+// comes from std::string. Add more shims here if a new caller needs them.
+struct String : public std::string {
+    using std::string::string;                    // inherit all ctors
+    String() = default;
+    String(const std::string &s) : std::string(s) {}
+
+    int indexOf(char c, int from = 0) const {
+        size_t p = find(c, (size_t)from);
+        return p == npos ? -1 : (int)p;
+    }
+    int indexOf(const std::string &s, int from = 0) const {
+        size_t p = find(s, (size_t)from);
+        return p == npos ? -1 : (int)p;
+    }
+    String substring(int begin) const {
+        if (begin < 0) begin = 0;
+        if ((size_t)begin >= size()) return String();
+        return String(substr((size_t)begin));
+    }
+    String substring(int begin, int end) const {
+        if (begin < 0) begin = 0;
+        if (end < begin) end = begin;
+        if ((size_t)begin >= size()) return String();
+        return String(substr((size_t)begin, (size_t)(end - begin)));
+    }
+    char charAt(int i) const {
+        return (i >= 0 && (size_t)i < size()) ? (*this)[(size_t)i] : '\0';
+    }
+};
 
 // ─── Time + sleep ────────────────────────────────────────────────────────────
 
