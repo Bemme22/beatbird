@@ -11,6 +11,10 @@
 #
 # Living values are mirrored in the loudness section so the bridge can patch
 # the filter gains at runtime via CamillaDSP's PatchConfig websocket API.
+#
+# 2026-06-06: folded in the signal-adaptive Compressor (was the beat-comp.yml
+# A/B variant) — ear-validated as the production sound ("comp klingt am besten,
+# da kommt Fülle mit"). See the processors: block below.
 ---
 devices:
   samplerate: 48000
@@ -117,14 +121,46 @@ filters:
       clip_limit: -1.0
       soft_clip: true
 
+processors:
+  # ─── Signal-adaptive dynamics ──────────────────────────────────────────────
+  # Promoted from the beat-comp.yml A/B (2026-06-06, ear-validated — "comp
+  # klingt am besten, da kommt Fülle mit"). A gentle broadband compressor sits
+  # AFTER the EQ/loudness chain and BEFORE the safety limiter:
+  #       EQ + loudness  →  Compressor (dynamics)  →  broadband_limiter
+  # It continuously evens the dynamics so quiet detail comes forward and loud
+  # peaks are tamed → tracks/passages sit at a more consistent perceived
+  # loudness without reaching for the volume. Conservative by design (too much
+  # = pumping/squash). Validated against CamillaDSP 4.1.2.
+  dynamics:
+    type: Compressor
+    parameters:
+      channels: 2
+      monitor_channels: [0, 1]   # level detector watches both channels
+      process_channels: [0, 1]   # gain applied to both
+      attack: 0.025              # s — lets transients through (natural)
+      release: 1.0               # s — slow, smooth, no pumping
+      threshold: -28.0           # dB — where compression starts
+      factor: 2.5                # ratio 2.5:1 (gentle)
+      makeup_gain: 3.0           # dB — bring the level back up
+      soft_clip: false
+
 pipeline:
+  # EQ + loudness (no limiter yet)
   - type: Filter
     channels: [0]
     names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
-            rew_600, rew_2269, rew_9886, rew_14025,
-            sub_protect, broadband_limiter]
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
   - type: Filter
     channels: [1]
     names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
-            rew_600, rew_2269, rew_9886, rew_14025,
-            sub_protect, broadband_limiter]
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+  # signal-adaptive dynamics
+  - type: Processor
+    name: dynamics
+  # safety limiter LAST (catches any post-makeup peaks)
+  - type: Filter
+    channels: [0]
+    names: [broadband_limiter]
+  - type: Filter
+    channels: [1]
+    names: [broadband_limiter]
