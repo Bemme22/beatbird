@@ -38,8 +38,11 @@ def empty() -> dict:
     #            wins over the profile's resolved friendly_name. None = use the
     #            profile/derived name. Drives the BlueZ alias, web title + the
     #            HA device name.
+    # eq_editing: True while the web EQ editor is open. The bridge suspends its
+    #            per-volume loudness patching so manual freq/gain/q edits to the
+    #            production filters aren't overwritten underneath the user.
     return {"palette": None, "idle": None, "loudness": None,
-            "dsp_config": None, "friendly_name": None}
+            "dsp_config": None, "friendly_name": None, "eq_editing": None}
 
 
 def effective_friendly_name(overrides: dict | None, resolved_default: str) -> str:

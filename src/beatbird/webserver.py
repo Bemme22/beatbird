@@ -693,6 +693,95 @@ def set_dsp_config(req: DspConfigReq):
     return {"ok": True, "active": req.name, "flat_active": req.name != production}
 
 
+# ─── EQ editor (mini-Camilla) ────────────────────────────────────────────────
+# A graphical per-band editor over the running CamillaDSP tonal Biquad filters
+# with a computed frequency-response curve (front-end). Edits live-patch via
+# PatchConfig (volatile — revert on `reload camilladsp`). While the editor is
+# open the bridge suspends per-volume loudness patching (eq_editing override) so
+# manual edits to the loudness filters aren't overwritten underneath the user.
+
+_EQ_TYPES = {"Peaking", "Lowshelf", "Highshelf"}   # tonal bands the editor exposes
+
+
+class EqBandReq(BaseModel):
+    name: str
+    type: str
+    freq: float
+    gain: float
+    q: float
+
+
+class EqSuspendReq(BaseModel):
+    active: bool
+
+
+@app.get("/api/eq/bands")
+def get_eq_bands():
+    """Every tonal Biquad band (Peaking/shelf) in the running config — the EQ
+    editor's full set, not just the loudness allowlist. Structural filters
+    (crossovers, sub-protect high/low-pass) are intentionally hidden."""
+    cfg = _dsp.get_config()
+    if not cfg:
+        return {"bands": [], "samplerate": 48000}
+    bands = []
+    for name, body in (cfg.get("filters") or {}).items():
+        if not isinstance(body, dict) or body.get("type") != "Biquad":
+            continue
+        p = body.get("parameters", {})
+        if p.get("type") not in _EQ_TYPES:
+            continue
+        bands.append({"name": name, "type": p.get("type"), "freq": p.get("freq"),
+                      "gain": p.get("gain"), "q": p.get("q"),
+                      "loudness": name in _TUNABLE_FILTERS})
+    sr = (cfg.get("devices") or {}).get("samplerate", 48000)
+    return {"bands": bands, "samplerate": sr}
+
+
+@app.post("/api/eq/band")
+def set_eq_band(req: EqBandReq):
+    """Live-patch one tonal band's type/freq/gain/q. Validated + range-clamped.
+    Volatile (reverts on reload)."""
+    if req.type not in _EQ_TYPES:
+        raise HTTPException(400, f"type {req.type!r} not editable")
+    if not 20.0 <= req.freq <= 20000.0:
+        raise HTTPException(400, "freq must be 20..20000 Hz")
+    if not -24.0 <= req.gain <= 24.0:
+        raise HTTPException(400, "gain must be -24..+24 dB")
+    if not 0.1 <= req.q <= 10.0:
+        raise HTTPException(400, "q must be 0.1..10")
+    cfg = _dsp.get_config()
+    if not cfg:
+        raise HTTPException(500, "DSP not reachable")
+    body = (cfg.get("filters") or {}).get(req.name)
+    if not isinstance(body, dict) or body.get("type") != "Biquad":
+        raise HTTPException(404, f"band {req.name!r} not a Biquad in running config")
+    p = dict(body.get("parameters", {}))
+    if p.get("type") not in _EQ_TYPES:
+        raise HTTPException(400, f"band {req.name!r} is not a tonal band")
+    p.update({"type": req.type, "freq": req.freq, "gain": req.gain, "q": req.q})
+    _dsp.patch_filters({req.name: {"parameters": p}})
+    return {"ok": True, "name": req.name}
+
+
+@app.post("/api/eq/suspend")
+def set_eq_suspend(req: EqSuspendReq):
+    """Open/close the EQ-editor session: writes the eq_editing override so the
+    bridge suspends (or resumes) per-volume loudness patching within ~5 s."""
+    out = settings_overrides.load()
+    out["eq_editing"] = True if req.active else None
+    try:
+        settings_overrides.save(out)
+    except Exception as e:
+        raise HTTPException(500, f"eq suspend save failed: {e}")
+    return {"ok": True, "active": req.active}
+
+
+@app.get("/eq", response_class=HTMLResponse)
+def eq_page(request: Request):
+    """The graphical EQ editor page."""
+    return templates.TemplateResponse(request, "eq.html", {"request": request})
+
+
 @app.get("/api/dsp-health")
 def get_dsp_health():
     """Live headroom telemetry: clipped-sample count + processing load. A

@@ -9,7 +9,8 @@ def test_empty_has_friendly_name_slot():
     e = so.empty()
     assert e["friendly_name"] is None
     # the other slots are still there (don't silently drop one)
-    assert set(e) == {"palette", "idle", "loudness", "dsp_config", "friendly_name"}
+    assert set(e) == {"palette", "idle", "loudness", "dsp_config",
+                      "friendly_name", "eq_editing"}
 
 
 # ─── effective_friendly_name: override wins, else the resolved default ─────────

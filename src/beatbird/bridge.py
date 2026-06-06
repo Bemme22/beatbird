@@ -267,6 +267,9 @@ class BeatBirdBridge:
         # patching is suspended so the flat config isn't re-EQ'd underneath.
         self._active_dsp_config = profile.audio.camilladsp_config
         self._dsp_flat_mode = False
+        # True while the web EQ editor is open (eq_editing override) — also
+        # suspends per-volume loudness patching so manual edits aren't stomped.
+        self._eq_suspend_loudness = False
 
         # UI sound effects — short blips for boot, volume, play/pause,
         # skip, BT-connect, standby. Routes through CamillaDSP via the
@@ -1152,7 +1155,7 @@ class BeatBirdBridge:
         DSP config is active, in which case there are no loudness filters to
         patch and we'd just log PatchConfig errors. Single choke point so the
         flat-mode guard lives in one place, not at every volume change."""
-        if self.loudness and not self._dsp_flat_mode:
+        if self.loudness and not self._dsp_flat_mode and not self._eq_suspend_loudness:
             self.loudness.apply(pct)
 
     def _friendly_name(self, data: dict | None = None) -> str:
@@ -1228,13 +1231,22 @@ class BeatBirdBridge:
                 log.warning("overrides: DSP config swap to %s failed "
                             "(missing file or DSP unreachable)", target)
 
+        # EQ editor open → suspend per-volume loudness patching so manual
+        # freq/gain/q edits to the production filters aren't stomped underneath.
+        was_eq = self._eq_suspend_loudness
+        self._eq_suspend_loudness = bool(data.get("eq_editing"))
+        if not initial and was_eq and not self._eq_suspend_loudness:
+            log.info("overrides: EQ editor closed — re-asserting loudness")
+            self._apply_loudness(self.current_volume)
+
         # Loudness voicing — the web UI tunes base_gain / max_boost / curve /
         # knees. Rebuild the definition from profile + override and re-apply at
         # the current volume. Skipped on initial: the controller was already
         # built with overrides in _build_loudness, and the first real apply()
         # happens in start() once the DSP socket is up. Also skipped in flat
         # mode (a measurement config has no loudness filters to patch).
-        if not initial and self.loudness is not None and not self._dsp_flat_mode:
+        if (not initial and self.loudness is not None
+                and not self._dsp_flat_mode and not self._eq_suspend_loudness):
             try:
                 filters, curve, knee_low, knee_high = build_loudness(self.profile, data)
                 self.loudness.set_params(filters, curve, knee_low, knee_high)

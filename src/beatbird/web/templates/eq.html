@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}EQ{% endblock %}
+{% block subtitle %}EQ{% endblock %}
+
+{% block head_extra %}
+<style>
+  .legend { color: var(--bb-text-3); font-size: 0.78rem; margin: 0 0 0.8rem; line-height: 1.5; }
+  .legend code { color: var(--bb-text-2); }
+  .susp { font-size: 0.78rem; border-radius: 6px; padding: 6px 10px; margin: 0 0 0.9rem;
+          border: 1px solid var(--bb-line); color: var(--bb-text-2); background: var(--bb-card-2); }
+  .susp b { color: var(--bb-accent); }
+  #graphwrap { background: #060606; border: 1px solid var(--bb-line); border-radius: 10px; padding: 6px; }
+  canvas { width: 100%; height: 260px; display: block; }
+  .band { display: grid; grid-template-columns: 96px 1fr 56px; gap: 0.5rem 0.7rem;
+          align-items: center; padding: 0.55rem 0; border-bottom: 1px solid var(--bb-line); }
+  .band:last-child { border-bottom: 0; }
+  .band .nm { grid-column: 1; font-size: 0.8rem; color: var(--bb-text); font-weight: 600; }
+  .band .nm small { display: block; color: var(--bb-text-3); font-weight: 400; font-size: 0.66rem;
+                    text-transform: uppercase; letter-spacing: 0.06em; }
+  .band .nm .lb { color: var(--bb-accent); }
+  .ctlrow { grid-column: 2 / 4; display: grid; grid-template-columns: 38px 1fr 52px; gap: 0.5rem;
+            align-items: center; }
+  .ctlrow label { color: var(--bb-text-3); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .ctlrow input[type=range] { margin: 0; }
+  .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-text-2); font-size: 0.76rem; text-align: right; }
+  #status { font-size: 0.78rem; color: var(--bb-text-2); margin-left: 0.5rem; }
+  .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<p class="legend">Grafischer EQ über die tonalen CamillaDSP-Bänder (Peaking / Shelf). Änderungen greifen
+  <b>live</b> (PatchConfig) und sind <em>flüchtig</em> — ein <code>reload camilladsp</code> stellt das
+  Profil wieder her. Struktur-Filter (Crossover, Sub-Schutz) sind bewusst ausgeblendet.</p>
+
+<p class="susp" id="suspnote">⏸︎ <b>Loudness pausiert</b>, solange dieser Editor offen ist — sonst würde die
+  Volume-Loudness deine Edits an den Bass-Bändern überschreiben. Beim Verlassen läuft sie wieder an
+  (≤ 5 s).</p>
+
+<article>
+  <div id="graphwrap"><canvas id="eq" width="900" height="260"></canvas></div>
+  <div id="bands"></div>
+  <div class="toolbar">
+    <button class="secondary outline" onclick="resetFlat()">Alle auf 0 dB</button>
+    <button class="secondary outline" onclick="reloadProfile()">Profil neu laden (verwerfen)</button>
+    <span id="status"></span>
+  </div>
+</article>
+
+<script>
+  const FMIN = 20, FMAX = 20000, GMAX = 24;
+  let SR = 48000;
+  let bands = [];                       // [{name,type,freq,gain,q,loudness}]
+  const cv = document.getElementById('eq');
+  const ctx = cv.getContext('2d');
+
+  // ── RBJ biquad coefficients + magnitude (dB) at angular freq w = 2πf/fs ──────
+  function coeffs(type, f0, dBgain, Q) {
+    const A = Math.pow(10, dBgain / 40), w0 = 2 * Math.PI * f0 / SR;
+    const cw = Math.cos(w0), sw = Math.sin(w0), al = sw / (2 * Q), sq = 2 * Math.sqrt(A) * al;
+    let b0, b1, b2, a0, a1, a2;
+    if (type === 'Peaking') {
+      b0 = 1 + al * A; b1 = -2 * cw; b2 = 1 - al * A;
+      a0 = 1 + al / A; a1 = -2 * cw; a2 = 1 - al / A;
+    } else if (type === 'Lowshelf') {
+      b0 = A * ((A + 1) - (A - 1) * cw + sq); b1 = 2 * A * ((A - 1) - (A + 1) * cw); b2 = A * ((A + 1) - (A - 1) * cw - sq);
+      a0 = (A + 1) + (A - 1) * cw + sq;       a1 = -2 * ((A - 1) + (A + 1) * cw);    a2 = (A + 1) + (A - 1) * cw - sq;
+    } else { // Highshelf
+      b0 = A * ((A + 1) + (A - 1) * cw + sq); b1 = -2 * A * ((A - 1) + (A + 1) * cw); b2 = A * ((A + 1) + (A - 1) * cw - sq);
+      a0 = (A + 1) - (A - 1) * cw + sq;        a1 = 2 * ((A - 1) - (A + 1) * cw);      a2 = (A + 1) - (A - 1) * cw - sq;
+    }
+    return [b0, b1, b2, a0, a1, a2];
+  }
+  function magDb(c, f) {
+    const w = 2 * Math.PI * f / SR, cw = Math.cos(w), sw = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+    const nre = c[0] + c[1] * cw + c[2] * c2, nim = -(c[1] * sw + c[2] * s2);
+    const dre = c[3] + c[4] * cw + c[5] * c2, dim = -(c[4] * sw + c[5] * s2);
+    return 10 * Math.log10((nre * nre + nim * nim) / (dre * dre + dim * dim));
+  }
+
+  // ── graph ───────────────────────────────────────────────────────────────────
+  const W = cv.width, H = cv.height, PAD = 4;
+  const xOf = f => PAD + (Math.log10(f) - Math.log10(FMIN)) / (Math.log10(FMAX) - Math.log10(FMIN)) * (W - 2 * PAD);
+  const yOf = g => H / 2 - (g / GMAX) * (H / 2 - 10);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    // grid
+    ctx.strokeStyle = '#1c1c1c'; ctx.fillStyle = '#444'; ctx.lineWidth = 1; ctx.font = '10px ui-monospace,monospace';
+    [-18, -12, -6, 6, 12, 18].forEach(g => { const y = yOf(g); ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke(); });
+    ctx.strokeStyle = '#2c2c2c'; const y0 = yOf(0); ctx.beginPath(); ctx.moveTo(PAD, y0); ctx.lineTo(W - PAD, y0); ctx.stroke();
+    [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].forEach(f => {
+      const x = xOf(f); ctx.strokeStyle = '#161616'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      ctx.fillText(f >= 1000 ? (f / 1000) + 'k' : f, x + 2, H - 3);
+    });
+    // per-band coeffs
+    const cs = bands.map(b => coeffs(b.type, b.freq, b.gain, b.q));
+    // faint per-band curves
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(' + css('--bb-accent-rgb') + ',0.22)';
+    cs.forEach(c => { ctx.beginPath(); for (let i = 0; i <= 240; i++) { const f = FMIN * Math.pow(FMAX / FMIN, i / 240); const x = xOf(f), y = yOf(Math.max(-GMAX, Math.min(GMAX, magDb(c, f)))); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); });
+    // summed curve
+    ctx.lineWidth = 2.2; ctx.strokeStyle = css('--bb-accent'); ctx.beginPath();
+    for (let i = 0; i <= 480; i++) {
+      const f = FMIN * Math.pow(FMAX / FMIN, i / 480);
+      let g = 0; for (const c of cs) g += magDb(c, f);
+      const x = xOf(f), y = yOf(Math.max(-GMAX, Math.min(GMAX, g)));
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    // band centre dots
+    ctx.fillStyle = css('--bb-glow');
+    bands.forEach((b, i) => { const x = xOf(b.freq), y = yOf(Math.max(-GMAX, Math.min(GMAX, magDb(cs[i], b.freq)))); ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); });
+  }
+
+  // ── controls ─────────────────────────────────────────────────────────────────
+  const fLog = v => Math.round(FMIN * Math.pow(FMAX / FMIN, v / 1000));      // slider 0..1000 → 20..20k
+  const fSlider = f => Math.round(Math.log(f / FMIN) / Math.log(FMAX / FMIN) * 1000);
+  let saveTimer = null;
+  function renderBands() {
+    const wrap = document.getElementById('bands'); wrap.innerHTML = '';
+    bands.forEach((b, i) => {
+      const row = document.createElement('div'); row.className = 'band';
+      row.innerHTML =
+        `<div class="nm">${b.name}<small>${b.type}${b.loudness ? ' · <span class="lb">loudness</span>' : ''}</small></div>
+         <div class="ctlrow"><label>Freq</label><input type="range" min="0" max="1000" value="${fSlider(b.freq)}" data-i="${i}" data-k="freq"><span class="v" id="vf${i}">${b.freq} Hz</span></div>
+         <div class="ctlrow"><label>Gain</label><input type="range" min="-${GMAX}" max="${GMAX}" step="0.5" value="${b.gain}" data-i="${i}" data-k="gain"><span class="v" id="vg${i}">${(+b.gain).toFixed(1)} dB</span></div>
+         <div class="ctlrow"><label>Q</label><input type="range" min="0.1" max="10" step="0.1" value="${b.q}" data-i="${i}" data-k="q"><span class="v" id="vq${i}">${(+b.q).toFixed(1)}</span></div>`;
+      wrap.appendChild(row);
+    });
+    wrap.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', onInput));
+  }
+  function onInput(e) {
+    const i = +e.target.dataset.i, k = e.target.dataset.k; let v = +e.target.value;
+    if (k === 'freq') { v = fLog(v); document.getElementById('vf' + i).textContent = v + ' Hz'; }
+    else if (k === 'gain') { document.getElementById('vg' + i).textContent = v.toFixed(1) + ' dB'; }
+    else { document.getElementById('vq' + i).textContent = v.toFixed(1); }
+    bands[i][k] = v;
+    draw();
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => patch(i), 130);
+  }
+  async function patch(i) {
+    const b = bands[i];
+    const st = document.getElementById('status'); st.textContent = '…';
+    try {
+      const r = await fetch('/api/eq/band', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: b.name, type: b.type, freq: b.freq, gain: b.gain, q: b.q }) });
+      st.textContent = r.ok ? '✓ live' : 'Fehler ' + r.status;
+    } catch (e) { st.textContent = 'Fehler: ' + e; }
+  }
+  function resetFlat() { bands.forEach((b, i) => { b.gain = 0; patch(i); }); renderBands(); draw(); }
+  async function reloadProfile() {
+    await fetch('/api/reload', { method: 'POST' });
+    setTimeout(load, 400);
+  }
+
+  // ── loudness suspend lifecycle ────────────────────────────────────────────────
+  function suspend(on) {
+    const body = JSON.stringify({ active: on });
+    if (!on && navigator.sendBeacon) { navigator.sendBeacon('/api/eq/suspend', new Blob([body], { type: 'application/json' })); return; }
+    fetch('/api/eq/suspend', { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => {});
+  }
+  window.addEventListener('pagehide', () => suspend(false));
+  window.addEventListener('beforeunload', () => suspend(false));
+
+  async function load() {
+    const r = await fetch('/api/eq/bands'); const d = await r.json();
+    SR = d.samplerate || 48000; bands = (d.bands || []).map(b => ({ ...b, freq: +b.freq, gain: +b.gain, q: +b.q }));
+    if (!bands.length) { document.getElementById('bands').innerHTML = '<p class="legend">Keine tonalen Bänder im laufenden DSP — oder DSP nicht erreichbar.</p>'; document.getElementById('suspnote').style.display = 'none'; return; }
+    renderBands(); draw();
+  }
+  suspend(true);   // pause loudness for the editing session
+  load();
+</script>
+{% endblock %}
