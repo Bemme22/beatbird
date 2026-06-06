@@ -30,7 +30,20 @@ devices:
     format: S32_LE
 
 filters:
-  # ─── Tonality / loudness filters (bridge patches these at runtime) ─────────
+  # ─── Native volume-dependent loudness (replaces the bridge patch-controller) ─
+  # CamillaDSP's own Loudness processor lifts a LOW shelf (<70 Hz) + a HIGH shelf
+  # (>3.5 kHz) as the Main fader drops below reference_level (ISO-226 style).
+  # Promoted from the ear-validated beat-loud.yml A/B. The bridge no longer
+  # patches gains per volume — beat-1.yml has audio.loudness.enabled: false.
+  loudness:
+    type: Loudness
+    parameters:
+      fader: Main
+      reference_level: -20.0   # Main dB at/above which boost = 0
+      low_boost: 4.0           # max <70 Hz lift at low volume
+      high_boost: 2.5          # max >3.5 kHz lift (≈ the old air_lift)
+      attenuate_mid: false
+  # ─── Static tonality (hand-tuned base gains — NOT patched per volume now) ────
   bass_shelf:
     type: Biquad
     parameters:
@@ -107,11 +120,11 @@ filters:
 pipeline:
   - type: Filter
     channels: [0]
-    names: [bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
             rew_600, rew_2269, rew_9886, rew_14025,
             sub_protect, broadband_limiter]
   - type: Filter
     channels: [1]
-    names: [bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
             rew_600, rew_2269, rew_9886, rew_14025,
             sub_protect, broadband_limiter]

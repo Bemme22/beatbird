@@ -29,17 +29,16 @@ audio:
     max_db: -10
     curve_gamma: 2.0      # Sonos-style audio taper — 50%-slider ≈ 50% perceived loudness
   loudness:
-    enabled: true
-    curve: smoothstep     # cubic decay from vol=10 (full boost) through vol=75 (no boost)
-    # Halved 2026-05-21 — low-volume bass was still too fat. Stays tasteful
-    # below 50%, base camilladsp gains carry above 50% where user says it
-    # already sits right.
+    enabled: false    # RETIRED 2026-06-06 — volume-dependent loudness is now
+    # CamillaDSP's NATIVE `Loudness` filter in config/camilladsp/beat.yml (no
+    # more bridge PatchConfig loop, no compounding-drift bug). The static base
+    # gains stay in beat.yml; the EQ editor tunes them. The curve/filters below
+    # are kept only as a record of the old patch-controller voicing.
+    curve: smoothstep
     filters:
       - {name: bass_shelf,   max_boost_db: 1.5}
       - {name: sub_punch,    max_boost_db: 1.0}
       - {name: timpani_body, max_boost_db: 0.75}
-      # Treble side of the Fletcher-Munson curve — bass and air both
-      # need lifting at low volumes for a balanced perception.
       - {name: air_lift,     max_boost_db: 2.5}
   # Idle power save: after 10 min quiet, drop BOTH TAS amps (0x4c + 0x4d) into
   # I2C deep-sleep. Proven on the Zipp single chip (4 W → 2 W); the 2X driver
