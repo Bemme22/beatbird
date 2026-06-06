@@ -1282,9 +1282,13 @@ class BeatBirdBridge:
 
         def _worker():
             try:
-                jpeg = self.cover_proc.get(uri, url)
-                if jpeg:
-                    self.display.push_cover(jpeg)
+                # Halftone (HT:): the Pi downsamples the cover to a small RGB
+                # grid and the firmware draws it as a cheap dot field — the
+                # lightweight replacement for the full-screen JPEG composite
+                # (push_cover/IMG:) that used to stutter the ESP32-S3.
+                grid = self.cover_proc.get_halftone(uri, url)
+                if grid:
+                    self.display.push_halftone(grid, 39)
             except Exception as e:
                 log.warning("cover fetch/push for %s failed: %s", uri, e)
 

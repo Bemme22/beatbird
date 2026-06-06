@@ -306,6 +306,23 @@ class AmoledDisplay(DisplayInterface):
         self._send("IMG:end")
         log.info("cover pushed: %d bytes in %d chunks", size, seq)
 
+    def push_halftone(self, grid: bytes, n: int) -> None:
+        """Send the Pi-downsampled cover as an n×n RGB halftone grid (HT:).
+        Used by the halftone-renderer firmware (vs push_cover's IMG: JPEG, kept
+        for older firmware). Same chunked base64 transport, raw RGB payload."""
+        if not grid or n <= 0:
+            return
+        import base64
+        size = len(grid)
+        self._send(f"HT:start|n={n}")
+        seq = 0
+        for off in range(0, size, self._COVER_CHUNK_BYTES):
+            b64 = base64.b64encode(grid[off:off + self._COVER_CHUNK_BYTES]).decode("ascii")
+            self._send(f"HT:{seq}:{b64}")
+            seq += 1
+        self._send("HT:end")
+        log.info("halftone pushed: %d×%d (%d bytes, %d chunks)", n, n, size, seq)
+
     def push_qr_url(self, url: str) -> None:
         """Cache the BT-pairing QR URL on the firmware. The standby
         screen renders it as a scannable QR code only while

@@ -59,6 +59,7 @@ class CoverProcessor:
         self.vignette_strength = vignette_strength
         self.jpeg_quality = jpeg_quality
         self._cache: "OrderedDict[str, bytes]" = OrderedDict()
+        self._ht_cache: "OrderedDict[tuple, bytes]" = OrderedDict()   # halftone grids
         self._cache_max = cache_max
         self._pil_ok: Optional[bool] = None
         self._requests = None
@@ -109,6 +110,43 @@ class CoverProcessor:
         except Exception as e:
             log.warning("cover_processor failed for %s: %s", uri, e)
             return None
+
+    def get_halftone(self, uri: str, url: str, n: int = 39) -> Optional[bytes]:
+        """Return an n×n RGB halftone grid for `uri` (the HT: payload — the
+        firmware draws it as a dot field). Downloads + downsamples on cache
+        miss. None on any failure (bridge falls back to no background)."""
+        if not uri or not url:
+            return None
+        key = (uri, n)
+        cached = self._ht_cache.get(key)
+        if cached is not None:
+            self._ht_cache.move_to_end(key)
+            return cached
+        if not self._check_imports():
+            return None
+        try:
+            raw = self._download(url)
+            if not raw:
+                return None
+            grid = self.halftone_grid(raw, n)
+            self._ht_cache[key] = grid
+            while len(self._ht_cache) > self._cache_max:
+                self._ht_cache.popitem(last=False)
+            log.info("halftone grid: %s → %d×%d (%d B)", uri, n, n, len(grid))
+            return grid
+        except Exception as e:
+            log.warning("cover_processor halftone failed for %s: %s", uri, e)
+            return None
+
+    def halftone_grid(self, raw: bytes, n: int = 39) -> bytes:
+        """Downsample the cover to an n×n RGB grid for the firmware halftone
+        renderer (HT: protocol — no JPEG decode on the ESP). RAW colours (no
+        blur/darken/vignette): the ESP applies its own opacity/saturation/
+        centre-fade. Returns n*n*3 row-major bytes."""
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(raw)).convert("RGB").resize((n, n), Image.LANCZOS)
+        return img.tobytes()
 
     def cache_size(self) -> int:
         return len(self._cache)
