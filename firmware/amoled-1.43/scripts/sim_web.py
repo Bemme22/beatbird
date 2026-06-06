@@ -286,15 +286,17 @@ if _cp_ok:
                 raw = None
                 st.error(f"could not read file: {_e}")
         if raw:
-            jpeg = cp._process(raw)
-            # Same chunking as DisplayAMOLED.push_cover
+            # Player background is now a Pi-downsampled halftone grid (HT:),
+            # not a JPEG (IMG:). Same chunked base64 transport, raw RGB payload.
+            n = 39
+            grid = cp.halftone_grid(raw, n)   # n*n*3 raw RGB bytes
             chunk = 600
-            lines = [f"IMG:start|size={len(jpeg)}"]
-            for i, off in enumerate(range(0, len(jpeg), chunk)):
-                b = _b64.b64encode(jpeg[off:off + chunk]).decode("ascii")
-                lines.append(f"IMG:{i}:{b}")
-            lines.append("IMG:end")
-            fire(f"cover ({len(jpeg)//1024} KB / {len(lines)-2} chunks)", lines)
+            lines = [f"HT:start|n={n}"]
+            for i, off in enumerate(range(0, len(grid), chunk)):
+                b = _b64.b64encode(grid[off:off + chunk]).decode("ascii")
+                lines.append(f"HT:{i}:{b}")
+            lines.append("HT:end")
+            fire(f"halftone ({n}×{n}, {len(grid)} B / {len(lines)-2} chunks)", lines)
 
 
 # ─── Raw protocol line ──────────────────────────────────────────────────────

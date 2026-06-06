@@ -175,6 +175,41 @@ InnoMaker `plughw:sndrpihifiberry,0` / `S16_LE` premise is stale; the Louder Hat
 Plus 1X conversion is done). `capture_samplerate 44100` + Synchronous already in
 place. So this part = confirm only, no change.
 
+### 🎚️ Native CamillaDSP `Loudness` filter — retire the bridge-side patch loop (BUILT, AWAITING A/B)
+
+**Idea:** CamillaDSP 4.x ships a native `Loudness` filter (volume-coupled
+equal-loudness compensation: `reference_level` + `low_boost` / `high_boost`).
+It reads CDSP's own volume and scales bass/treble in real time — i.e. exactly
+what BeatBird hand-rolls today in `src/beatbird/audio/loudness.py` + the bridge's
+`PatchConfig` websocket loop that rewrites `bass_shelf` / `air_lift` gains on
+every volume change.
+
+**Why it's worth testing:**
+- Kills the drift-bug class — the native filter is stateless w.r.t. the config,
+  so the compounding base_gain creep is structurally impossible. [[feedback-loudness-feedback-loop]]
+- Real-time in the DSP engine; no websocket round-trip per volume step.
+- Deletes a whole fragile subsystem (`loudness.py` + the patch/suspend dance).
+
+**The trade-off (be honest):** loses the fine-grained curve control — BeatBird's
+curve has tunable `knee_low`/`knee_high` + per-filter `max_boost`; the native
+filter is a fixed ISO-226 shape with just reference/low/high. Have to A/B whether
+the canned curve sounds as good as the tuned one.
+
+**Already built (prep/big-rocks):** `config/camilladsp/beat-loud.yml` IS this
+variant — same static EQ as production `beat.yml`, but with CamillaDSP's native
+`Loudness` filter at the front of both channels instead of the patch-controller.
+Design notes in `docs/native-loudness.md`. Selectable live via the web DSP
+switcher (`/advanced` → "Loud"); while active the bridge auto-suspends the
+per-volume PatchConfig loudness (same mechanism as `beat-meas.yml`), so the only
+volume-dependent lift is the native filter. Deployed + confirmed selectable on
+the Beat (`/api/dsp-configs` lists `beat-loud`) 2026-06-05.
+
+**Open = the A/B by ear** (Beat): switch "Produktion (Voicing)" ↔ "Loud" at a
+few volumes, listen for whether the native ISO-226 curve holds the bass as well
+as the tuned patch curve across the range. **If it wins → delete `loudness.py`
++ the bridge patch/suspend loop** and promote the native filter into production
+`beat.yml` (+ `zipp-mini-2.yml`).
+
 ### 🔧 LoungePi — 3-DAC, all-active CamillaDSP (TDM DESIGN DEAD → Pi 5 multi-lane)
 
 > **⛔ UPDATE 2026-06-04 — the shared-I²S-TDM design below is a DEAD END.** Bench-
@@ -385,6 +420,8 @@ to avoid losing HA history.
 - [x] **`SpotifyClient._call` return convention** (prep/big-rocks 37061ad) —
   contract documented (None=failed / dict=2xx body / `{}`=content-less);
   `get_state()` hardened (`if not status` handles the degenerate `{}`).
+  `tests/test_spotify_state.py` (8 tests: None contract + artist/album fallbacks
+  + duration clamp).
 - [~] **`sources/bluetooth.py` hand-rolled D-Bus parsing** → `dbus-fast`
   (prep/big-rocks a285c70) — **step 1 done**: `BluetoothBus` plumbing (lazy
   daemon-loop + sync facade), nothing wired yet. Read-paths next (gated on a
@@ -452,6 +489,48 @@ to avoid losing HA history.
   amp. `capture_samplerate: 44100` is correct, left as-is.
 - [ ] **Source-change pulse** — one-shot `source_marker` scale 1.5× for
   ~300 ms on `Dirty::SOURCE`. ~30 min.
+- [ ] **Player action + particle-text, standby flip-char** (mock:
+  `docs/mockups/play-scintillation.html`) — **ESP32-S3 draw-budget aware**: the mock
+  shows a live ops/frame badge (green ≤380, the proven baseline is ~84) and a target-FPS
+  throttle (default 30) to preview real device cadence. "More action" comes from cheap
+  elements: a radial 16-band spectrum (`FX:`), a beat pulse on the vol ring + center
+  halo, and an energy glow (stacked translucent circles, NOT a full-screen gradient).
+  Particle count is a budgeted slider (default ~300, was 2000) — the solid LVGL text
+  guarantees legibility so the particles can under-sample the glyphs cheaply. Two
+  distinct text languages:
+  - **Play** — title/artist are *built* from a point cloud, then stay as normal crisp
+    LVGL text; only the building points disperse. Timeline on `Dirty::TITLE`: *gather*
+    (old points collect into a churning cloud) → *form* (points ease onto the new
+    glyphs' sampled points) → text solidifies and STAYS readable → *disperse* →
+    *ambient* (the building points spread back out into a music-reactive field;
+    `energy_smoothed` sets its density/brightness). Each particle caches three goals
+    (cloud-home / glyph-target / ambient-home). Firmware: keep the real LVGL label for
+    readability, add a `scint_layer` pool that samples glyph targets ONCE per
+    `Dirty::TITLE` and runs the phase-lerp per frame.
+  - **Standby** — go fully flip-char (split-flap) for ALL text, not just the idle
+    line: clock, temperature, condition, date each animate via `split_flap.cpp`
+    (random-glyph cycling, staggered, locking to target). Fixed chars (`:` `°` space)
+    don't cycle. The clock flips on each minute tick; all lines flip in on standby
+    entry. KEEPS the existing standby ambient scintillation dot field and the
+    dot-vocabulary weather icons (sun/cloud/rain/snow/thunder) from
+    `screen_standby.cpp` — only the text rendering changes to flip-char.
+  Play transitions are alpha-low-passed (per-particle + solid text) so phase
+  boundaries don't snap; the form flash uses bell easing. Mock is tunable for both
+  (flap tick/cycles/stagger, scintillation count/opacity, weather; particle
+  timing/spread/density, vol-ring animation off-by-default).
+  - **FIRMWARE IN PROGRESS** (branch `claude/claude-md-docs-dqarY`, not yet
+    compile-verified — no SDL2/PlatformIO in the web env; build the sim on the dev
+    box: `cd firmware/amoled-1.43 && pio run -e sim`):
+    - Standby flip-char: DONE — `split_flap.cpp` keeps fixed chars (`:`/space/UTF-8
+      bytes) stable; `screen_standby.cpp` flips clock/temp/highlow/condition; scint
+      + weather icons untouched.
+    - Play: DONE (safe variant) — new `scint_layer` in `screen_player.cpp` with an
+      energy-reactive ambient dot field + a gather→hold→disperse particle cloud on
+      `Dirty::TITLE`; title/artist are now plain solid labels (flap removed from the
+      player); vol-ring energy wobble damped 0.65→0.12. `PLAY_DOTS=180` @30fps —
+      tune on the sim for the real S3 budget. Decision: literal glyph-forming
+      ("aus der Punktwolke") deferred — needs font-bitmap sampling, to be added and
+      tuned on the simulator later.
 - [ ] **Settings carousel page 3+** — source switcher / brightness preset /
   EQ preset / "forget all phones" / rename. Gesture + tileview already
   there; just add tiles.
@@ -486,7 +565,15 @@ to avoid losing HA history.
 - [ ] **Household setup epic** — superseded by / merges with the identity
   split (hostapd captive-portal onboarding, factory-reset flag).
 - [ ] Genre-EQ presets via PatchConfig.
-- [ ] Rotate file logging (`/var/log/beatbird/bridge.log`).
+- [x] Rotate file logging (`/var/log/beatbird/bridge.log`) (2026-06-05) — new
+  stdlib-only `beatbird.logging_setup` (size-rotated `RotatingFileHandler`, opt-in
+  via `BEATBIRD_LOG_FILE`, tunable `BEATBIRD_LOG_MAX_BYTES` / `_BACKUP_COUNT`).
+  Default behaviour unchanged (stdout → journald); an unwritable path degrades
+  to stdout-only instead of crashing at boot. 7 tests. **To actually enable on a
+  speaker:** set `BEATBIRD_LOG_FILE=/var/log/beatbird/bridge.log` in
+  `/etc/beatbird/env` AND add `ReadWritePaths=/var/log/beatbird` (+ a tmpfiles/dir
+  create) to the bridge unit in `install/70-bridge.sh` — that install wiring is
+  left for a bench pass since it can't be verified off-device.
 - [ ] Cover-art background — parked across all speakers (ESP32-S3 too slow
   for the 466×466 JPEG composite; needs smaller/pre-decoded/partial-redraw).
 - [ ] Spectrum reanimation — needs `/etc/asound.conf` dsnoop + `[fft]`

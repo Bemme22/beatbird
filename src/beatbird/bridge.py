@@ -32,6 +32,7 @@ from beatbird.cover_processor import CoverProcessor
 from beatbird.rss_fetcher import RssFetcher
 from beatbird import settings_overrides
 from beatbird.config import Profile, load_profile
+from beatbird.logging_setup import configure_logging
 from beatbird.display.base import (
     DisplayInterface, DisplayState, DisplaySystemStatus,
 )
@@ -1957,11 +1958,7 @@ class BeatBirdBridge:
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    logging.basicConfig(
-        level=os.environ.get("BEATBIRD_LOGLEVEL", "INFO"),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    configure_logging()
     profile = load_profile()
     bridge = BeatBirdBridge(profile)
 

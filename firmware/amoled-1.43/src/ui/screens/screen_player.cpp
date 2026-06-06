@@ -99,15 +99,6 @@ static float    energy_smoothed    = 0.0f;
 static uint32_t source_pulse_until = 0;
 static constexpr uint32_t SOURCE_PULSE_MS = 300;
 
-// Volume-change "wave" — when the volume changes, a brighter/larger
-// hotspot travels once around the ring (CW, ~700 ms). Pure cosmetic
-// feedback; doesn't replace the volume-arc rendering, just rides on
-// top of it. A fresh volume change aborts any in-flight pulse and
-// starts a new one (volume_pulse_start_ms = millis()).
-static uint32_t volume_pulse_start_ms = 0;
-static constexpr uint32_t VOLUME_PULSE_MS    = 700;
-static constexpr float    VOLUME_PULSE_WIDTH = 3.0f;   // ± dots from wave centre that still get a boost
-
 // Precomputed dot positions
 static int   vol_x[24],    vol_y[24];
 static int   prog_x[60],   prog_y[60];
@@ -267,93 +258,30 @@ static inline float energy_dyn(float raw) {
     return e;
 }
 
-// ─── Draw callbacks ─────────────────────────────────────────────────────────
+// ─── Energy pulse (lightweight) ─────────────────────────────────────────────
+// The full-screen particle field that used to live here judders on the real
+// ESP32-S3: a screen-sized `scint_layer` invalidated every frame forces LVGL to
+// recomposite the whole 466² disc (cover JPEG + all ring layers) at 30–60 Hz.
+// Removed. The energy pulse now lives ONLY in the source-marker breathing
+// (small object → tiny invalidate, see update()), which is cheap and smooth.
+// The cloud/particle prototype is preserved in git history on this branch;
+// reviving it needs a bounded partial-invalidate, tuned on the SDL sim first.
 
-// Distance between two dot indices around the 24-dot ring (shorter way).
-static inline float vol_ring_distance(int i, float center) {
-    float raw = fabsf((float)i - center);
-    return raw < 12.0f ? raw : 24.0f - raw;
-}
+// ─── Draw callbacks ─────────────────────────────────────────────────────────
 
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
     int lit = (vol * 24 + 50) / 100;
-
-    // Wave phase 0..1, or -1 if no pulse active.
-    const uint32_t now_ms = millis();
-    float wave_phase = -1.0f;
-    if (volume_pulse_start_ms != 0) {
-        uint32_t elapsed = now_ms - volume_pulse_start_ms;
-        if (elapsed < VOLUME_PULSE_MS) {
-            wave_phase = (float)elapsed / (float)VOLUME_PULSE_MS;
-        } else {
-            volume_pulse_start_ms = 0;   // self-clean expired pulse
-        }
-    }
-    // Wave centre as a (fractional) dot index. Ease-out so the hotspot
-    // launches fast and trails off — feels more deliberate than linear.
-    float wave_centre = -1.0f;
-    if (wave_phase >= 0.0f) {
-        float p = 1.0f - (1.0f - wave_phase) * (1.0f - wave_phase);   // ease-out quad
-        wave_centre = p * 24.0f;
-    }
-    // Envelope: dies as the pulse approaches its end so it doesn't
-    // hard-cut at frame n→n+1 when wave_phase crosses 1.0.
-    const float wave_env = (wave_phase < 0.0f)
-                           ? 0.0f
-                           : 1.0f - wave_phase * wave_phase;   // 1→0 quadratic
-    // Phase-2 energy modulation. The dynamic-range remap (energy_dyn) is
-    // critical: raw RMS sits in 0.55..0.93 during music, which on its own
-    // makes the wobble look identical on quiet and loud passages. After
-    // remap, quiet → ~0.5, loud → ~1.2, and amplitude 0.65 expands that
-    // into a ±33 % (quiet) to ±78 % (loud) radius swing — clearly visible.
-    // Sine freq 0.005 ≈ 1.25 s cycle; per-dot phase offset i*0.5 makes
-    // the wobble travel around the ring instead of pulsing in sync.
-    const float E = energy_dyn(energy_smoothed);
-    const float t = (float)millis();
-    // Phase shift 2π/24 ≈ 0.262 rad spreads one full sine cycle across
-    // the 24 dot positions, so no two dots are simultaneously at the
-    // minimum radius. Previous 0.5 rad clustered dots i and i+12
-    // roughly in-phase, which at peak energy collapsed half the ring
-    // to r=1 at the same moment and read as "vol arc disappeared at
-    // 100 %". Min radius floor bumped to 2 so even at the lowest sine
-    // peak the lit dot stays visible (matches the unlit-dot radius).
-    constexpr float PHASE_PER_DOT = 6.2832f / 24.0f;
-    for (int i = 0; i < 24; i++) {
-        if (i == 0) continue;
-        bool is_lit = (i < lit);
-
-        // Per-dot wave boost (0..1). Linear falloff over ±WIDTH dots,
-        // multiplied by the global envelope so the boost fades out as
-        // the pulse expires.
-        float wboost = 0.0f;
-        if (wave_centre >= 0.0f) {
-            float d = vol_ring_distance(i, wave_centre);
-            if (d < VOLUME_PULSE_WIDTH) {
-                wboost = (1.0f - d / VOLUME_PULSE_WIDTH) * wave_env;
-            }
-        }
-
-        if (is_lit) {
-            float wob = 1.0f + E * 0.65f * sinf(t * 0.005f + (float)i * PHASE_PER_DOT);
-            // Wave boost: +60 % radius at peak, additive on top of the
-            // energy wobble so a wave during loud music still pops.
-            float r_f  = (float)Theme::VOL_DOT_R * wob * (1.0f + 0.60f * wboost);
-            int   r    = (int)roundf(r_f);
-            if (r < 2) r = 2;
-            int o_int  = 217 + (int)(E * 38.0f) + (int)(wboost * 38.0f);
-            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
-            draw_dot(layer, vol_x[i], vol_y[i], r, Theme::accent, o);
-        } else {
-            // Unlit dots get a softer wave: bumps opacity, doesn't
-            // grow radius. Reads as "the wave is passing through here"
-            // even on the dim half of the ring.
-            int r_dim = Theme::VOL_DOT_R_DIM + (int)(wboost * 2.0f);
-            int o_int = 160 + (int)(wboost * 70.0f);
-            lv_opa_t o = (lv_opa_t)(o_int > 255 ? 255 : o_int);
-            draw_dot(layer, vol_x[i], vol_y[i], r_dim, Theme::accent_dim, o);
-        }
+    // Static volume indicator — redrawn only on Dirty::VOLUME / Dirty::ACCENT,
+    // never per-frame. Animating this screen-sized layer every frame (the old
+    // energy wobble + volume wave) is exactly what juddered the S3; the energy
+    // pulse now lives in the small source-marker instead.
+    for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
+        if (i < lit)
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)217);
+        else
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
     }
 }
 
@@ -915,64 +843,30 @@ void update() {
     };
 
     if (State::is_dirty(State::Dirty::TITLE)) {
+        // Player moved off the flip-char (that now lives only on standby).
+        // The title/artist are plain solid labels for legibility.
         if (State::app.title.length()) {
-            const char *t   = State::app.title.c_str();
-            const char *old = lv_label_get_text(lbl_title);
+            const char *t = State::app.title.c_str();
             set_scroll_speed_pxs(lbl_title, t, 30);
-
-            // Two-phase only when both the outgoing text needed to scroll
-            // AND the incoming will scroll — that's the case where a
-            // single-phase flap visibly freezes the marquee. For short-
-            // to-short / short-to-long / long-to-short, a single flap is
-            // smooth enough and faster.
-            bool old_scrolls = needs_scroll(lbl_title, old);
-            bool new_scrolls = needs_scroll(lbl_title, t);
-            // Align LEFT when the new text will marquee (SCROLL_CIRCULAR
-            // starts the text at the label's left edge), else CENTER so
-            // short titles still sit pretty on the round display. Without
-            // this, the flap renders the new text centered while CLIP'd,
-            // then SCROLL_CIRCULAR re-anchors to the left edge on the
-            // final tick — visible as a hard snap during the hand-off.
+            // Align LEFT when the text will marquee (SCROLL_CIRCULAR anchors
+            // at the left edge), else CENTER so short titles sit pretty.
             lv_obj_set_style_text_align(lbl_title,
-                new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-            if (old_scrolls && new_scrolls && strcmp(old, t) != 0) {
-                title_pending = t;
-                SplitFlap::set_text(lbl_title, " ");   // disintegrate
-                title_phase = 1;
-            } else {
-                SplitFlap::set_text(lbl_title, t);
-                title_phase = 0;
-                title_pending = "";
-            }
+                needs_scroll(lbl_title, t) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_text(lbl_title, t);
         } else {
-            // No title → quiet placeholder "···" (three U+00B7 mid-dots,
-            // in Departure Mono's range). Skip SplitFlap — the dots are
-            // multi-byte UTF-8 and the per-byte random cycle would briefly
-            // garble the sequence before settling.
+            // No title → quiet placeholder "···" (three U+00B7 mid-dots).
             lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
-            title_phase = 0;
-            title_pending = "";
         }
+        title_phase = 0; title_pending = "";
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
-        const char *a   = State::app.artist.c_str();
-        const char *old = lv_label_get_text(lbl_artist);
+        const char *a = State::app.artist.c_str();
         set_scroll_speed_pxs(lbl_artist, a, 25);
-
-        bool old_scrolls = needs_scroll(lbl_artist, old);
-        bool new_scrolls = needs_scroll(lbl_artist, a);
         lv_obj_set_style_text_align(lbl_artist,
-            new_scrolls ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-        if (old_scrolls && new_scrolls && strcmp(old, a) != 0 && *a) {
-            artist_pending = a;
-            SplitFlap::set_text(lbl_artist, " ");
-            artist_phase = 1;
-        } else {
-            SplitFlap::set_text(lbl_artist, a);
-            artist_phase = 0;
-            artist_pending = "";
-        }
+            needs_scroll(lbl_artist, a) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(lbl_artist, a);
+        artist_phase = 0; artist_pending = "";
         State::clear_dirty(State::Dirty::ARTIST);
     }
 
@@ -1011,9 +905,7 @@ void update() {
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
         // Volume text widget gone — vol ring + CenterStage's MUTE cover it now.
-        // Kick a fresh wave pulse; the energy-render loop below keeps
-        // invalidating vol_layer at 60 Hz while it's in flight.
-        volume_pulse_start_ms = millis();
+        // One static redraw of the ring; no per-frame wave (that juddered).
         lv_obj_invalidate(vol_layer);
         State::clear_dirty(State::Dirty::VOLUME);
     }
@@ -1022,45 +914,28 @@ void update() {
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // Energy-driven repaint at ~60 Hz while playing.
+    // Source-marker "breathing" — the ONLY per-frame animation now. The marker
+    // is a small object, so set_style_* invalidates just its (transformed) box —
+    // cheap, unlike invalidating a screen-sized ring layer every frame (which is
+    // what juddered the S3). ~30 Hz is plenty for a soft pulse.
     //
-    // Asymmetric envelope: fast attack (alpha=0.45) when the bridge
-    // pushes a louder peak than what's currently rendered, slow release
-    // (alpha=0.08) on the way down. Classic peak-meter response —
-    // transients (kick, snare, plucked bass) PUNCH up immediately and
-    // then breathe out, instead of being averaged into invisibility by
-    // a symmetric low-pass. Combined with the bridge-side switch to
-    // capture_peak (instead of capture_rms) this is what makes the
-    // ring feel reactive on instrumental / percussive music.
-    //
-    // When state != PLAYING, the target collapses to 0 and the loop
-    // keeps running (cheaply, under the release alpha) until the
-    // smoothed value decays — without this the source-marker would
-    // freeze at its last opacity instead of fading back to idle.
-    const bool volume_pulse_active = (
-        volume_pulse_start_ms != 0
-        && (millis() - volume_pulse_start_ms) < VOLUME_PULSE_MS
-    );
+    // Asymmetric envelope on energy_smoothed: fast attack (0.45) on a louder
+    // peak than currently rendered, slow release (0.08) on the way down —
+    // peak-meter response (capture_peak from the LV: field) so transients punch.
+    // When state != PLAYING the target collapses to 0 and the loop keeps running
+    // cheaply until it decays, so the marker fades back to idle, not freezes.
     const bool keep_animating =
         (State::app.state == State::PLAY_PLAYING) ||
         (energy_smoothed > 0.01f) ||
-        (millis() < source_pulse_until) ||   // keep ticking through a source-switch pulse
-        volume_pulse_active;                 // and through a volume-wave pulse
+        (millis() < source_pulse_until);     // and through a source-switch pulse
     if (keep_animating) {
         uint32_t now = millis();
-        if (now - last_energy_render >= 16) {
+        if (now - last_energy_render >= 33) {
             last_energy_render = now;
             const float target = (State::app.state == State::PLAY_PLAYING)
                                ? State::app.energy : 0.0f;
             const float alpha  = (target > energy_smoothed) ? 0.45f : 0.08f;
             energy_smoothed += (target - energy_smoothed) * alpha;
-            lv_obj_invalidate(vol_layer);
-            // Source marker pulse — opacity AND size driven by the same
-            // sin the vol dots use, with the dynamic-remapped energy as
-            // the amplitude. Without the remap the marker pulses at a
-            // near-constant depth regardless of how loud the music is.
-            // Frequency matches the vol-ring (0.005) so the whole player
-            // breathes together.
             if (source_marker && !in_standby && !in_shutdown) {
                 const float E_dyn = energy_dyn(energy_smoothed);
                 const float wob   = sinf((float)now * 0.005f);  // -1..+1
@@ -1070,10 +945,9 @@ void update() {
                 if (o_i > 255) o_i = 255;
                 lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
                 int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak
-                // One-shot source-switch pulse blended on top — ease-out
-                // ramp from +50 % size back to baseline over 300 ms. Adds
-                // a "click" feedback for the user when MA / Spotify hands
-                // off the speaker.
+                // One-shot source-switch pulse blended on top — ease-out ramp
+                // from +50 % size back to baseline over 300 ms ("click" feedback
+                // when MA / Spotify hands off the speaker).
                 if (now < source_pulse_until) {
                     float remaining = (float)(source_pulse_until - now)
                                     / (float)SOURCE_PULSE_MS;     // 1.0 → 0.0

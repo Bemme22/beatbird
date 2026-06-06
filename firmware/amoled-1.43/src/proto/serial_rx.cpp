@@ -95,6 +95,7 @@ void handle_line(const char *line)
         return;
     }
     if (!strncmp(line, "IMG:",  4))     { handle_cover_line(line + 4);   return; }
+    if (!strncmp(line, "HT:",   3))     { handle_halftone_line(line + 3); return; }
     if (!strncmp(line, "TIME:", 5))     {
         State::set_clock(String(line + 5));
         return;
@@ -438,6 +439,60 @@ void handle_cover_line(const char *body)
 
 const uint8_t *cover_data() { return g_cover_buf; }
 size_t         cover_size() { return g_cover_buf_len; }
+
+// ─── HT: halftone grid (Pi-downsampled cover, replaces JPEG for the player) ──
+// Same chunked base64 transport as IMG:, but the payload is raw row-major RGB
+// for an n×n grid (no JPEG decode on the ESP):
+//     HT:start|n=39
+//     HT:0:<base64 of RGB bytes>  ...  HT:end
+// On `end` (once the full grid arrived) we mark Dirty::COVER — screen_player
+// reads halftone_data()/halftone_n() and draws the dot field.
+static uint8_t *g_ht_buf        = nullptr;
+static size_t   g_ht_cap        = 0;
+static size_t   g_ht_len        = 0;
+static size_t   g_ht_expected   = 0;
+static int      g_ht_pending_n  = 0;
+static int      g_ht_n          = 0;        // committed grid dim (0 = none)
+static bool     g_ht_collecting = false;
+
+void handle_halftone_line(const char *body)
+{
+    if (!strncmp(body, "start", 5)) {
+        const char *np = strstr(body, "n=");
+        int n = np ? atoi(np + 2) : 0;
+        if (n < 4 || n > 80) { g_ht_collecting = false; return; }
+        size_t need = (size_t)n * n * 3;
+        if (g_ht_cap < need) {
+            if (g_ht_buf) free(g_ht_buf);
+            g_ht_buf = (uint8_t *)malloc(need);
+            g_ht_cap = g_ht_buf ? need : 0;
+        }
+        g_ht_pending_n  = n;
+        g_ht_expected   = need;
+        g_ht_len        = 0;
+        g_ht_collecting = (g_ht_buf != nullptr);
+        return;
+    }
+    if (!strncmp(body, "end", 3)) {
+        Serial.printf("ht_rx: got %u/%u n=%d\n",
+                      (unsigned)g_ht_len, (unsigned)g_ht_expected, g_ht_pending_n);
+        if (g_ht_collecting && g_ht_len >= g_ht_expected) {
+            g_ht_n = g_ht_pending_n;
+            State::mark_dirty(State::Dirty::COVER);
+        }
+        g_ht_collecting = false;
+        return;
+    }
+    if (!g_ht_collecting || !g_ht_buf) return;
+    const char *colon = strchr(body, ':');
+    if (!colon) return;
+    const char *b64 = colon + 1;
+    size_t remaining = g_ht_cap - g_ht_len;
+    g_ht_len += b64_decode(b64, strlen(b64), g_ht_buf + g_ht_len, remaining);
+}
+
+const uint8_t *halftone_data() { return g_ht_n > 0 ? g_ht_buf : nullptr; }
+int            halftone_n()    { return g_ht_n; }
 
 // ─── TOAST: transient banner ────────────────────────────────────────────────
 //

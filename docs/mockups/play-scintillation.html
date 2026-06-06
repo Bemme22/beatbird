@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BeatBird — Play (action) + Standby (flip-char) Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<style>
+@font-face {
+  font-family:'Departure Mono'; font-style:normal; font-weight:400; font-display:swap;
+  src:url('https://cdn.jsdelivr.net/npm/@fontsource/departure-mono@latest/files/departure-mono-latin-400-normal.woff2') format('woff2');
+}
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+:root { --accent:#F0CB7B; --accent-glow:#FFE6B3; --accent-dim:#3C321E;
+  --text-primary:#F4EFE0; --text-second:#A89E89; --src-spotify:#1ED760;
+  --bg:#0a0a0a; --card:#141414; --line:#262626; --ok:#5BD17A; --warn:#E8B53F; --bad:#D9534F; }
+* { box-sizing:border-box; }
+html, body { margin:0; padding:0; min-height:100vh; font-family:'Space Mono',monospace; background:var(--bg); color:#d8d8d8; }
+.shell { max-width:1180px; margin:0 auto; padding:28px 22px; display:grid; grid-template-columns:466px 1fr; gap:34px; align-items:start; }
+@media (max-width:980px){ .shell{ grid-template-columns:1fr; justify-items:center; } }
+h1 { font-size:17px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 4px; }
+.sub { font-size:12px; color:#888; margin:0 0 22px; line-height:1.5; }
+.panel-wrap { width:466px; }
+canvas#disc { width:466px; height:466px; border-radius:50%; background:#000; display:block;
+  box-shadow:0 0 0 10px #0c0c0c, 0 0 60px -10px var(--accent), 0 22px 60px -20px #000; }
+.legend { font-size:11px; color:#777; margin-top:14px; line-height:1.6; }
+.legend b { color:var(--text-second); font-weight:400; }
+.statusline { display:flex; gap:14px; align-items:center; margin-top:10px; font-size:11px; }
+.badge { font-weight:700; padding:3px 10px; border-radius:20px; border:1px solid #333; }
+.controls { display:flex; flex-direction:column; gap:18px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.card.play{ border-left:2px solid var(--accent); } .card.standby{ border-left:2px solid var(--src-spotify); } .card.perf{ border-left:2px solid var(--warn); }
+.card h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#bbb; margin:0 0 14px; }
+.row { display:flex; align-items:center; gap:12px; margin:11px 0; }
+.row label { flex:0 0 168px; font-size:12px; color:#aaa; }
+.row input[type=range]{ flex:1; accent-color:var(--accent); }
+.row .val { flex:0 0 56px; text-align:right; font-size:12px; color:var(--accent-glow); }
+.btns { display:flex; flex-wrap:wrap; gap:10px; }
+button { font-family:'Space Mono',monospace; font-size:12px; letter-spacing:.05em; background:#1d1d1d; color:#eaeaea; border:1px solid #333; border-radius:9px; padding:9px 14px; cursor:pointer; transition:all .12s; }
+button:hover { border-color:var(--accent); color:var(--accent-glow); }
+button.primary { background:var(--accent); color:#1a1408; border-color:var(--accent); font-weight:700; }
+button.primary:hover { background:var(--accent-glow); }
+.toggle.on { background:var(--accent-dim); border-color:var(--accent); color:var(--accent-glow); }
+.note { font-size:11px; color:#6f6f6f; line-height:1.6; }
+.note code { color:var(--accent-glow); background:#191919; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="panel-wrap">
+    <canvas id="disc" width="466" height="466"></canvas>
+    <div class="statusline">
+      <span class="badge" id="espBadge">ESP: —</span>
+      <span id="espOps">— ops/frame</span>
+      <span>mode: <b id="modeLbl" style="color:var(--accent-glow)">play</b> · <span id="phaseLbl">—</span></span>
+    </div>
+    <div class="legend">
+      <b>Play</b> = mehr Action aus <em>billigen</em> Elementen: radiales Spektrum
+      (<code>FX:</code>), Beat-Puls, Energie-Glühen + ein knappes Partikelfeld.
+      Trackwechsel: die Punkte sammeln sich, formen kurz den Titel und verteilen
+      sich wieder — der echte Text bleibt scharf lesbar. <b>Standby</b> bleibt
+      Flip-Char. Das <b>ESP-Budget</b> zeigt die Zeichen-Last/Frame.
+    </div>
+  </div>
+
+  <div>
+    <h1>Play-State — Action &amp; sauberer Trackwechsel</h1>
+    <p class="sub">Alles unter dem ESP32-S3-Budget. Stell „Ziel-FPS" auf 30, um die
+      echte Geräte-Kadenz zu sehen; halte das Badge auf <b style="color:var(--ok)">grün</b>.</p>
+
+    <div class="controls">
+      <div class="card">
+        <h2>Modus</h2>
+        <div class="btns">
+          <button id="btnPlayMode" class="toggle on">▶ Play</button>
+          <button id="btnStandbyMode" class="toggle">☾ Standby</button>
+          <button id="btnEvent" class="primary">⤳ Track wechseln</button>
+        </div>
+        <div class="row" style="margin-top:14px"><label>energy (manuell)</label>
+          <input id="energy" type="range" min="0" max="100" value="0"><span class="val" id="energyV">auto</span></div>
+      </div>
+
+      <div class="card perf">
+        <h2>Performance (ESP-Budget)</h2>
+        <div class="row"><label>Partikel-Anzahl</label><input id="particles" type="range" min="0" max="1200" value="300"><span class="val" id="particlesV"></span></div>
+        <div class="row"><label>Ziel-FPS (Vorschau)</label><input id="fps" type="range" min="15" max="60" value="30"><span class="val" id="fpsV"></span></div>
+        <p class="note" style="margin:6px 0 0">Richtwert S3: ~<b>350</b> Dots/Frame @30 FPS sind machbar (die Firmware zeichnet heute schon ~84). Grün ≤ 380, Gelb ≤ 650, sonst Rot.</p>
+      </div>
+
+      <div class="card play">
+        <h2>Action (laufender Play)</h2>
+        <div class="row"><label>Spektrum-Stärke</label><input id="spectrum" type="range" min="0" max="100" value="75"><span class="val" id="spectrumV"></span></div>
+        <div class="row"><label>Vol-Ring-Animation</label><input id="volAnim" type="range" min="0" max="100" value="12"><span class="val" id="volAnimV"></span></div>
+        <div class="row"><label>Energie-Glühen</label><input id="glow" type="range" min="0" max="100" value="18"><span class="val" id="glowV"></span></div>
+        <div class="row"><label>Feld-Dichte</label><input id="ambDensity" type="range" min="0" max="100" value="40"><span class="val" id="ambDensityV"></span></div>
+        <div class="row"><label>Feld-Drift</label><input id="ambDrift" type="range" min="0" max="100" value="45"><span class="val" id="ambDriftV"></span></div>
+      </div>
+
+      <div class="card play">
+        <h2>Trackwechsel (Hingucker)</h2>
+        <div class="row"><label>Sammel-Zeit</label><input id="scatterMs" type="range" min="150" max="1200" value="480"><span class="val" id="scatterMsV"></span></div>
+        <div class="row"><label>Form-Zeit</label><input id="formMs" type="range" min="300" max="2000" value="900"><span class="val" id="formMsV"></span></div>
+        <div class="row"><label>Halte-Zeit</label><input id="holdMs" type="range" min="0" max="6000" value="1400"><span class="val" id="holdMsV"></span></div>
+        <div class="row"><label>Verteil-Zeit</label><input id="disperseMs" type="range" min="400" max="3500" value="1500"><span class="val" id="disperseMsV"></span></div>
+        <div class="row"><label>Wolken-Streuung</label><input id="spread" type="range" min="20" max="100" value="42"><span class="val" id="spreadV"></span></div>
+        <div class="row"><label>Form-Blitz</label><input id="flash" type="range" min="0" max="100" value="25"><span class="val" id="flashV"></span></div>
+      </div>
+
+      <div class="card play">
+        <h2>Feinheiten</h2>
+        <div class="row"><label>Punkt-Größe</label><input id="dotR" type="range" min="6" max="22" value="11"><span class="val" id="dotRV"></span></div>
+        <div class="row"><label>Sampling</label><input id="stride" type="range" min="2" max="6" value="3"><span class="val" id="strideV"></span></div>
+        <div class="row"><label>Text-Deckkraft</label><input id="crispen" type="range" min="0" max="100" value="100"><span class="val" id="crispenV"></span></div>
+        <div class="row"><label>Punkt-Atmen</label><input id="shimmer" type="range" min="0" max="100" value="40"><span class="val" id="shimmerV"></span></div>
+        <div class="row"><label>Wolken-Turbulenz</label><input id="turb" type="range" min="0" max="100" value="25"><span class="val" id="turbV"></span></div>
+      </div>
+
+      <div class="card standby">
+        <h2>Standby — Flip-Char + Funkeln + Wetter</h2>
+        <div class="btns" style="margin-bottom:6px"><button id="btnWx">☁ Wetter wechseln</button></div>
+        <div class="row"><label>Tick-Tempo</label><input id="flapTick" type="range" min="30" max="140" value="70"><span class="val" id="flapTickV"></span></div>
+        <div class="row"><label>Zyklen / Zeichen</label><input id="flapCycles" type="range" min="2" max="12" value="5"><span class="val" id="flapCyclesV"></span></div>
+        <div class="row"><label>Stagger</label><input id="flapStagger" type="range" min="0" max="4" value="1"><span class="val" id="flapStaggerV"></span></div>
+        <div class="row"><label>Funkel-Anzahl</label><input id="scintN" type="range" min="0" max="11" value="11"><span class="val" id="scintNV"></span></div>
+        <div class="row"><label>Funkel-Stärke</label><input id="scintOpa" type="range" min="0" max="60" value="23"><span class="val" id="scintOpaV"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const SIZE=466, C=233;
+const VOL_RING_R=218, VOL_DOT_R=4, VOL_DOT_R_DIM=2, VOL_DOT_COUNT=24;
+const PROG_RING_R=192, PROG_SEG=60, PROG_START=135, PROG_SWEEP=270;
+const SPEC_R=170, SPEC_BARS=40;                 // radial spectrum just inside progress
+const TITLE_Y=200, ARTIST_Y=268, TEXT_CY=233;
+const ACCENT='#F0CB7B', ACCENT_GLOW='#FFE6B3', ACCENT_DIM='#3C321E';
+const TEXT_PRIMARY='#F4EFE0', TEXT_SECOND='#A89E89', SRC_SPOTIFY='#1ED760';
+
+const cv=document.getElementById('disc'), ctx=cv.getContext('2d');
+const off=document.createElement('canvas'); off.width=SIZE; off.height=SIZE;
+const octx=off.getContext('2d',{willReadFrequently:true});
+
+const $=id=>document.getElementById(id), P={};
+function bind(id,fmt){ const el=$(id),out=$(id+'V'); const upd=()=>{ P[id]=+el.value; if(out&&fmt) out.textContent=fmt(+el.value); }; el.addEventListener('input',upd); upd(); }
+bind('particles',v=>v); bind('fps',v=>v);
+bind('spectrum',v=>v+'%'); bind('volAnim',v=>v+'%'); bind('glow',v=>v+'%');
+bind('ambDensity',v=>v+'%'); bind('ambDrift',v=>v+'%');
+bind('scatterMs',v=>v+'ms'); bind('formMs',v=>v+'ms'); bind('holdMs',v=>(v/1000).toFixed(1)+'s'); bind('disperseMs',v=>v+'ms');
+bind('spread',v=>v+'%'); bind('flash',v=>v+'%');
+bind('dotR',v=>(v/10).toFixed(1)+'px'); bind('stride',v=>v+'px'); bind('crispen',v=>v+'%'); bind('shimmer',v=>v+'%'); bind('turb',v=>v+'%');
+bind('flapTick',v=>v+'ms'); bind('flapCycles',v=>v); bind('flapStagger',v=>v);
+bind('scintN',v=>v); bind('scintOpa',v=>v+'%');
+
+let energyManual=-1;
+$('energy').addEventListener('input',e=>{ energyManual=+e.target.value/100; $('energyV').textContent=(+e.target.value)+'%'; });
+$('energy').addEventListener('dblclick',()=>{ energyManual=-1; $('energy').value=0; $('energyV').textContent='auto'; });
+let mode='play';
+
+// ── Synthetic music: energy + 16-band spectrum + beat ───────────────────────
+let energyRaw=0, energySmoothed=0, beatPulse=0;
+const spectrum=new Float32Array(16);
+const beatTimes=[0,0.5,1.0,1.5];
+function energyDyn(raw){ let e=(raw-0.35)*2.5; return e<0?0:(e>1.2?1.2:e); }
+function updateAudio(dt,tSec){
+  const bar=tSec%2.0, prevBar=(tSec-dt)%2.0;
+  for(const bt of beatTimes){ if(prevBar<bt && bar>=bt) beatPulse=1; }
+  beatPulse*=Math.pow(0.0009,dt);
+  const swell=0.55+0.18*Math.sin(tSec*0.6)+0.10*Math.sin(tSec*1.7+1);
+  let raw=Math.max(0,Math.min(1,swell+0.30*beatPulse+(Math.random()-0.5)*0.04));
+  energyRaw = (mode==='play') ? raw : energyRaw*Math.pow(0.2,dt);
+  const eff = energyManual>=0 ? energyManual : energyRaw;
+  const a = eff>energySmoothed ? 0.45 : 0.08;
+  energySmoothed += (eff-energySmoothed)*a*(dt*60); energySmoothed=Math.max(0,Math.min(1,energySmoothed));
+  for(let i=0;i<16;i++){ const lowBias=1.0-i/22; let tgt=energySmoothed*100*lowBias*(0.55+0.85*Math.random());
+    if(i<3) tgt+=beatPulse*60; spectrum[i]+=(tgt-spectrum[i])*Math.min(1,dt*11); }
+}
+
+// ════════════ STANDBY — split-flap (port of split_flap.cpp) ═════════════════
+const FLAP_CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
+const rndGlyph=()=>FLAP_CHARS[(Math.random()*FLAP_CHARS.length)|0];
+const isFlapChar=ch=>/[A-Z0-9-]/.test(ch);
+class Flap {
+  constructor(){ this.cur=""; this.disp=""; this.anim=null; }
+  set(target,now){ target=(target||"").toUpperCase();
+    if(target===this.cur && !this.anim){ this.disp=target; return; }
+    const oldLen=this.cur.length,newLen=target.length,positions=Math.max(oldLen,newLen);
+    const reverse=newLen<oldLen,posStart=[],posTicks=[],tgt=[];
+    for(let i=0;i<positions;i++){ tgt[i]=i<newLen?target[i]:' '; posTicks[i]=0; const si=reverse?(positions-1-i):i; posStart[i]=si*P.flapStagger; }
+    this.anim={tgt,positions,newLen,tick:0,posStart,posTicks,last:now,done:false}; this.cur=target; this._render(); }
+  _step(){ const a=this.anim; a.tick++; let allDone=true,buf="";
+    for(let i=0;i<a.positions;i++){ const ch=a.tgt[i];
+      if(!isFlapChar(ch)){ buf+=ch; continue; }
+      if(a.tick<a.posStart[i]){ buf+=rndGlyph(); allDone=false; continue; }
+      if(a.posTicks[i]>=P.flapCycles){ buf+=ch; continue; }
+      buf+=rndGlyph(); a.posTicks[i]++; allDone=false; }
+    this.disp=buf; if(allDone) a.done=true; }
+  _render(){ const a=this.anim; let buf=""; for(let i=0;i<a.positions;i++){ const ch=a.tgt[i]; buf+=isFlapChar(ch)?rndGlyph():ch; } this.disp=buf; }
+  frame(now){ if(!this.anim) return this.disp;
+    while(now-this.anim.last>=P.flapTick && !this.anim.done){ this.anim.last+=P.flapTick; this._step(); }
+    if(this.anim.done){ this.disp=this.cur; this.anim=null; } return this.disp; }
+}
+let hh=14,mm=32,clockStr='14:32',tempStr='18°',condStr='PARTLY CLOUDY',dateStr='FR 06 JUN';
+function advanceClock(){ mm++; if(mm>=60){mm=0;hh=(hh+1)%24;} clockStr=String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
+const STANDBY_LINES=[                                   // layout leaves room for the weather icon at y≈196
+  {flap:new Flap(),get:()=>clockStr,y:100,size:74,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>tempStr, y:272,size:46,col:TEXT_PRIMARY},
+  {flap:new Flap(),get:()=>condStr, y:332,size:22,col:TEXT_SECOND},
+  {flap:new Flap(),get:()=>dateStr, y:380,size:20,col:TEXT_SECOND},
+];
+
+// ── Standby scintillation — port of screen_standby.cpp scint_draw_cb ─────────
+// Hand-placed ambient dots, each an independent sine-modulated alpha. Peaks
+// well below the text so it reads as "alive", not noise.
+const SCINT_POS=[[110,90],[360,85],[220,30],[410,200],[60,210],[380,330],[85,350],[195,430],[330,445],[145,165],[320,250]];
+const scint=SCINT_POS.map((p,i)=>({x:p[0],y:p[1],r:2+(i&1),phase:(i*547)%6000,period:3000+((i*911)%3000)}));
+function drawScint(now){ const N=Math.min(scint.length,P.scintN|0), peak=P.scintOpa/100; let ops=0;
+  for(let i=0;i<N;i++){ const s=scint[i]; const ph=((now+s.phase)%s.period)/s.period, v=0.5+0.5*Math.sin(ph*6.2832), a=peak*v;
+    if(a<0.02) continue; dot(s.x,s.y,s.r,ACCENT,a); ops++; } return ops; }
+
+// ── Weather icons — dot vocabulary, port of screen_standby.cpp ──────────────
+let wxIcon=1; const WX_NAME=['CLEAR','PARTLY CLOUDY','CLOUDY','FOG','RAIN','SNOW','THUNDERSTORM'];
+function roundRectPath(x,y,w,h,r){ ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function wxCloud(cx,cy,a){ dot(cx-17,cy-1,8,ACCENT,a); dot(cx-6,cy-8,10,ACCENT,a); dot(cx+7,cy-6,10,ACCENT,a); dot(cx+17,cy+1,8,ACCENT,a);
+  ctx.globalAlpha=a; ctx.fillStyle=ACCENT; ctx.beginPath(); roundRectPath(cx-20,cy+1,40,10,5); ctx.fill(); }
+function drawWeather(now){ const cx=C,cy=196,t=now*0.001; let ops=0;
+  const rays=(sx,sy,R,baseO,sr)=>{ for(let i=0;i<8;i++){ const a=i*45*Math.PI/180; dot(sx+Math.cos(a)*R,sy+Math.sin(a)*R,sr,ACCENT,baseO+0.15*Math.sin(t*2+i*0.6)); ops++; } };
+  switch(wxIcon){
+    case 0: dot(cx,cy,9,ACCENT,1); rays(cx,cy,28,0.75,3.5); ops++; break;
+    case 1: { const sx=cx-22,sy=cy-12; dot(sx,sy,7,ACCENT,1); rays(sx,sy,19,0.6,2.4); wxCloud(cx+10+2*Math.sin(t*0.4),cy+8,0.9); ops+=6; break; }
+    case 2: case 3: { wxCloud(cx+4*Math.sin(t*0.35),cy,1); wxCloud(cx+5*Math.sin(t*0.25+1.5)-14,cy-12,0.5); ops+=12; break; }
+    case 4: { wxCloud(cx,cy-8,1); const xo=[-12,0,12]; for(let i=0;i<3;i++){ const ph=((t/1.4)+i*0.27)%1,yo=14+18*ph,a=ph>0.85?(1-ph)/0.15:1; dot(cx+xo[i],cy+yo,3,ACCENT,a); ops++; } ops+=6; break; }
+    case 5: { wxCloud(cx,cy-8,1); const xo=[-14,0,14]; for(let i=0;i<3;i++){ dot(cx+xo[i],cy+22+2*Math.sin(t*0.8+i*1.7),2.5,ACCENT,1); ops++; } ops+=6; break; }
+    case 6: { wxCloud(cx,cy-8,1); const cyc=now%3200,bo=cyc<120?1-(cyc/120)*0.6:0.4; dot(cx+2,cy+14,3,ACCENT,bo); dot(cx-3,cy+18,3,ACCENT,bo); dot(cx+2,cy+22,3,ACCENT,bo); ops+=9; break; }
+  }
+  return ops;
+}
+function setWeather(i,now){ wxIcon=((i%7)+7)%7; condStr=WX_NAME[wxIcon]; STANDBY_LINES[2].flap.set(condStr,now); }
+
+function standbyFlipAll(now){ for(const L of STANDBY_LINES){ L.flap.cur=""; L.flap.set(L.get(),now); } }
+function standbyTick(now){ advanceClock(); STANDBY_LINES[0].flap.set(clockStr,now); }
+function drawStandby(now){
+  let ops=drawScint(now) + drawWeather(now);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const L of STANDBY_LINES){ const txt=L.flap.frame(now); const fs=fit(ctx,txt,L.size); ctx.font=lineFont(fs);
+    ctx.globalAlpha=1; ctx.fillStyle=L.col; ctx.fillText(txt,C,L.y); }
+  dot(C,438,3,ACCENT,0.35+0.35*Math.sin(now*0.0016));
+  $('phaseLbl').textContent = STANDBY_LINES.some(L=>L.flap.anim)?'flip':'idle';
+  drawnOps = ops + STANDBY_LINES.length + 1;
+}
+
+// ════════════ PLAY — particle materialize + action ══════════════════════════
+const TRACKS=[
+  ['ONCE IN A LIFETIME','TALKING HEADS'], ['XTAL','APHEX TWIN'], ['MIDNIGHT CITY','M83'],
+  ['TEARDROP','MASSIVE ATTACK'], ['DAS MODEL','KRAFTWERK'], ['STROBE','DEADMAU5'],
+];
+let trackIdx=0, title=TRACKS[0][0], artist=TRACKS[0][1];
+function lineFont(px){ return px+"px 'Departure Mono','Space Mono',monospace"; }
+function fit(c,t,base){ let fs=base; c.font=lineFont(fs); while(c.measureText(t).width>404 && fs>14){ fs-=2; c.font=lineFont(fs);} return fs; }
+function playLines(){ return [ {t:title,y:TITLE_Y,size:34,col:TEXT_PRIMARY,a:1.0}, {t:artist,y:ARTIST_Y,size:26,col:TEXT_SECOND,a:0.92} ]; }
+function sampleText(stride){
+  octx.clearRect(0,0,SIZE,SIZE); octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  for(const L of playLines()){ const fs=fit(octx,L.t,L.size); octx.font=lineFont(fs); octx.fillText(L.t,C,L.y); }
+  const img=octx.getImageData(0,0,SIZE,SIZE).data, pts=[];
+  for(let y=0;y<SIZE;y+=stride) for(let x=0;x<SIZE;x+=stride)
+    if(img[(y*SIZE+x)*4+3]>110) pts.push({x:x+(Math.random()-0.5)*stride, y:y+(Math.random()-0.5)*stride});
+  for(let i=pts.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const tmp=pts[i]; pts[i]=pts[j]; pts[j]=tmp; }
+  return pts;
+}
+const POOL=1200, part=[];
+function cloudHome(){ const ang=Math.random()*6.2832,rr=Math.sqrt(Math.random()); const rx=150*(P.spread/100)+40,ry=84*(P.spread/100)+24; return {x:C+Math.cos(ang)*rx*rr,y:TEXT_CY+Math.sin(ang)*ry*rr}; }
+function ambientHome(){ const R=PROG_RING_R-24; for(;;){ const x=Math.random()*SIZE,y=Math.random()*SIZE; const d=Math.hypot(x-C,y-C); if(d<R&&d>26) return {x,y}; } }
+for(let i=0;i<POOL;i++){ const h=cloudHome(),am=ambientHome();
+  part.push({ x:h.x,y:h.y,fx:h.x,fy:h.y,chx:h.x,chy:h.y,tx:h.x,ty:h.y,ax:am.x,ay:am.y,
+    active:false, base:0.55+Math.random()*0.45, glow:Math.random()<0.16, athr:Math.pow(Math.random(),1.3),
+    da:0, aper:2.5+Math.random()*4, sx:0.5+Math.random()*1.6, sy:0.5+Math.random()*1.6, ph:Math.random()*6.2832 }); }
+function assignTargets(pts,N){ for(let i=0;i<POOL;i++){ const p=part[i];
+  if(i<N && i<pts.length){ p.active=true; p.tx=pts[i].x; p.ty=pts[i].y; }
+  else { p.active=false; p.tx=p.chx; p.ty=p.chy; } } }   // inactive rest at cloud, fade out
+function snapshotFrom(){ for(const p of part){ p.fx=p.x; p.fy=p.y; } }
+$('spread').addEventListener('change',()=>{ for(const p of part){ const h=cloudHome(); p.chx=h.x; p.chy=h.y; } });
+
+let phase='ambient', phaseStart=0, pp=1, strideCache=-1, pendingApply=null, flashStart=-1, drawnOps=0;
+let gdt=0.016, solidDa=1;   // gdt = last frame dt; solidDa = low-passed solid-text alpha (kills the snap)
+function smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
+function triggerReform(applyFn){ pendingApply=applyFn||null; snapshotFrom(); phase='gather'; phaseStart=performance.now(); }
+let volume=62, progress=0.32;
+
+function dot(x,y,r,color,alpha){ if(alpha<=0.012||r<=0) return; ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
+const volPos=[]; for(let i=0;i<VOL_DOT_COUNT;i++){ const ang=(i/VOL_DOT_COUNT)*6.2832-Math.PI/2; volPos.push([C+Math.cos(ang)*VOL_RING_R,C+Math.sin(ang)*VOL_RING_R]); }
+function drawVolRing(E,tMs){ const lit=Math.round(volume*VOL_DOT_COUNT/100),PPD=6.2832/24;
+  // va=0 → fully static ring (no wobble, no beat kick, constant opacity).
+  const va=P.volAnim/100, kick=beatPulse*va;
+  for(let i=0;i<VOL_DOT_COUNT;i++){ if(i===0) continue; const [x,y]=volPos[i];
+    if(i<lit){ const wob=1+va*(E*0.65*Math.sin(tMs*0.005+i*PPD))+kick*0.5; dot(x,y,Math.max(2,VOL_DOT_R*wob),kick>0.4?ACCENT_GLOW:ACCENT,Math.min(255,217+va*E*38)/255); }
+    else dot(x,y,VOL_DOT_R_DIM,ACCENT_DIM,160/255); } }
+function drawProgress(){ for(let i=0;i<PROG_SEG;i++){ const frac=i/(PROG_SEG-1),a=(PROG_START+frac*PROG_SWEEP)*Math.PI/180;
+  const x=C+Math.cos(a)*PROG_RING_R,y=C+Math.sin(a)*PROG_RING_R,on=frac<=progress; dot(x,y,on?1.6:1.2,on?ACCENT:ACCENT_DIM,on?0.95:0.5); } }
+function drawSourceMarker(){ dot(C,18,5,SRC_SPOTIFY,0.95); }
+function drawSpectrum(now){ const k=P.spectrum/100; if(k<=0) return; let ops=0;
+  ctx.lineCap='round';
+  for(let i=0;i<SPEC_BARS;i++){ const band=spectrum[i<16?i:(31-(i-16))%16]; const lvl=Math.min(1,(band/100));
+    if(lvl<0.04) continue; const ang=(i/SPEC_BARS)*6.2832-Math.PI/2; const len=(4+lvl*30)*k;
+    const x1=C+Math.cos(ang)*SPEC_R, y1=C+Math.sin(ang)*SPEC_R, x2=C+Math.cos(ang)*(SPEC_R-len), y2=C+Math.sin(ang)*(SPEC_R-len);
+    ctx.globalAlpha=(0.22+0.6*lvl)*k; ctx.strokeStyle=lvl>0.72?ACCENT_GLOW:ACCENT; ctx.lineWidth=2.6;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ops++; }
+  return ops;
+}
+function drawGlow(E,now){ const k=P.glow/100; if(k<=0) return 0; const p=Math.min(1,E*0.55+beatPulse*0.25);
+  // a couple of stacked translucent circles ≈ a cheap, subtle halo (no
+  // full-screen gradient). Kept gentle — the centre shouldn't pulse hard.
+  dot(C,C, 24+p*52, ACCENT, 0.035*k*p);
+  dot(C,C, 12+p*30, ACCENT_GLOW, 0.045*k*p);
+  return 2;
+}
+function drawSolidText(alpha){ if(alpha<=0.02) return 0; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const L of playLines()){ const fs=fit(ctx,L.t,L.size); ctx.font=lineFont(fs); ctx.globalAlpha=alpha*L.a; ctx.fillStyle=L.col; ctx.fillText(L.t,C,L.y); }
+  return 2; }
+function ambientAlpha(p,fieldE,now){ const lvl=(P.ambDensity/100)*(0.30+0.70*fieldE); if(p.athr>lvl) return 0;
+  const tw=0.45+0.55*Math.sin(now*0.001*(6.2832/p.aper)+p.ph); return p.base*(0.12+0.55*fieldE)*tw; }
+function drawParticles(E,now){ const N=P.particles|0; if(N<=0) return 0;
+  const turbMax=(P.turb/100)*14, r=(P.dotR/10), shimmer=(P.shimmer/100)*E*2.4, drift=(P.ambDrift/100)*7;
+  const fieldE=Math.min(1,E), cloudF=phase==='gather'?pp:(phase==='form'?1-pp:0); let ops=0;
+  const ak=1-Math.exp(-gdt*10);   // alpha low-pass → no pops at phase boundaries
+  for(let i=0;i<N;i++){ const p=part[i]; let bx,by,ta;
+    if(phase==='gather'){ bx=p.fx+(p.chx-p.fx)*pp; by=p.fy+(p.chy-p.fy)*pp; ta=p.base*0.55; }
+    else if(phase==='form'){ bx=p.fx+(p.tx-p.fx)*pp; by=p.fy+(p.ty-p.fy)*pp; ta=p.active?(0.30+0.70*pp)*p.base:(1-pp)*0.45*p.base; }
+    else if(phase==='hold'){ bx=p.tx; by=p.ty; ta=p.active?p.base*0.85:0; }
+    else if(phase==='disperse'){ bx=p.fx+(p.ax-p.fx)*pp; by=p.fy+(p.ay-p.fy)*pp; const tA=p.active?p.base*0.85:0,aA=ambientAlpha(p,fieldE,now); ta=tA*(1-pp)+aA*pp; }
+    else { bx=p.ax; by=p.ay; ta=ambientAlpha(p,fieldE,now); }
+    if(cloudF>0){ bx+=Math.sin(now*0.001*p.sx+p.ph)*cloudF*turbMax; by+=Math.cos(now*0.001*p.sy+p.ph)*cloudF*turbMax; }
+    if(phase==='hold'||phase==='disperse'||phase==='ambient'){ bx+=Math.cos(now*0.0017+p.ph)*shimmer; by+=Math.sin(now*0.0017+p.ph*1.3)*shimmer;
+      if(phase==='ambient'){ bx+=Math.sin(now*0.0004*p.sx+p.ph)*drift; by+=Math.cos(now*0.0004*p.sy+p.ph)*drift; } }
+    p.da += (ta - p.da)*ak;
+    if(p.da>0.012){ dot(bx,by,r,p.glow?ACCENT_GLOW:ACCENT,p.da); ops++; } }
+  return ops;
+}
+function drawFlash(now){ if(flashStart<0||P.flash<=0) return 0; const t=(now-flashStart)/560; if(t>=1){ flashStart=-1; return 0; }
+  // bell easing (0 at both ends) so the ring eases in/out instead of popping.
+  const r=70+t*150, bell=Math.sin(t*Math.PI); ctx.globalAlpha=bell*0.38*(P.flash/100); ctx.strokeStyle=ACCENT_GLOW; ctx.lineWidth=2.0;
+  ctx.beginPath(); ctx.arc(C,C,r,0,6.2832); ctx.stroke(); return 1; }
+
+function drawPlay(now){
+  const E=energyDyn(energySmoothed), e=now-phaseStart;
+  if(phase==='gather'){ pp=smooth(e/P.scatterMs);
+    if(e>=P.scatterMs){ if(pendingApply){ pendingApply(); pendingApply=null; } assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride; snapshotFrom(); phase='form'; phaseStart=now; progress=0; } }
+  else if(phase==='form'){ pp=smooth(e/P.formMs); if(e>=P.formMs){ phase='hold'; phaseStart=now; flashStart=now; } }
+  else if(phase==='hold'){ pp=1; if(e>=P.holdMs){ snapshotFrom(); phase='disperse'; phaseStart=now; } }
+  else if(phase==='disperse'){ pp=smooth(e/P.disperseMs); if(e>=P.disperseMs){ phase='ambient'; phaseStart=now; } }
+  else { pp=1; if(P.stride!==strideCache){ assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride; } }
+  $('phaseLbl').textContent=phase; progress=Math.min(1,progress+0.0008);
+
+  let ops=0;
+  ops+=drawGlow(E,now);
+  ops+=drawParticles(E,now);
+  ops+=drawSpectrum(now);
+  drawProgress(); drawVolRing(E,now); drawSourceMarker(); ops+=24+PROG_SEG+1;
+  ops+=drawFlash(now);
+  // Solid-text alpha: fade old out across the whole gather, fade new in across
+  // the back half of form — then low-pass it so neither end snaps.
+  let solidTarget;
+  if(phase==='gather') solidTarget=1-smooth(Math.min(1,e/P.scatterMs));
+  else if(phase==='form') solidTarget=smooth(Math.max(0,(pp-0.40)/0.60));
+  else solidTarget=1;
+  solidDa += (solidTarget - solidDa)*(1-Math.exp(-gdt*9));
+  ops+=drawSolidText(solidDa*(P.crispen/100));
+  drawnOps=ops;
+}
+
+// ── Mode + events ───────────────────────────────────────────────────────────
+$('btnEvent').addEventListener('click',()=>{ if(mode==='play') triggerReform(()=>{ trackIdx=(trackIdx+1)%TRACKS.length; title=TRACKS[trackIdx][0]; artist=TRACKS[trackIdx][1]; progress=0; }); else standbyTick(performance.now()); });
+function setMode(m){ if(mode===m) return; mode=m; $('btnPlayMode').classList.toggle('on',m==='play'); $('btnStandbyMode').classList.toggle('on',m==='standby');
+  $('btnEvent').textContent=m==='play'?'⤳ Track wechseln':'⤳ Minute +1'; $('modeLbl').textContent=m;
+  if(m==='standby') standbyFlipAll(performance.now()); else triggerReform(null); }
+$('btnPlayMode').addEventListener('click',()=>setMode('play'));
+$('btnStandbyMode').addEventListener('click',()=>setMode('standby'));
+$('btnWx').addEventListener('click',()=>{ setMode('standby'); setWeather(wxIcon+1,performance.now()); });
+setInterval(()=>{ if(mode==='standby' && !STANDBY_LINES.some(L=>L.flap.anim)) standbyTick(performance.now()); }, 7000);
+
+// ── ESP-budget badge ────────────────────────────────────────────────────────
+function updateBadge(){ const b=$('espBadge'); const ops=drawnOps|0; $('espOps').textContent=ops+' ops/frame @ '+P.fps+' FPS';
+  let v,c; if(ops<=380){ v='ESP: OK'; c='var(--ok)'; } else if(ops<=650){ v='ESP: grenzwertig'; c='var(--warn)'; } else { v='ESP: zu viel'; c='var(--bad)'; }
+  b.textContent=v; b.style.color=c; b.style.borderColor=c; }
+
+// ── Loop (throttled to target FPS to preview device cadence) ─────────────────
+let last=performance.now(), lastDraw=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const interval=1000/P.fps; if(now-lastDraw<interval) return; const dt=Math.min(0.05,(now-lastDraw)/1000); lastDraw=now; gdt=dt;
+  updateAudio(dt,now/1000);
+  ctx.clearRect(0,0,SIZE,SIZE); ctx.globalAlpha=1;
+  ctx.save(); ctx.beginPath(); ctx.arc(C,C,C,0,6.2832); ctx.clip(); ctx.fillStyle='#000'; ctx.fillRect(0,0,SIZE,SIZE);
+  if(mode==='play') drawPlay(now); else drawStandby(now);
+  ctx.restore(); ctx.globalAlpha=1; updateBadge();
+}
+function init(){ assignTargets(sampleText(P.stride),P.particles|0); strideCache=P.stride;
+  for(const p of part){ p.x=p.chx; p.y=p.chy; p.fx=p.chx; p.fy=p.chy; } phase='form'; phaseStart=performance.now(); requestAnimationFrame(frame); }
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(init); else init();
+</script>
+</body>
+</html>
