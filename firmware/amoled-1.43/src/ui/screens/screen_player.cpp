@@ -945,57 +945,31 @@ void update() {
         State::clear_dirty(State::Dirty::VOLUME);
     }
     if (State::is_dirty(State::Dirty::PROGRESS)) {
-        lv_obj_invalidate(prog_layer);
+        // Only repaint when a progress DOT actually changes (≈ every dur/60 s),
+        // not on every position poll — prog_layer is screen-sized, so each
+        // invalidate re-runs the halftone draw underneath it. Gating this keeps
+        // the static halftone from being redrawn several times a second.
+        static int last_prog_lit = -1;
+        int pct = 0;
+        if (State::app.dur_ms > 1) {
+            uint32_t pos = State::app.pos_ms;
+            if (pos > State::app.dur_ms) pos = State::app.dur_ms;
+            pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
+        }
+        int lit = (pct * 60 + 50) / 100;
+        if (lit != last_prog_lit) {
+            last_prog_lit = lit;
+            lv_obj_invalidate(prog_layer);
+        }
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // Source-marker "breathing" — the ONLY per-frame animation now. The marker
-    // is a small object, so set_style_* invalidates just its (transformed) box —
-    // cheap, unlike invalidating a screen-sized ring layer every frame (which is
-    // what juddered the S3). ~30 Hz is plenty for a soft pulse.
-    //
-    // Asymmetric envelope on energy_smoothed: fast attack (0.45) on a louder
-    // peak than currently rendered, slow release (0.08) on the way down —
-    // peak-meter response (capture_peak from the LV: field) so transients punch.
-    // When state != PLAYING the target collapses to 0 and the loop keeps running
-    // cheaply until it decays, so the marker fades back to idle, not freezes.
-    const bool keep_animating =
-        (State::app.state == State::PLAY_PLAYING) ||
-        (energy_smoothed > 0.01f) ||
-        (millis() < source_pulse_until);     // and through a source-switch pulse
-    if (keep_animating) {
-        uint32_t now = millis();
-        if (now - last_energy_render >= 33) {
-            last_energy_render = now;
-            const float target = (State::app.state == State::PLAY_PLAYING)
-                               ? State::app.energy : 0.0f;
-            const float alpha  = (target > energy_smoothed) ? 0.45f : 0.08f;
-            energy_smoothed += (target - energy_smoothed) * alpha;
-            if (source_marker && !in_standby && !in_shutdown) {
-                const float E_dyn = energy_dyn(energy_smoothed);
-                const float wob   = sinf((float)now * 0.005f);  // -1..+1
-                const float p     = E_dyn * wob;                // -E_dyn..+E_dyn (≤ 1.2)
-                int o_i = 200 + (int)(p * 55.0f);
-                if (o_i < 0)   o_i = 0;
-                if (o_i > 255) o_i = 255;
-                lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
-                int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak
-                // One-shot source-switch pulse blended on top — ease-out ramp
-                // from +50 % size back to baseline over 300 ms ("click" feedback
-                // when MA / Spotify hands off the speaker).
-                if (now < source_pulse_until) {
-                    float remaining = (float)(source_pulse_until - now)
-                                    / (float)SOURCE_PULSE_MS;     // 1.0 → 0.0
-                    scale += (int)(remaining * 128.0f);           // +50 % at start
-                }
-                lv_obj_set_style_transform_scale(source_marker, scale, 0);
-            }
-        }
-    }
-    // Drop the legacy spectrum / energy dirty bits — they no longer drive
-    // anything. ENERGY is consumed by the keep_animating loop above when
-    // playing; SPECTRUM is a NOP since spectrum_bands has been disabled in
-    // every active profile.
+    // NO per-frame animation on the player. The marker used to "breathe" with
+    // the music at 30 Hz, but it sits ABOVE the halftone layer — its small
+    // per-frame invalidate forces LVGL to re-run halftone_draw_cb (clipped, but
+    // still looping every grid cell) 30×/s → judder. The halftone is a static
+    // background; the player only repaints on dirty events (cover/volume/
+    // progress/source). Energy/spectrum bits are dropped, unused.
     State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
 
     // CenterStage evaluates its own triggers from State. When active, the
