@@ -53,6 +53,37 @@ HELP
 chmod 0755 "$PERSIST_HELPER"
 log_ok "wrote $PERSIST_HELPER"
 
+# ─── Spotify device-name helper ──────────────────────────────────────────────
+# go-librespot's device_name lives in its config.yml under the user's home,
+# which the bridge can't write (ProtectHome=read-only). This root helper sets
+# the device_name line + restarts go-librespot so the Spotify Connect name
+# follows a runtime rename (friendly_name override). The bridge calls it on
+# startup and whenever the effective name changes. Name is sanitised + capped.
+log_step "installing beatbird-set-spotify-name helper"
+SPOTIFY_NAME_HELPER=/usr/local/sbin/beatbird-set-spotify-name
+cat > "$SPOTIFY_NAME_HELPER" <<'HELP'
+#!/bin/bash
+set -e
+USER_HOME=$(getent passwd "__BB_USER__" | cut -d: -f6)
+CONF="$USER_HOME/.config/go-librespot/config.yml"
+NAME="$1"
+[ -n "$NAME" ] || { echo "usage: $0 <device-name>" >&2; exit 2; }
+[ -f "$CONF" ] || { echo "no go-librespot config at $CONF" >&2; exit 1; }
+# Sanitise: drop quotes/backslashes/control chars, cap length — this string is
+# written into the YAML and passed from the (authenticated) web UI.
+SAFE=$(printf '%s' "$NAME" | tr -d '"\\' | tr -dc '[:print:]' | cut -c1-40)
+[ -n "$SAFE" ] || { echo "empty after sanitise" >&2; exit 2; }
+if grep -q "^device_name: \"$SAFE\"\$" "$CONF"; then
+  echo "device_name already \"$SAFE\" — no change"; exit 0
+fi
+sed -i 's|^device_name:.*|device_name: "'"$SAFE"'"|' "$CONF"
+systemctl restart go-librespot
+echo "device_name set to \"$SAFE\", go-librespot restarted"
+HELP
+sed -i "s/__BB_USER__/$BEATBIRD_USER/" "$SPOTIFY_NAME_HELPER"
+chmod 0755 "$SPOTIFY_NAME_HELPER"
+log_ok "wrote $SPOTIFY_NAME_HELPER"
+
 log_step "installing sudoers rule for web UI system buttons"
 
 SUDOERS_FILE=/etc/sudoers.d/beatbird-web
@@ -78,6 +109,7 @@ $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl stop snapclient
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff
 $BEATBIRD_USER ALL=(root) NOPASSWD: /usr/local/sbin/beatbird-persist-overrides
+$BEATBIRD_USER ALL=(root) NOPASSWD: /usr/local/sbin/beatbird-set-spotify-name *
 EOF
 chmod 0440 "$SUDOERS_FILE"
 

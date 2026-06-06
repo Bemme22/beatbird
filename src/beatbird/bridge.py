@@ -363,6 +363,10 @@ class BeatBirdBridge:
         # file's mtime once per status tick (every 5 s) and re-apply on
         # change — no signal handling, no service restart needed.
         self._overrides_mtime: float | None = settings_overrides.mtime()
+        # Last device_name pushed to go-librespot (Spotify Connect). None until
+        # the first _apply_overrides; the change-guard there avoids re-bouncing
+        # the service every poll. Must be set before the initial apply below.
+        self._spotify_name_applied: str | None = None
         self._apply_overrides(settings_overrides.load(), initial=True)
 
         # ── Standby ──
@@ -1259,6 +1263,36 @@ class BeatBirdBridge:
                 set_adapter_alias(self._friendly_name(data))
             except Exception as e:
                 log.debug("overrides: bt alias update failed: %s", e)
+
+        # Spotify Connect (go-librespot) device name — follow the rename too.
+        # go-librespot's config is outside the bridge sandbox, so a root helper
+        # writes the device_name + restarts the service. The helper no-ops when
+        # the name already matches, so the initial pass won't bounce the session
+        # unless a persisted rename actually differs from the rendered config.
+        # Bridge-side guard avoids spawning sudo on every override poll.
+        eff_name = self._friendly_name(data)
+        if eff_name and eff_name != self._spotify_name_applied:
+            self._spotify_name_applied = eff_name
+            self._sync_spotify_name(eff_name)
+
+    def _sync_spotify_name(self, name: str) -> None:
+        """Set go-librespot's device_name to `name` via the NOPASSWD root helper,
+        off the poll thread (it restarts go-librespot, ~1-2 s). Best-effort —
+        a missing helper / sudo rule just logs and leaves the name unchanged."""
+        def _worker():
+            try:
+                r = subprocess.run(
+                    ["sudo", "-n", "/usr/local/sbin/beatbird-set-spotify-name", name],
+                    capture_output=True, text=True, timeout=25, check=False)
+                if r.returncode == 0:
+                    log.info("spotify device name → %r (%s)", name, r.stdout.strip())
+                else:
+                    log.warning("spotify name helper rc=%d: %s",
+                                r.returncode, (r.stderr or r.stdout).strip())
+            except Exception as e:
+                log.debug("spotify name sync failed: %s", e)
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="spotify-name").start()
 
     def _poll_overrides(self) -> None:
         """File-mtime check, applies if changed. Called from main loop
