@@ -55,7 +55,7 @@ display:
   accent_alert:   "C73E2C"   # rust
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback subs; firmware uses LV:-driven energy ring instead
   cover_background:
-    enabled: true        # halftone: Pi sends a 39×39 RGB grid (HT:), firmware draws a cheap dot field — replaces the heavy 466² JPEG composite that used to stutter
+    enabled: false       # album cover abandoned — animating it judders on the S3 (no 2D GPU), static competed with the title scroll. Clean profile-themed UI instead. HT: transport stays dormant if we revisit.
 
 hardware:
   power_button:
