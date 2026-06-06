@@ -274,8 +274,14 @@ static inline float energy_dyn(float raw) {
 // Values tuned in docs/mockups/player-halftone.html.
 static constexpr float HT_OPACITY     = 0.69f;   // global background presence
 static constexpr float HT_SATURATION  = 1.27f;   // push toward the cover's own colours
-static constexpr float HT_CENTRE_FADE = 0.46f;   // dim near the centre so the text reads
+static constexpr float HT_CENTRE_FADE = 0.55f;   // dim near the centre so the text reads
 static constexpr int   HT_FADE_R      = 150;     // px radius of that centre freistellung
+// Outer fade: the halftone is a central disc that fades out between OUTER_R and
+// EDGE_R, leaving the vol ring (r=218) on near-black and the progress ring
+// (r=192) in the fade tail — so both read clearly instead of competing with the
+// dot field. Beyond EDGE_R nothing is drawn.
+static constexpr float HT_OUTER_R     = 178.0f;
+static constexpr float HT_EDGE_R      = 206.0f;
 
 static void halftone_draw_cb(lv_event_t *e) {
     const uint8_t *grid = Proto::halftone_data();
@@ -283,8 +289,7 @@ static void halftone_draw_cb(lv_event_t *e) {
     if (!grid || n < 4) return;
     lv_layer_t *layer = lv_event_get_layer(e);
     const float cell = (float)(Theme::CENTER * 2) / (float)n;   // ≈ 12 px @ n=39
-    const int   R    = Theme::CENTER - 4;
-    const int   Rsq  = R * R;
+    const int   Rsq  = (int)(HT_EDGE_R * HT_EDGE_R);
     for (int gy = 0; gy < n; gy++) {
         for (int gx = 0; gx < n; gx++) {
             const uint8_t *p = grid + ((size_t)gy * n + gx) * 3;
@@ -308,10 +313,14 @@ static void halftone_draw_cb(lv_event_t *e) {
             float rad = 0.5f + b * (cell * 0.42f);
             float rmax = cell * 0.5f;
             if (rad > rmax) rad = rmax;
-            // centre text-freistellung: fade dots out toward the middle
             float dist = sqrtf((float)d2);
+            // centre text-freistellung: fade dots out toward the middle
             float cfade = 1.0f - HT_CENTRE_FADE * (dist < HT_FADE_R ? (1.0f - dist / HT_FADE_R) : 0.0f);
-            float a = HT_OPACITY * (0.25f + 0.85f * b) * cfade;
+            // outer fade: clear the ring band at the edge
+            float ofade = (dist <= HT_OUTER_R) ? 1.0f
+                        : (dist >= HT_EDGE_R)  ? 0.0f
+                        : 1.0f - (dist - HT_OUTER_R) / (HT_EDGE_R - HT_OUTER_R);
+            float a = HT_OPACITY * (0.25f + 0.85f * b) * cfade * ofade;
             int o = (int)(a * 255.0f);
             if (o < 3) continue;
             if (o > 255) o = 255;
@@ -328,13 +337,13 @@ static void vol_draw_cb(lv_event_t *e) {
     // never per-frame. Animating this screen-sized layer every frame (the old
     // energy wobble + volume wave) is exactly what juddered the S3; the energy
     // pulse now lives in the small source-marker instead.
-    // Dezent: lit ring lowered 217→150, unlit 160→90 so it reads as a quiet
-    // edge indicator against the halftone, not a competing bright ring.
+    // Sits on the near-black outer band (halftone fades before r=206), so it
+    // reads clearly again — lit 210, unlit 130.
     for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
         if (i < lit)
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)150);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)210);
         else
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)90);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)130);
     }
 }
 
@@ -347,12 +356,12 @@ static void prog_draw_cb(lv_event_t *e) {
         prog_pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
     }
     int lit = (prog_pct * 60 + 50) / 100;
-    // Dezent: lit 255→170, unlit 120→70 — a faint progress stipple, not a
-    // hard bright arc over the halftone.
+    // In the halftone's fade tail (r=192) — lit 210, unlit 110 so the progress
+    // stipple stays readable.
     for (int i = 0; i < 60; i++) {
         bool is_lit  = (i < lit);
         lv_color_t c = is_lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = is_lit ? (lv_opa_t)170 : (lv_opa_t)70;
+        lv_opa_t   o = is_lit ? (lv_opa_t)210 : (lv_opa_t)110;
         draw_dot(layer, prog_x[i], prog_y[i], 2, c, o);
     }
 }
