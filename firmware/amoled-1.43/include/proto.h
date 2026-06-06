@@ -57,6 +57,7 @@ void handle_palette_line(const char *line);       // PAL:rrggbb
 void handle_boot_line(const char *line);          // BOOT:stage|progress
 void handle_weather_line(const char *line);       // WX:t=...|c=...|h=...|l=...
 void handle_cover_line(const char *body);         // IMG:start / IMG:N:base64 / IMG:end
+void handle_halftone_line(const char *body);      // HT:start|n=NN / HT:N:base64 / HT:end
 void handle_toast_line(const char *body);         // TOAST:<duration_ms>:<text>
 void handle_legacy_line(const char *line);        // VOL: / STATE: / SOURCE:
 
@@ -64,6 +65,13 @@ void handle_legacy_line(const char *line);        // VOL: / STATE: / SOURCE:
 // background lv_image source on Dirty::COVER.
 const uint8_t *cover_data();
 size_t         cover_size();
+
+// Halftone-cover RX state — the Pi pre-downsamples the cover to an n×n RGB
+// grid (no JPEG decode on the ESP); screen_player draws it as a dot field on
+// Dirty::COVER. halftone_data() is row-major RGB (n*n*3 bytes), or nullptr if
+// no grid has arrived. halftone_n() is the grid dimension (0 = none).
+const uint8_t *halftone_data();
+int            halftone_n();
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 

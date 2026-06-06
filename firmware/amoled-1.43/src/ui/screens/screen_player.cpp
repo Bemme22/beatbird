@@ -55,9 +55,8 @@ namespace ScreenPlayer {
 
 // ─── LVGL objects ───────────────────────────────────────────────────────────
 
-static lv_obj_t *scr           = nullptr;
-static lv_obj_t *cover_img     = nullptr;   // album-art background, z-bottom
-static lv_image_dsc_t cover_dsc = {};
+static lv_obj_t *scr            = nullptr;
+static lv_obj_t *halftone_layer = nullptr;  // album-art bg as Pi-downsampled dot field, z-bottom
 
 // Two-phase transition state for title/artist. For long text that needs
 // to scroll, a single-phase flap looks like a 1 s freeze of the rolling
@@ -269,6 +268,58 @@ static inline float energy_dyn(float raw) {
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
+// Halftone cover — the Pi-downsampled n×n RGB grid (HT: protocol) drawn as a
+// dot field. STATIC: invalidated only on Dirty::COVER (a track change), never
+// per frame — n×n ≈ 1500 dots once per song is cheap; per-frame would judder.
+// Values tuned in docs/mockups/player-halftone.html.
+static constexpr float HT_OPACITY     = 0.69f;   // global background presence
+static constexpr float HT_SATURATION  = 1.27f;   // push toward the cover's own colours
+static constexpr float HT_CENTRE_FADE = 0.46f;   // dim near the centre so the text reads
+static constexpr int   HT_FADE_R      = 150;     // px radius of that centre freistellung
+
+static void halftone_draw_cb(lv_event_t *e) {
+    const uint8_t *grid = Proto::halftone_data();
+    int n = Proto::halftone_n();
+    if (!grid || n < 4) return;
+    lv_layer_t *layer = lv_event_get_layer(e);
+    const float cell = (float)(Theme::CENTER * 2) / (float)n;   // ≈ 12 px @ n=39
+    const int   R    = Theme::CENTER - 4;
+    const int   Rsq  = R * R;
+    for (int gy = 0; gy < n; gy++) {
+        for (int gx = 0; gx < n; gx++) {
+            const uint8_t *p = grid + ((size_t)gy * n + gx) * 3;
+            int r8 = p[0], g8 = p[1], b8 = p[2];
+            float b = (r8 * 0.30f + g8 * 0.59f + b8 * 0.11f) / 255.0f;
+            if (b < 0.05f) continue;
+            int cx = (int)((gx + 0.5f) * cell);
+            int cy = (int)((gy + 0.5f) * cell);
+            int dx = cx - Theme::CENTER, dy = cy - Theme::CENTER;
+            int d2 = dx * dx + dy * dy;
+            if (d2 > Rsq) continue;                            // mask to the round disc
+            // saturate toward the pixel colour
+            float gr = (r8 + g8 + b8) / 3.0f;
+            int rr = (int)(gr + (r8 - gr) * HT_SATURATION);
+            int gg = (int)(gr + (g8 - gr) * HT_SATURATION);
+            int bb = (int)(gr + (b8 - gr) * HT_SATURATION);
+            rr = rr < 0 ? 0 : (rr > 255 ? 255 : rr);
+            gg = gg < 0 ? 0 : (gg > 255 ? 255 : gg);
+            bb = bb < 0 ? 0 : (bb > 255 ? 255 : bb);
+            // dot radius grows with brightness; capped to the cell
+            float rad = 0.5f + b * (cell * 0.42f);
+            float rmax = cell * 0.5f;
+            if (rad > rmax) rad = rmax;
+            // centre text-freistellung: fade dots out toward the middle
+            float dist = sqrtf((float)d2);
+            float cfade = 1.0f - HT_CENTRE_FADE * (dist < HT_FADE_R ? (1.0f - dist / HT_FADE_R) : 0.0f);
+            float a = HT_OPACITY * (0.25f + 0.85f * b) * cfade;
+            int o = (int)(a * 255.0f);
+            if (o < 3) continue;
+            if (o > 255) o = 255;
+            draw_dot(layer, cx, cy, (int)(rad + 0.5f), lv_color_make(rr, gg, bb), (lv_opa_t)o);
+        }
+    }
+}
+
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
@@ -277,11 +328,13 @@ static void vol_draw_cb(lv_event_t *e) {
     // never per-frame. Animating this screen-sized layer every frame (the old
     // energy wobble + volume wave) is exactly what juddered the S3; the energy
     // pulse now lives in the small source-marker instead.
+    // Dezent: lit ring lowered 217→150, unlit 160→90 so it reads as a quiet
+    // edge indicator against the halftone, not a competing bright ring.
     for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
         if (i < lit)
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)217);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)150);
         else
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)90);
     }
 }
 
@@ -294,10 +347,12 @@ static void prog_draw_cb(lv_event_t *e) {
         prog_pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
     }
     int lit = (prog_pct * 60 + 50) / 100;
+    // Dezent: lit 255→170, unlit 120→70 — a faint progress stipple, not a
+    // hard bright arc over the halftone.
     for (int i = 0; i < 60; i++) {
         bool is_lit  = (i < lit);
         lv_color_t c = is_lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = is_lit ? LV_OPA_COVER : (lv_opa_t)120;
+        lv_opa_t   o = is_lit ? (lv_opa_t)170 : (lv_opa_t)70;
         draw_dot(layer, prog_x[i], prog_y[i], 2, c, o);
     }
 }
@@ -552,7 +607,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer);
+    S(halftone_layer); S(vol_layer); S(prog_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
@@ -591,7 +646,7 @@ static void show_shutdown_mode() {
     in_standby  = false;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer);
+    H(halftone_layer); H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     CenterStage::invalidate();
@@ -627,23 +682,11 @@ void create() {
     lv_obj_add_event_cb(scr, on_pressing, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(scr, on_released, LV_EVENT_RELEASED, NULL);
 
-    // ── Album-cover background (z-bottom) ───────────────────────────────────
-    // Pi pre-processes the cover (blur + darken + vignette) and pushes the
-    // JPEG bytes via the IMG: serial protocol. We hold a pointer into the
-    // RX buffer + length; LVGL's tjpgd decoder takes care of the rest.
-    // No source set yet — first IMG:end will populate it via Dirty::COVER.
-    cover_img = lv_image_create(scr);
-    lv_obj_set_size(cover_img, Theme::CENTER * 2, Theme::CENTER * 2);
-    lv_obj_set_pos(cover_img, 0, 0);
-    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    // Hidden until a cover actually lands via Dirty::COVER. Even with no
-    // source set, an empty full-screen lv_image makes LVGL trace draw
-    // areas for it every frame — visible as background stutter on the
-    // ESP32 when the feature is profile-disabled but the widget exists.
-    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_to_index(cover_img, 0);
+    // ── Album-cover background = Pi-downsampled halftone (z-bottom) ──────────
+    // The Pi pre-processes the cover and ships it as a small n×n RGB grid via
+    // the HT: serial protocol (no JPEG decode on the ESP). halftone_draw_cb
+    // draws it as a dot field. Created below as the FIRST custom layer so it
+    // sits z-bottom, behind the rings / labels / CenterStage.
 
     // ── Full-screen custom-draw layers (back→front) ─────────────────────────
     auto make_layer = [&](void (*cb)(lv_event_t *)) -> lv_obj_t * {
@@ -658,8 +701,9 @@ void create() {
         lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
         return o;
     };
-    vol_layer    = make_layer(vol_draw_cb);
-    prog_layer   = make_layer(prog_draw_cb);
+    halftone_layer = make_layer(halftone_draw_cb);   // z-bottom (cover)
+    vol_layer      = make_layer(vol_draw_cb);
+    prog_layer     = make_layer(prog_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
     source_marker = lv_obj_create(scr);
@@ -800,29 +844,11 @@ void update() {
     // State::sys.wifi_rssi directly, so we just clear the dirty bit here.
     State::clear_dirty(State::Dirty::SYSTEM);
 
-    // ── Album cover background swap ─────────────────────────────────────────
-    // tjpgd's decoder_info for VARIABLE source copies w/h straight from the
-    // dsc instead of parsing the JPEG SOF marker — so we MUST pre-fill
-    // dimensions. The Pi resizes every cover to 466×466, so hard-coding
-    // is fine; push width/height via IMG:start if that ever changes.
-    if (State::is_dirty(State::Dirty::COVER) && cover_img) {
-        const uint8_t *data = Proto::cover_data();
-        size_t sz = Proto::cover_size();
-        if (data && sz > 4) {
-            cover_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
-            cover_dsc.header.cf     = LV_COLOR_FORMAT_RAW;
-            cover_dsc.header.w      = 466;
-            cover_dsc.header.h      = 466;
-            cover_dsc.header.stride = 466 * 3;
-            cover_dsc.data_size     = (uint32_t)sz;
-            cover_dsc.data          = data;
-            lv_image_set_src(cover_img, NULL);     // drop cache entry
-            lv_image_set_src(cover_img, &cover_dsc);
-            // First real cover — unhide the widget. Stays visible after,
-            // every subsequent set_src just swaps the image.
-            lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_invalidate(cover_img);
-        }
+    // ── Album cover background (halftone) ───────────────────────────────────
+    // A new HT: grid arrived (track change). Just re-run the static halftone
+    // draw once; halftone_draw_cb reads Proto::halftone_data() itself.
+    if (State::is_dirty(State::Dirty::COVER)) {
+        if (halftone_layer) lv_obj_invalidate(halftone_layer);
         State::clear_dirty(State::Dirty::COVER);
     }
 
