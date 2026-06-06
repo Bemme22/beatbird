@@ -141,6 +141,16 @@ class CoverProcessor:
         img.save(buf, format="JPEG", quality=self.jpeg_quality, optimize=True)
         return buf.getvalue()
 
+    def halftone_grid(self, raw: bytes, n: int = 39) -> bytes:
+        """Downsample the cover to an n×n RGB grid for the firmware halftone
+        renderer (HT: protocol — no JPEG decode on the ESP). Deliberately the
+        RAW colours (no blur/darken/vignette): the ESP applies its own
+        opacity / saturation / centre-fade. Returns n*n*3 row-major bytes."""
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(raw)).convert("RGB").resize((n, n), Image.LANCZOS)
+        return img.tobytes()   # row-major RGB
+
     def _apply_vignette(self, img):
         """Radial darken: centre keeps full image, edges fade toward
         `vignette_strength` darker. Implemented as a soft-edged white
