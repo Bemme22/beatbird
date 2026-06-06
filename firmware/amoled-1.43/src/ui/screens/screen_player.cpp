@@ -283,21 +283,36 @@ static constexpr int   HT_FADE_R      = 150;     // px radius of that centre fre
 static constexpr float HT_OUTER_R     = 178.0f;
 static constexpr float HT_EDGE_R      = 206.0f;
 
+// Global "breath": all dot radii × ht_breath. 1.0 = rest. Set at a LOW rate
+// from update() (energy-coupled) so the whole cover pulses with the beat
+// without per-frame full redraws.
+static float ht_breath = 1.0f;
+
 static void halftone_draw_cb(lv_event_t *e) {
     const uint8_t *grid = Proto::halftone_data();
     int n = Proto::halftone_n();
     if (!grid || n < 4) return;
     lv_layer_t *layer = lv_event_get_layer(e);
+    // Only touch cells inside the current clip rect. When an overlapping widget
+    // (the scrolling title, a toast) invalidates a small area, LVGL re-runs this
+    // cb clipped to it — without this skip we'd recompute all ~1500 cells every
+    // marquee frame (a hidden judder source). Full redraws (cover/breath) pass a
+    // screen-sized clip, so nothing is skipped then.
+    const lv_area_t clip = layer->_clip_area;
     const float cell = (float)(Theme::CENTER * 2) / (float)n;   // ≈ 12 px @ n=39
     const int   Rsq  = (int)(HT_EDGE_R * HT_EDGE_R);
+    const float br   = ht_breath;
+    const int   bbox = (int)(cell * 0.6f * (br > 1.0f ? br : 1.0f)) + 2;
     for (int gy = 0; gy < n; gy++) {
         for (int gx = 0; gx < n; gx++) {
+            int cx = (int)((gx + 0.5f) * cell);
+            int cy = (int)((gy + 0.5f) * cell);
+            if (cx + bbox < clip.x1 || cx - bbox > clip.x2 ||
+                cy + bbox < clip.y1 || cy - bbox > clip.y2) continue;   // outside redraw region
             const uint8_t *p = grid + ((size_t)gy * n + gx) * 3;
             int r8 = p[0], g8 = p[1], b8 = p[2];
             float b = (r8 * 0.30f + g8 * 0.59f + b8 * 0.11f) / 255.0f;
             if (b < 0.05f) continue;
-            int cx = (int)((gx + 0.5f) * cell);
-            int cy = (int)((gy + 0.5f) * cell);
             int dx = cx - Theme::CENTER, dy = cy - Theme::CENTER;
             int d2 = dx * dx + dy * dy;
             if (d2 > Rsq) continue;                            // mask to the round disc
@@ -309,9 +324,9 @@ static void halftone_draw_cb(lv_event_t *e) {
             rr = rr < 0 ? 0 : (rr > 255 ? 255 : rr);
             gg = gg < 0 ? 0 : (gg > 255 ? 255 : gg);
             bb = bb < 0 ? 0 : (bb > 255 ? 255 : bb);
-            // dot radius grows with brightness; capped to the cell
-            float rad = 0.5f + b * (cell * 0.42f);
-            float rmax = cell * 0.5f;
+            // dot radius grows with brightness, then the global music breath
+            float rad = (0.5f + b * (cell * 0.42f)) * br;
+            float rmax = cell * 0.6f;
             if (rad > rmax) rad = rmax;
             float dist = sqrtf((float)d2);
             // centre text-freistellung: fade dots out toward the middle
@@ -964,12 +979,31 @@ void update() {
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // NO per-frame animation on the player. The marker used to "breathe" with
-    // the music at 30 Hz, but it sits ABOVE the halftone layer — its small
-    // per-frame invalidate forces LVGL to re-run halftone_draw_cb (clipped, but
-    // still looping every grid cell) 30×/s → judder. The halftone is a static
-    // background; the player only repaints on dirty events (cover/volume/
-    // progress/source). Energy/spectrum bits are dropped, unused.
+    // Halftone "breath" — couple the whole dot field's size to the music at a
+    // LOW rate (~12 Hz). Each tick invalidates the full halftone (a full-disc
+    // redraw — the clip skip can't help here), so the rate is deliberately low;
+    // per-frame full redraws are what judder. The marker breathing was removed
+    // (it sat above the halftone and re-triggered it 30×/s). While paused/idle
+    // the breath eases back to rest, then stops invalidating.
+    {
+        const bool playing = (State::app.state == State::PLAY_PLAYING);
+        if (playing || energy_smoothed > 0.01f || ht_breath != 1.0f) {
+            uint32_t now = millis();
+            if (now - last_energy_render >= 80) {       // ~12 Hz
+                last_energy_render = now;
+                float target = playing ? State::app.energy : 0.0f;
+                float alpha  = (target > energy_smoothed) ? 0.45f : 0.10f;
+                energy_smoothed += (target - energy_smoothed) * alpha;
+                float pulse = energy_dyn(energy_smoothed) * sinf((float)now * 0.005f);
+                float want  = 1.0f + 0.18f * pulse;     // ±18 % dot size at peak
+                if (fabsf(want - ht_breath) > 0.004f) { // only repaint on a visible move
+                    ht_breath = want;
+                    if (halftone_layer && !in_standby && !in_shutdown)
+                        lv_obj_invalidate(halftone_layer);
+                }
+            }
+        }
+    }
     State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
 
     // CenterStage evaluates its own triggers from State. When active, the
