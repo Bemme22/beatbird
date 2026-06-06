@@ -43,6 +43,57 @@ make dsp-reload        # reload CamillaDSP config without restart
 make amixer-apply      # re-apply amp levels (after reboot or driver reload)
 ```
 
+## Build & deploy
+
+The production speakers (Beat, Zipp) run `overlayroot="tmpfs"`: `/`, `/etc`,
+`/var/lib` and `/home` are a tmpfs overlay, so **anything written live reverts on
+reboot** unless it's also written to the read-only base via `overlayroot-chroot`.
+That split drives the two deploy paths below.
+
+### Pi-side code (bridge / web / templates) — the 95 % case
+
+Push to `main`, then from the dev box:
+
+```bash
+make deploy HOST=beatpi.fritz.box            # → ssh <host> sudo beatbird-update main
+sudo beatbird-update [BRANCH]                # or run on the speaker; default BRANCH=main
+```
+
+`beatbird-update` is overlayroot-aware: it fast-forwards the **live** repo *and*
+persists the **base** layer through `overlayroot-chroot` (survives reboot), then
+restarts `beatbird-bridge` + `beatbird-web`. The bridge venv is an editable
+install, so the restart picks the new code up. No-op chroot on a plain rw root.
+
+### Config-affecting changes (CamillaDSP / go-librespot / new helpers + sudoers)
+
+`beatbird-update` moves **code only** — it does *not* re-render `/etc` configs or
+install new `install/` helpers. On overlayroot speakers run the affected role(s)
+**inside the chroot** (so they land in the base), then reboot to activate:
+
+```bash
+ssh <host> 'sudo overlayroot-chroot bash -c "
+  cd /home/devusr/beatbird &&
+  REPO_DIR=/home/devusr/beatbird \
+  PROFILE_YML=/home/devusr/beatbird/profiles/current.yml \
+  bash install/30-camilladsp.sh"'          # e.g. a new DSP config; 55-web-sudo.sh for helpers
+ssh <host> sudo systemctl reboot            # activates the base /etc + /usr/local writes
+```
+
+On a plain rw root (LoungePi) just run `make update` — no chroot needed.
+
+### ESP32 firmware (run on the dev box, flashes over SSH to the speaker's Pi)
+
+```bash
+cd firmware/amoled-1.43
+python3 fonts/build.py                       # ONE-TIME per clone — generates gitignored font .c
+pip install "click<8.2"                      # esptool 5.x crashes on click >= 8.2
+pio run -e beat-1 -t upload                  # build + flash (env == profile/speaker)
+pio run -e sim                               # native LVGL + SDL2 simulator (needs SDL2; Linux)
+```
+
+`make firmware-update` instead pulls the latest tagged `fw-v*` GitHub release and
+OTA-flashes it (tag-gated — not every `main` push ships to devices).
+
 ## Repo layout
 
 ```
