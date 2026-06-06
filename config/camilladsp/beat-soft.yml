@@ -1,0 +1,115 @@
+# CamillaDSP config — Libratone Beat, GENTLER-COMPRESSOR A/B variant.
+#
+# Purpose: A/B against the production beat.yml after the production compressor
+# (threshold -28 / ratio 2.5 / makeup +3) was found to flatten acoustic + vocal
+# material — dense tracks gained "Fülle" but sparse, dynamic recordings lost
+# presence/intimacy ("Akustik und Gesang kommen zu kurz", 2026-06-06).
+#
+# Identical to beat.yml EXCEPT the `dynamics` Compressor is re-voiced to only
+# grab the loud/dense passages and leave sparse material's micro-dynamics alone:
+#   threshold -18 (was -28)  → engages on dense/loud only, not quiet vocals
+#   factor    2.0 (was 2.5)  → gentler ratio
+#   attack    30ms (was 25)  → lets vocal/transient detail through (presence)
+#   release   1.2s (was 1.0) → smoother recovery
+#   makeup    +1.5 (was +3)  → no over-lift of quiet passages
+# If it keeps the density on dense tracks AND restores vocals/acoustic, promote
+# these params into production beat.yml and drop this file.
+---
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  loudness:
+    type: Loudness
+    parameters:
+      fader: Main
+      reference_level: -20.0
+      low_boost: 4.0
+      high_boost: 2.5
+      attenuate_mid: false
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 6, q: 0.6}
+  sub_punch:
+    type: Biquad
+    parameters: {type: Peaking, freq: 45, gain: 3, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 2, q: 1.0}
+  fullness:
+    type: Biquad
+    parameters: {type: Peaking, freq: 200, gain: 3, q: 1.0}
+  air_lift:
+    type: Biquad
+    parameters: {type: Highshelf, freq: 8000, gain: 0, q: 0.7}
+  rew_600:
+    type: Biquad
+    parameters: {type: Peaking, freq: 600,   gain: -5.7, q: 2.431}
+  rew_2269:
+    type: Biquad
+    parameters: {type: Peaking, freq: 2269,  gain: -6.1, q: 5.0}
+  rew_9886:
+    type: Biquad
+    parameters: {type: Peaking, freq: 9886,  gain: -4.9, q: 4.093}
+  rew_14025:
+    type: Biquad
+    parameters: {type: Peaking, freq: 14025, gain: -10.6, q: 4.125}
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 35, order: 6}
+  broadband_limiter:
+    type: Limiter
+    parameters: {clip_limit: -1.0, soft_clip: true}
+
+processors:
+  # ─── Signal-adaptive dynamics — GENTLER re-voice (the A/B subject) ──────────
+  # Higher threshold + lower ratio + less makeup → acts as a peak-tamer for the
+  # loud/dense passages only, instead of a broadband leveler that squashes
+  # sparse acoustic/vocal dynamics. Validated against CamillaDSP 4.1.2.
+  dynamics:
+    type: Compressor
+    parameters:
+      channels: 2
+      monitor_channels: [0, 1]
+      process_channels: [0, 1]
+      attack: 0.030
+      release: 1.2
+      threshold: -18.0
+      factor: 2.0
+      makeup_gain: 1.5
+      soft_clip: false
+
+pipeline:
+  # EQ + loudness (no limiter yet)
+  - type: Filter
+    channels: [0]
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+  - type: Filter
+    channels: [1]
+    names: [loudness, bass_shelf, sub_punch, timpani_body, fullness, air_lift,
+            rew_600, rew_2269, rew_9886, rew_14025, sub_protect]
+  # signal-adaptive dynamics
+  - type: Processor
+    name: dynamics
+  # safety limiter LAST
+  - type: Filter
+    channels: [0]
+    names: [broadband_limiter]
+  - type: Filter
+    channels: [1]
+    names: [broadband_limiter]
