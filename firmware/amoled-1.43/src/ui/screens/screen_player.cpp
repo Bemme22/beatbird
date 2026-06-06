@@ -55,8 +55,9 @@ namespace ScreenPlayer {
 
 // ─── LVGL objects ───────────────────────────────────────────────────────────
 
-static lv_obj_t *scr            = nullptr;
-static lv_obj_t *halftone_layer = nullptr;  // album-art bg as Pi-downsampled dot field, z-bottom
+static lv_obj_t *scr           = nullptr;
+static lv_obj_t *cover_img     = nullptr;   // album-art background, z-bottom
+static lv_image_dsc_t cover_dsc = {};
 
 // Two-phase transition state for title/artist. For long text that needs
 // to scroll, a single-phase flap looks like a 1 s freeze of the rolling
@@ -268,82 +269,6 @@ static inline float energy_dyn(float raw) {
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
-// Halftone cover — the Pi-downsampled n×n RGB grid (HT: protocol) drawn as a
-// dot field. STATIC: invalidated only on Dirty::COVER (a track change), never
-// per frame — n×n ≈ 1500 dots once per song is cheap; per-frame would judder.
-// Values tuned in docs/mockups/player-halftone.html.
-static constexpr float HT_OPACITY     = 0.69f;   // global background presence
-static constexpr float HT_SATURATION  = 1.27f;   // push toward the cover's own colours
-static constexpr float HT_CENTRE_FADE = 0.55f;   // dim near the centre so the text reads
-static constexpr int   HT_FADE_R      = 150;     // px radius of that centre freistellung
-// Outer fade: the halftone is a central disc that fades out between OUTER_R and
-// EDGE_R, leaving the vol ring (r=218) on near-black and the progress ring
-// (r=192) in the fade tail — so both read clearly instead of competing with the
-// dot field. Beyond EDGE_R nothing is drawn.
-static constexpr float HT_OUTER_R     = 178.0f;
-static constexpr float HT_EDGE_R      = 206.0f;
-
-// Global "breath": all dot radii × ht_breath. 1.0 = rest. Set at a LOW rate
-// from update() (energy-coupled) so the whole cover pulses with the beat
-// without per-frame full redraws.
-static float ht_breath = 1.0f;
-
-static void halftone_draw_cb(lv_event_t *e) {
-    const uint8_t *grid = Proto::halftone_data();
-    int n = Proto::halftone_n();
-    if (!grid || n < 4) return;
-    lv_layer_t *layer = lv_event_get_layer(e);
-    // Only touch cells inside the current clip rect. When an overlapping widget
-    // (the scrolling title, a toast) invalidates a small area, LVGL re-runs this
-    // cb clipped to it — without this skip we'd recompute all ~1500 cells every
-    // marquee frame (a hidden judder source). Full redraws (cover/breath) pass a
-    // screen-sized clip, so nothing is skipped then.
-    const lv_area_t clip = layer->_clip_area;
-    const float cell = (float)(Theme::CENTER * 2) / (float)n;   // ≈ 12 px @ n=39
-    const int   Rsq  = (int)(HT_EDGE_R * HT_EDGE_R);
-    const float br   = ht_breath;
-    const int   bbox = (int)(cell * 0.6f * (br > 1.0f ? br : 1.0f)) + 2;
-    for (int gy = 0; gy < n; gy++) {
-        for (int gx = 0; gx < n; gx++) {
-            int cx = (int)((gx + 0.5f) * cell);
-            int cy = (int)((gy + 0.5f) * cell);
-            if (cx + bbox < clip.x1 || cx - bbox > clip.x2 ||
-                cy + bbox < clip.y1 || cy - bbox > clip.y2) continue;   // outside redraw region
-            const uint8_t *p = grid + ((size_t)gy * n + gx) * 3;
-            int r8 = p[0], g8 = p[1], b8 = p[2];
-            float b = (r8 * 0.30f + g8 * 0.59f + b8 * 0.11f) / 255.0f;
-            if (b < 0.05f) continue;
-            int dx = cx - Theme::CENTER, dy = cy - Theme::CENTER;
-            int d2 = dx * dx + dy * dy;
-            if (d2 > Rsq) continue;                            // mask to the round disc
-            // saturate toward the pixel colour
-            float gr = (r8 + g8 + b8) / 3.0f;
-            int rr = (int)(gr + (r8 - gr) * HT_SATURATION);
-            int gg = (int)(gr + (g8 - gr) * HT_SATURATION);
-            int bb = (int)(gr + (b8 - gr) * HT_SATURATION);
-            rr = rr < 0 ? 0 : (rr > 255 ? 255 : rr);
-            gg = gg < 0 ? 0 : (gg > 255 ? 255 : gg);
-            bb = bb < 0 ? 0 : (bb > 255 ? 255 : bb);
-            // dot radius grows with brightness, then the global music breath
-            float rad = (0.5f + b * (cell * 0.42f)) * br;
-            float rmax = cell * 0.6f;
-            if (rad > rmax) rad = rmax;
-            float dist = sqrtf((float)d2);
-            // centre text-freistellung: fade dots out toward the middle
-            float cfade = 1.0f - HT_CENTRE_FADE * (dist < HT_FADE_R ? (1.0f - dist / HT_FADE_R) : 0.0f);
-            // outer fade: clear the ring band at the edge
-            float ofade = (dist <= HT_OUTER_R) ? 1.0f
-                        : (dist >= HT_EDGE_R)  ? 0.0f
-                        : 1.0f - (dist - HT_OUTER_R) / (HT_EDGE_R - HT_OUTER_R);
-            float a = HT_OPACITY * (0.25f + 0.85f * b) * cfade * ofade;
-            int o = (int)(a * 255.0f);
-            if (o < 3) continue;
-            if (o > 255) o = 255;
-            draw_dot(layer, cx, cy, (int)(rad + 0.5f), lv_color_make(rr, gg, bb), (lv_opa_t)o);
-        }
-    }
-}
-
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     int vol = State::app.volume;
@@ -352,13 +277,11 @@ static void vol_draw_cb(lv_event_t *e) {
     // never per-frame. Animating this screen-sized layer every frame (the old
     // energy wobble + volume wave) is exactly what juddered the S3; the energy
     // pulse now lives in the small source-marker instead.
-    // Sits on the near-black outer band (halftone fades before r=206), so it
-    // reads clearly again — lit 210, unlit 130.
     for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
         if (i < lit)
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)210);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)217);
         else
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)130);
+            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
     }
 }
 
@@ -371,12 +294,10 @@ static void prog_draw_cb(lv_event_t *e) {
         prog_pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
     }
     int lit = (prog_pct * 60 + 50) / 100;
-    // In the halftone's fade tail (r=192) — lit 210, unlit 110 so the progress
-    // stipple stays readable.
     for (int i = 0; i < 60; i++) {
         bool is_lit  = (i < lit);
         lv_color_t c = is_lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = is_lit ? (lv_opa_t)210 : (lv_opa_t)110;
+        lv_opa_t   o = is_lit ? LV_OPA_COVER : (lv_opa_t)120;
         draw_dot(layer, prog_x[i], prog_y[i], 2, c, o);
     }
 }
@@ -631,7 +552,7 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(halftone_layer); S(vol_layer); S(prog_layer);
+    S(vol_layer); S(prog_layer);
     S(source_marker); S(lbl_source);
     S(lbl_title); S(lbl_artist);
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
@@ -670,7 +591,7 @@ static void show_shutdown_mode() {
     in_standby  = false;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(halftone_layer); H(vol_layer); H(prog_layer);
+    H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(state_icon);
     CenterStage::invalidate();
@@ -706,11 +627,23 @@ void create() {
     lv_obj_add_event_cb(scr, on_pressing, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(scr, on_released, LV_EVENT_RELEASED, NULL);
 
-    // ── Album-cover background = Pi-downsampled halftone (z-bottom) ──────────
-    // The Pi pre-processes the cover and ships it as a small n×n RGB grid via
-    // the HT: serial protocol (no JPEG decode on the ESP). halftone_draw_cb
-    // draws it as a dot field. Created below as the FIRST custom layer so it
-    // sits z-bottom, behind the rings / labels / CenterStage.
+    // ── Album-cover background (z-bottom) ───────────────────────────────────
+    // Pi pre-processes the cover (blur + darken + vignette) and pushes the
+    // JPEG bytes via the IMG: serial protocol. We hold a pointer into the
+    // RX buffer + length; LVGL's tjpgd decoder takes care of the rest.
+    // No source set yet — first IMG:end will populate it via Dirty::COVER.
+    cover_img = lv_image_create(scr);
+    lv_obj_set_size(cover_img, Theme::CENTER * 2, Theme::CENTER * 2);
+    lv_obj_set_pos(cover_img, 0, 0);
+    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    // Hidden until a cover actually lands via Dirty::COVER. Even with no
+    // source set, an empty full-screen lv_image makes LVGL trace draw
+    // areas for it every frame — visible as background stutter on the
+    // ESP32 when the feature is profile-disabled but the widget exists.
+    lv_obj_add_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_to_index(cover_img, 0);
 
     // ── Full-screen custom-draw layers (back→front) ─────────────────────────
     auto make_layer = [&](void (*cb)(lv_event_t *)) -> lv_obj_t * {
@@ -725,9 +658,8 @@ void create() {
         lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
         return o;
     };
-    halftone_layer = make_layer(halftone_draw_cb);   // z-bottom (cover)
-    vol_layer      = make_layer(vol_draw_cb);
-    prog_layer     = make_layer(prog_draw_cb);
+    vol_layer    = make_layer(vol_draw_cb);
+    prog_layer   = make_layer(prog_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
     source_marker = lv_obj_create(scr);
@@ -868,11 +800,29 @@ void update() {
     // State::sys.wifi_rssi directly, so we just clear the dirty bit here.
     State::clear_dirty(State::Dirty::SYSTEM);
 
-    // ── Album cover background (halftone) ───────────────────────────────────
-    // A new HT: grid arrived (track change). Just re-run the static halftone
-    // draw once; halftone_draw_cb reads Proto::halftone_data() itself.
-    if (State::is_dirty(State::Dirty::COVER)) {
-        if (halftone_layer) lv_obj_invalidate(halftone_layer);
+    // ── Album cover background swap ─────────────────────────────────────────
+    // tjpgd's decoder_info for VARIABLE source copies w/h straight from the
+    // dsc instead of parsing the JPEG SOF marker — so we MUST pre-fill
+    // dimensions. The Pi resizes every cover to 466×466, so hard-coding
+    // is fine; push width/height via IMG:start if that ever changes.
+    if (State::is_dirty(State::Dirty::COVER) && cover_img) {
+        const uint8_t *data = Proto::cover_data();
+        size_t sz = Proto::cover_size();
+        if (data && sz > 4) {
+            cover_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+            cover_dsc.header.cf     = LV_COLOR_FORMAT_RAW;
+            cover_dsc.header.w      = 466;
+            cover_dsc.header.h      = 466;
+            cover_dsc.header.stride = 466 * 3;
+            cover_dsc.data_size     = (uint32_t)sz;
+            cover_dsc.data          = data;
+            lv_image_set_src(cover_img, NULL);     // drop cache entry
+            lv_image_set_src(cover_img, &cover_dsc);
+            // First real cover — unhide the widget. Stays visible after,
+            // every subsequent set_src just swaps the image.
+            lv_obj_clear_flag(cover_img, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_invalidate(cover_img);
+        }
         State::clear_dirty(State::Dirty::COVER);
     }
 
@@ -960,50 +910,57 @@ void update() {
         State::clear_dirty(State::Dirty::VOLUME);
     }
     if (State::is_dirty(State::Dirty::PROGRESS)) {
-        // Only repaint when a progress DOT actually changes (≈ every dur/60 s),
-        // not on every position poll — prog_layer is screen-sized, so each
-        // invalidate re-runs the halftone draw underneath it. Gating this keeps
-        // the static halftone from being redrawn several times a second.
-        static int last_prog_lit = -1;
-        int pct = 0;
-        if (State::app.dur_ms > 1) {
-            uint32_t pos = State::app.pos_ms;
-            if (pos > State::app.dur_ms) pos = State::app.dur_ms;
-            pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
-        }
-        int lit = (pct * 60 + 50) / 100;
-        if (lit != last_prog_lit) {
-            last_prog_lit = lit;
-            lv_obj_invalidate(prog_layer);
-        }
+        lv_obj_invalidate(prog_layer);
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
-    // Halftone "breath" — couple the whole dot field's size to the music at a
-    // LOW rate (~12 Hz). Each tick invalidates the full halftone (a full-disc
-    // redraw — the clip skip can't help here), so the rate is deliberately low;
-    // per-frame full redraws are what judder. The marker breathing was removed
-    // (it sat above the halftone and re-triggered it 30×/s). While paused/idle
-    // the breath eases back to rest, then stops invalidating.
-    {
-        const bool playing = (State::app.state == State::PLAY_PLAYING);
-        if (playing || energy_smoothed > 0.01f || ht_breath != 1.0f) {
-            uint32_t now = millis();
-            if (now - last_energy_render >= 80) {       // ~12 Hz
-                last_energy_render = now;
-                float target = playing ? State::app.energy : 0.0f;
-                float alpha  = (target > energy_smoothed) ? 0.45f : 0.10f;
-                energy_smoothed += (target - energy_smoothed) * alpha;
-                float pulse = energy_dyn(energy_smoothed) * sinf((float)now * 0.005f);
-                float want  = 1.0f + 0.18f * pulse;     // ±18 % dot size at peak
-                if (fabsf(want - ht_breath) > 0.004f) { // only repaint on a visible move
-                    ht_breath = want;
-                    if (halftone_layer && !in_standby && !in_shutdown)
-                        lv_obj_invalidate(halftone_layer);
+    // Source-marker "breathing" — the ONLY per-frame animation now. The marker
+    // is a small object, so set_style_* invalidates just its (transformed) box —
+    // cheap, unlike invalidating a screen-sized ring layer every frame (which is
+    // what juddered the S3). ~30 Hz is plenty for a soft pulse.
+    //
+    // Asymmetric envelope on energy_smoothed: fast attack (0.45) on a louder
+    // peak than currently rendered, slow release (0.08) on the way down —
+    // peak-meter response (capture_peak from the LV: field) so transients punch.
+    // When state != PLAYING the target collapses to 0 and the loop keeps running
+    // cheaply until it decays, so the marker fades back to idle, not freezes.
+    const bool keep_animating =
+        (State::app.state == State::PLAY_PLAYING) ||
+        (energy_smoothed > 0.01f) ||
+        (millis() < source_pulse_until);     // and through a source-switch pulse
+    if (keep_animating) {
+        uint32_t now = millis();
+        if (now - last_energy_render >= 33) {
+            last_energy_render = now;
+            const float target = (State::app.state == State::PLAY_PLAYING)
+                               ? State::app.energy : 0.0f;
+            const float alpha  = (target > energy_smoothed) ? 0.45f : 0.08f;
+            energy_smoothed += (target - energy_smoothed) * alpha;
+            if (source_marker && !in_standby && !in_shutdown) {
+                const float E_dyn = energy_dyn(energy_smoothed);
+                const float wob   = sinf((float)now * 0.005f);  // -1..+1
+                const float p     = E_dyn * wob;                // -E_dyn..+E_dyn (≤ 1.2)
+                int o_i = 200 + (int)(p * 55.0f);
+                if (o_i < 0)   o_i = 0;
+                if (o_i > 255) o_i = 255;
+                lv_obj_set_style_bg_opa(source_marker, (lv_opa_t)o_i, 0);
+                int scale = 256 + (int)(p * 40.0f);             // ±15 % at peak
+                // One-shot source-switch pulse blended on top — ease-out ramp
+                // from +50 % size back to baseline over 300 ms ("click" feedback
+                // when MA / Spotify hands off the speaker).
+                if (now < source_pulse_until) {
+                    float remaining = (float)(source_pulse_until - now)
+                                    / (float)SOURCE_PULSE_MS;     // 1.0 → 0.0
+                    scale += (int)(remaining * 128.0f);           // +50 % at start
                 }
+                lv_obj_set_style_transform_scale(source_marker, scale, 0);
             }
         }
     }
+    // Drop the legacy spectrum / energy dirty bits — they no longer drive
+    // anything. ENERGY is consumed by the keep_animating loop above when
+    // playing; SPECTRUM is a NOP since spectrum_bands has been disabled in
+    // every active profile.
     State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
 
     // CenterStage evaluates its own triggers from State. When active, the
