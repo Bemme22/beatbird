@@ -17,6 +17,14 @@
 //     RELEASED. Fixes single-frame FT6x36 / I²C glitches causing one tap to
 //     fire two on_released events (which was making PLAYPAUSE pause-then-
 //     immediately-resume, looking like "music keeps playing").
+// v4.2 (phantom-press filter):
+//   · Symmetric PRESS streak: a press must persist N consecutive reads before
+//     it latches. A single corrupt/noisy I²C read (buf[0] != 0) used to latch a
+//     press instantly → on release the standby screen fired a spurious CMD:WAKE
+//     and the speaker woke itself overnight. Seen on the Zipp (onboard 2.4 GHz
+//     radio next to the touch flex) but not the Beat (radio off, USB dongle).
+//     Also mask buf[0] to the point-count nibble so stray high bits aren't read
+//     as a touch.
 // =============================================================================
 
 #include <Arduino.h>
@@ -185,9 +193,16 @@ static volatile uint16_t touch_state_y       = 0;
 static void touch_poll_task(void * /*arg*/)
 {
     constexpr uint8_t RELEASE_STREAK_THRESHOLD = 4;
+    // A genuine tap lasts tens of ms (≥10 ticks @ 4 ms). A phantom press from a
+    // single corrupt/noisy I²C read is a 1-frame blip. Require a short PRESS
+    // streak before latching so those blips can't fire a spurious tap → the
+    // standby CMD:WAKE that woke the Zipp by itself. 3 ticks ≈ 12 ms — far below
+    // human tap, ample to reject 1-2 frame glitches.
+    constexpr uint8_t PRESS_STREAK_THRESHOLD = 3;
     uint16_t lx = 0, ly = 0;
     bool     was_pressed    = false;
     uint8_t  release_streak = 0;
+    uint8_t  press_streak   = 0;
 
     for (;;) {
         if (!touch_dev) {
@@ -204,19 +219,26 @@ static void touch_poll_task(void * /*arg*/)
         if (Wire.endTransmission(false) == 0 &&
             Wire.requestFrom(TOUCH_I2C_ADDR, 5) == 5) {
             for (uint8_t i = 0; i < 5; i++) if (Wire.available()) buf[i] = Wire.read();
-            touch_present = (buf[0] != 0);
+            // buf[0] = TD_STATUS; low nibble = number of touch points. Mask it —
+            // a corrupt read with stray high bits set would otherwise pass the
+            // bare `!= 0` test and inject a phantom press. The panel is
+            // single-touch, so 1 (occasionally 2) is the only plausible count.
+            uint8_t npoints = buf[0] & 0x0F;
+            touch_present = (npoints >= 1 && npoints <= 2);
         }
 
         if (touch_present) {
             lx = (((uint16_t)buf[1] & 0x0F) << 8) | buf[2];
             ly = (((uint16_t)buf[3] & 0x0F) << 8) | buf[4];
-            was_pressed    = true;
             release_streak = 0;
+            if (press_streak < PRESS_STREAK_THRESHOLD) press_streak++;
+            if (press_streak >= PRESS_STREAK_THRESHOLD) was_pressed = true;
         } else if (was_pressed && release_streak < RELEASE_STREAK_THRESHOLD) {
             release_streak++;
         } else {
             was_pressed    = false;
             release_streak = 0;
+            press_streak   = 0;
         }
 
         portENTER_CRITICAL(&touch_mux);
