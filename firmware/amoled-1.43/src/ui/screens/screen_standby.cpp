@@ -469,7 +469,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,  0);
     lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock_xl(), 0);
     lv_obj_set_style_text_letter_space(lbl_clock, -2, 0);
-    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 106);
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 110);
 
     // ── Date (weekday · date) ───────────────────────────────────────────────
     // TODO: wire a real DATE field over the serial protocol (the bridge has
@@ -479,7 +479,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_date, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_date, Theme::font_sm(), 0);
     lv_obj_set_style_text_letter_space(lbl_date, 3, 0);
-    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 230);
+    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 240);
 
     // ── Weather icon (suppressed in Warm Funktional v1) ─────────────────────
     // The dot-matrix icon set belongs to the old Nothing-Glyph language and
@@ -506,7 +506,7 @@ void create()
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(wx_row, 9, 0);
     lv_obj_clear_flag(wx_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(wx_row, LV_ALIGN_TOP_MID, 0, 280);
+    lv_obj_align(wx_row, LV_ALIGN_TOP_MID, 0, 298);
 
 #ifdef HAS_WEATHER_ICONS
     lbl_wxicon = lv_label_create(wx_row);
@@ -526,7 +526,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_condition, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_condition, 3, 0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 322);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 352);  // only shown on weather error
 
     // ── High / Low (tracked, dimmer tier) ───────────────────────────────────
     lbl_highlow = lv_label_create(scr);
@@ -535,7 +535,7 @@ void create()
     lv_obj_set_style_text_opa         (lbl_highlow, (lv_opa_t)170,         0);
     lv_obj_set_style_text_font        (lbl_highlow, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_highlow, 2, 0);
-    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 346);
+    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 352);
 
     // ── Idle text (quiet, secondary; clean cross-fade is a follow-up) ───────
     lbl_flap = lv_label_create(scr);
@@ -546,7 +546,7 @@ void create()
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,  0);
     lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 380);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 396);
 
     // ── Live dot (Warm Funktional: red — the speaker's stitching/zip) ───────
     heartbeat = lv_obj_create(scr);
@@ -555,7 +555,7 @@ void create()
     lv_obj_set_style_bg_color(heartbeat, Theme::accent_alert, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 406);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 418);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 
     // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
@@ -828,16 +828,15 @@ void update()
                      State::weather.high_c, State::weather.low_c);
             lv_label_set_text(lbl_highlow, buf);
 
-            lv_label_set_text(lbl_condition,
-                              condition_label_text(State::weather.icon));
-
             if (lbl_wxicon) {
                 lv_label_set_text(lbl_wxicon, weather_glyph(State::weather.icon));
                 lv_obj_clear_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
             }
             lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
+            // The icon already conveys the condition — drop the redundant
+            // "PARTLY CLOUDY" text (only shown on a weather-fetch error below).
+            lv_obj_add_flag  (lbl_condition, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(icon_obj,      LV_OBJ_FLAG_HIDDEN);
         } else {
             // Weather data unavailable — provider down or first poll
