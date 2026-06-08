@@ -86,6 +86,7 @@ void handle_line(const char *line)
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
     if (!strncmp(line, "STBY:", 5))     { ScreenStandby::set_flap_text(line + 5); return; }
+    if (!strncmp(line, "DATE:", 5))     { ScreenStandby::set_date(line + 5);      return; }
     if (!strncmp(line, "TOAST:", 6))    { handle_toast_line(line + 6);   return; }
     if (!strncmp(line, "QR:",   3)) {
         // Both screens cache + render their own QR widget; dispatch

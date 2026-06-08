@@ -1665,6 +1665,19 @@ class BeatBirdBridge:
         name = _sanitise(self._friendly_name())
         return f"PAIRING {name}" if name else "PAIRING MODE"
 
+    # German weekday / month names — the Pi image has no guaranteed de_DE
+    # locale, so format manually. The standby date label renders in Inter
+    # (full Latin-1), so the middle-dot and umlauts go over the wire as UTF-8.
+    _DE_WEEKDAYS = ("MONTAG", "DIENSTAG", "MITTWOCH", "DONNERSTAG",
+                    "FREITAG", "SAMSTAG", "SONNTAG")
+    _DE_MONTHS = ("JANUAR", "FEBRUAR", "MÄRZ", "APRIL", "MAI", "JUNI", "JULI",
+                  "AUGUST", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DEZEMBER")
+
+    def _format_date_de(self) -> str:
+        t = time.localtime()
+        return (f"{self._DE_WEEKDAYS[t.tm_wday]} · "
+                f"{t.tm_mday}. {self._DE_MONTHS[t.tm_mon - 1]}")
+
     def _send_idle_message(self) -> None:
         """Pick the next standby flap line and push it to the display.
 
@@ -1680,6 +1693,12 @@ class BeatBirdBridge:
         import random
         if not self.display:
             return
+        # Keep the standby date line current — cheap one-liner, re-sent on every
+        # rotation so it survives an ESP reconnect (firmware loses it on reboot).
+        try:
+            self.display.push_raw("DATE:" + self._format_date_de())
+        except Exception as e:
+            log.debug("push date failed: %s", e)
         # During a pairing window, the flap label is owned by the
         # PAIRING-MODE override. Skip the regular rotation so a 45 s tick
         # doesn't replace it with a random airport-board line mid-window.

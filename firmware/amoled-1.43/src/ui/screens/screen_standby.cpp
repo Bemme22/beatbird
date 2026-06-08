@@ -101,6 +101,9 @@ static constexpr int FLAP_LABEL_WIDTH    = 300;
 // arriving before create() runs gets applied on the next create() pass.
 static String    pending_flap_text      = "ON STANDBY";
 static bool      last_valid_rendered    = false;
+// Date line text (preformatted, localized by the Pi), pushed via DATE:. Cached
+// so a value arriving before create() still lands. Empty until the bridge sends.
+static String    pending_date           = "";
 
 // ─── Dot drawing helper ─────────────────────────────────────────────────────
 
@@ -477,7 +480,7 @@ void create()
     // TODO: wire a real DATE field over the serial protocol (the bridge has
     // it). Placeholder until then so the layout reads correctly in the sim.
     lbl_date = lv_label_create(scr);
-    lv_label_set_text(lbl_date, "SAMSTAG \xC2\xB7 7. JUNI");
+    lv_label_set_text(lbl_date, pending_date.length() ? pending_date.c_str() : "");
     lv_obj_set_style_text_color       (lbl_date, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_date, Theme::font_sm(), 0);
     lv_obj_set_style_text_letter_space(lbl_date, 3, 0);
@@ -608,6 +611,13 @@ void set_qr_url(const char *url)
         String cap = short_caption_from_url(qr_url_cached);
         lv_label_set_text(qr_caption, cap.c_str());
     }
+}
+
+void set_date(const char *text)
+{
+    if (!text || !text[0]) return;
+    pending_date = String(text);
+    if (lbl_date) lv_label_set_text(lbl_date, pending_date.c_str());
 }
 
 void set_flap_text(const char *text)

@@ -47,6 +47,11 @@ void update();
  *  applies it on next create(). */
 void set_flap_text(const char *text);
 
+/** Set the standby date line (e.g. "SAMSTAG · 7. JUNI"). The bridge pushes a
+ *  preformatted, localized string via the DATE: serial line on connect and on
+ *  day-change. Safe to call before create(); cached and applied lazily. */
+void set_date(const char *text);
+
 /** Cache the BT-pairing QR URL (e.g. "http://zipp2minipi.local:8080/"). The
  *  bridge pushes this once at start + on display [boot] reconnect; the
  *  standby screen renders it as a QR code only while sys.bt_pairing == true,

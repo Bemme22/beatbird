@@ -70,6 +70,10 @@ SOURCE:spotify|bluetooth|toslink|snapcast|none
 BOOT:stage|progress
 ERROR:service|message
 TIME:HH:MM          clock-only update
+DATE:<string>       standby date line, preformatted + localized by the Pi
+                    (e.g. "DATE:SAMSTAG · 7. JUNI"). UTF-8; rendered in Inter,
+                    so umlauts / middle-dot are fine (NOT split-flap text).
+                    Re-sent on every idle rotation so it survives an ESP reboot.
 WX:t=18|c=2|h=22|l=12   weather snapshot (see below)
 ```
 
