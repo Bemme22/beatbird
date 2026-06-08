@@ -48,6 +48,7 @@ static lv_obj_t *scint_layer   = nullptr;   // background scintillation dots (am
 static lv_obj_t *accent_tick   = nullptr;   // Warm-Funktional accent bar (top)
 static lv_obj_t *lbl_clock     = nullptr;
 static lv_obj_t *lbl_date      = nullptr;   // weekday · date (Warm-Funktional)
+static lv_obj_t *lbl_wxicon    = nullptr;   // weather glyph (Weather Icons font)
 static lv_obj_t *icon_obj      = nullptr;   // custom-draw container @ (233, 240)
 static lv_obj_t *lbl_temp      = nullptr;
 static lv_obj_t *lbl_highlow   = nullptr;
@@ -356,6 +357,21 @@ static void icon_draw_cb(lv_event_t *e)
     }
 }
 
+// UTF-8 for the Weather-Icons glyph matching each condition (PUA codepoints).
+static const char *weather_glyph(State::WeatherIcon icon)
+{
+    switch (icon) {
+        case State::WX_CLEAR:   return "\xEF\x80\x8D";  // f00d  day-sunny
+        case State::WX_PARTLY:  return "\xEF\x80\x82";  // f002  day-cloudy
+        case State::WX_CLOUDY:  return "\xEF\x80\x93";  // f013  cloudy
+        case State::WX_FOG:     return "\xEF\x80\x94";  // f014  fog
+        case State::WX_RAIN:    return "\xEF\x80\x99";  // f019  rain
+        case State::WX_SNOW:    return "\xEF\x80\x9B";  // f01b  snow
+        case State::WX_THUNDER: return "\xEF\x80\x9E";  // f01e  thunderstorm
+        default:                return "";
+    }
+}
+
 static const char *condition_label_text(State::WeatherIcon icon)
 {
     switch (icon) {
@@ -465,7 +481,7 @@ void create()
     lv_obj_set_style_bg_color(accent_tick, Theme::accent, 0);
     lv_obj_set_style_bg_opa(accent_tick, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(accent_tick, 3, 0);
-    lv_obj_align(accent_tick, LV_ALIGN_TOP_MID, 0, 66);
+    lv_obj_align(accent_tick, LV_ALIGN_TOP_MID, 0, 62);
     lv_obj_clear_flag(accent_tick, LV_OBJ_FLAG_CLICKABLE);
 
     // ── Clock (hero — Inter ExtraBold ~140) ─────────────────────────────────
@@ -474,7 +490,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,  0);
     lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock_xl(), 0);
     lv_obj_set_style_text_letter_space(lbl_clock, -2, 0);
-    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 110);
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 100);
 
     // ── Date (weekday · date) ───────────────────────────────────────────────
     // TODO: wire a real DATE field over the serial protocol (the bridge has
@@ -484,7 +500,16 @@ void create()
     lv_obj_set_style_text_color       (lbl_date, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_date, Theme::font_sm(), 0);
     lv_obj_set_style_text_letter_space(lbl_date, 3, 0);
-    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 236);
+    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 226);
+
+    // ── Weather icon (Weather-Icons font) ───────────────────────────────────
+#ifdef HAS_WEATHER_ICONS
+    lbl_wxicon = lv_label_create(scr);
+    lv_label_set_text(lbl_wxicon, "");
+    lv_obj_set_style_text_color(lbl_wxicon, Theme::text_primary, 0);
+    lv_obj_set_style_text_font (lbl_wxicon, Theme::font_weather(), 0);
+    lv_obj_align(lbl_wxicon, LV_ALIGN_TOP_MID, 0, 256);
+#endif
 
     // ── Weather icon (suppressed in Warm Funktional v1) ─────────────────────
     // The dot-matrix icon set belongs to the old Nothing-Glyph language and
@@ -503,7 +528,7 @@ void create()
     lv_label_set_text(lbl_temp, "");
     lv_obj_set_style_text_color(lbl_temp, Theme::text_primary, 0);
     lv_obj_set_style_text_font (lbl_temp, Theme::font_lg(),    0);
-    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 278);
+    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 300);
 
     // ── Condition (tracked label) ───────────────────────────────────────────
     lbl_condition = lv_label_create(scr);
@@ -511,7 +536,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_condition, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_condition, 3, 0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 320);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 342);
 
     // ── High / Low (tracked, dimmer tier) ───────────────────────────────────
     lbl_highlow = lv_label_create(scr);
@@ -520,7 +545,7 @@ void create()
     lv_obj_set_style_text_opa         (lbl_highlow, (lv_opa_t)170,         0);
     lv_obj_set_style_text_font        (lbl_highlow, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_highlow, 2, 0);
-    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 346);
+    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 366);
 
     // ── Idle text (quiet, secondary; clean cross-fade is a follow-up) ───────
     lbl_flap = lv_label_create(scr);
@@ -531,7 +556,7 @@ void create()
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,  0);
     lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 376);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 394);
 
     // ── Live dot (Warm Funktional: red — the speaker's stitching/zip) ───────
     heartbeat = lv_obj_create(scr);
@@ -540,7 +565,7 @@ void create()
     lv_obj_set_style_bg_color(heartbeat, Theme::accent_alert, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 402);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 418);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 
     // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
@@ -729,6 +754,7 @@ void update()
             HIDE(accent_tick);
             HIDE(lbl_clock);
             HIDE(lbl_date);
+            HIDE(lbl_wxicon);
             HIDE(lbl_temp);
             HIDE(lbl_highlow);
             HIDE(lbl_condition);
@@ -738,6 +764,7 @@ void update()
             SHOW(accent_tick);
             SHOW(lbl_clock);
             SHOW(lbl_date);
+            SHOW(lbl_wxicon);
             SHOW(lbl_temp);
             SHOW(lbl_highlow);
             SHOW(lbl_condition);
@@ -814,6 +841,10 @@ void update()
             lv_label_set_text(lbl_condition,
                               condition_label_text(State::weather.icon));
 
+            if (lbl_wxicon) {
+                lv_label_set_text(lbl_wxicon, weather_glyph(State::weather.icon));
+                lv_obj_clear_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
+            }
             lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
@@ -826,6 +857,7 @@ void update()
             // distracting if used for a dash), highlow is hidden, the
             // condition line carries the message in the same secondary
             // text style normally used for "PARTLY CLOUDY" etc.
+            if (lbl_wxicon) lv_obj_add_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (icon_obj,      LV_OBJ_FLAG_HIDDEN);
