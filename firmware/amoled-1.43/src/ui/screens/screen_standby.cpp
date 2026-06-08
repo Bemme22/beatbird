@@ -635,6 +635,29 @@ void set_date(const char *text)
     if (lbl_date) lv_label_set_text(lbl_date, pending_date.c_str());
 }
 
+// Idle-line cross-fade (Warm Funktional) — replaces the old split-flap
+// byte-flip. New text fades the label out, swaps while invisible, fades in.
+static String flap_swap_target = "";
+
+static void flap_opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+static void flap_fade_in() {
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, lbl_flap);
+    lv_anim_set_exec_cb(&a, flap_opa_cb);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_time(&a, 240);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+static void flap_fade_out_done(lv_anim_t * /*a*/) {
+    // Invisible now — swap text (long headlines still marquee) + fade back in.
+    lv_label_set_long_mode(lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_label_set_text(lbl_flap, flap_swap_target.c_str());
+    flap_fade_in();
+}
+
 void set_flap_text(const char *text)
 {
     if (!text || !text[0]) return;
@@ -662,26 +685,20 @@ void set_flap_text(const char *text)
         // to left-anchored marquee.
         lv_obj_set_style_text_align(lbl_flap,
             will_scroll ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-        if (will_scroll) {
-            // Make sure long-mode is the marquee one (might have been
-            // forced to CLIP if a prior flap is still in flight; calling
-            // SplitFlap::set_text with a new target would have torn that
-            // flap down, but we're skipping SplitFlap, so do it manually).
-            lv_label_set_long_mode(lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-            lv_label_set_text(lbl_flap, text);
-        } else {
-            // Pre-clear the label so SplitFlap sees old_len = 0 and
-            // doesn't pad the target with trailing spaces. With
-            // CENTER alignment those trailing spaces drift the visible
-            // text off to the left for the entire flap duration —
-            // particularly visible on first-time standby transitions
-            // and after a PAIRING/scrolling text being replaced with
-            // a short IDLE_MESSAGE. Cost: short flap chars 'appear
-            // from nothing' instead of 'transform from old chars', but
-            // for 45 s message rotations the difference is invisible.
-            lv_label_set_text(lbl_flap, "");
-            SplitFlap::set_text(lbl_flap, text);
-        }
+        // Clean cross-fade (replaces the split-flap byte-flip): fade the line
+        // out, swap the text while invisible (in the ready-cb), fade back in.
+        // The alignment is set above; the long-mode + text land in the swap.
+        flap_swap_target = String(text);
+        lv_anim_del(lbl_flap, flap_opa_cb);
+        int32_t from = (int32_t)lv_obj_get_style_text_opa(lbl_flap, LV_PART_MAIN);
+        lv_anim_t a; lv_anim_init(&a);
+        lv_anim_set_var(&a, lbl_flap);
+        lv_anim_set_exec_cb(&a, flap_opa_cb);
+        lv_anim_set_values(&a, from, 0);
+        lv_anim_set_time(&a, 200);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+        lv_anim_set_ready_cb(&a, flap_fade_out_done);
+        lv_anim_start(&a);
     }
     // If create() hasn't run yet, pending_flap_text is the seed used in
     // lv_label_set_text at creation — no animation that first time, but
