@@ -5,7 +5,6 @@
 #include "state.h"
 #include "theme.h"
 #include "screens/center_stage.h"
-#include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 
 #ifdef ARDUINO
@@ -91,10 +90,9 @@ void handle_line(const char *line)
     if (!strncmp(line, "NIGHT:", 6))    { ScreenStandby::set_night(line[6] == '1'); return; }
     if (!strncmp(line, "TOAST:", 6))    { handle_toast_line(line + 6);   return; }
     if (!strncmp(line, "QR:",   3)) {
-        // Both screens cache + render their own QR widget; dispatch
-        // identically so they're kept in sync from a single push.
+        // Standby renders the BT-pairing QR; the quick-settings screen was
+        // removed (Glance + simple — pairing lives on the web UI now).
         ScreenStandby::set_qr_url(line + 3);
-        ScreenSettings::set_qr_url(line + 3);
         return;
     }
     if (!strncmp(line, "IMG:",  4))     { handle_cover_line(line + 4);   return; }

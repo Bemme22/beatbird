@@ -12,7 +12,6 @@
 // =============================================================================
 
 #include "screens/screen_standby.h"
-#include "screens/screen_settings.h"
 #include "screens/split_flap.h"
 #include "proto.h"
 #include "state.h"

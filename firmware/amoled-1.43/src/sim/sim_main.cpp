@@ -31,7 +31,6 @@
 
 #include "screens/screen_boot.h"
 #include "screens/screen_player.h"
-#include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 #include "proto.h"
 #include "state.h"
@@ -388,7 +387,6 @@ int main(int argc, char *argv[]) {
         ScreenBoot::update();
         ScreenPlayer::update();
         ScreenStandby::update();
-        ScreenSettings::update();
 
         lv_timer_handler();
         std::this_thread::sleep_for(std::chrono::milliseconds(16));

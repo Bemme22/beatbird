@@ -29,7 +29,6 @@
 
 #include "screens/screen_player.h"
 #include "screens/center_stage.h"
-#include "screens/screen_settings.h"
 #include "screens/screen_standby.h"
 #include "screens/split_flap.h"
 #include "touch_dirs.h"
