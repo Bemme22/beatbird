@@ -307,6 +307,13 @@ class BeatBirdBridge:
         self.current_volume = 0
         self.current_volume_db = 0.0
         self.playback = Playback.STOPPED
+        # Pending playback intent: the target a user PLAYPAUSE is driving toward,
+        # held until a poll confirms it. While set, source polls don't override
+        # `playback` (no display flicker) and a duplicate PLAYPAUSE is ignored
+        # (absorbs the touch IC's double release). Cleared on confirm or after
+        # _PENDING_SETTLE_S as a safety net. See _observe_playback().
+        self._pending_playback = None   # Playback target awaiting confirmation
+        self._pending_since = 0.0
         self.source = Source.NONE
         self.song_title = ""
         self.song_artist = ""
@@ -873,6 +880,15 @@ class BeatBirdBridge:
                 log.error("BT_PAIR failed: %s", e)
             return
 
+        # Absorb the touch IC's duplicate release: while a PLAYPAUSE transition
+        # is still unconfirmed, ignore the echo. State-driven — no time window;
+        # _PENDING_SETTLE_S is only the wedged-backend safety net.
+        if (cmd == "PLAYPAUSE" and self._pending_playback is not None
+                and time.monotonic() - self._pending_since < self._PENDING_SETTLE_S):
+            log.info("PLAYPAUSE ignored — %s still pending (touch echo)",
+                     self._pending_playback.name)
+            return
+
         # SFX feedback. Driven by the logical command, not the backend,
         # so BT and Spotify both feel the same. PLAYPAUSE resolves to
         # play/pause based on the current view of state — the actual
@@ -916,13 +932,17 @@ class BeatBirdBridge:
                 is_playing = not fresh.paused
             else:
                 is_playing = (self.playback == Playback.PLAYING)
+            target = Playback.PAUSED if is_playing else Playback.PLAYING
             if is_playing:
                 self.spotify.pause()
-                self.playback = Playback.PAUSED
             else:
                 self.spotify.play()
-                self.playback = Playback.PLAYING
                 self.last_playback_time = time.monotonic()
+            # Latch the intent: show it immediately + hold it against the poll
+            # until the backend confirms (or _PENDING_SETTLE_S elapses).
+            self.playback = target
+            self._pending_playback = target
+            self._pending_since = time.monotonic()
         elif cmd == "PLAY":
             self.spotify.play()
             self.playback = Playback.PLAYING
@@ -954,6 +974,26 @@ class BeatBirdBridge:
             self.spotify.close_session()
 
     # ─── Polling ────────────────────────────────────────────────────────────
+
+    def _observe_playback(self, observed: "Playback") -> None:
+        """Apply a polled playback observation, honouring a pending user intent.
+
+        While a tap's intended state is unconfirmed we keep showing the intent
+        (the poll does NOT flip it back — kills the "shows pause, plays on"
+        flicker). Once the observation matches the intent it's confirmed and
+        cleared; a STOPPED observation always wins (track ended → intent moot);
+        and _PENDING_SETTLE_S is the give-up safety net."""
+        pending = self._pending_playback
+        if pending is not None and observed != Playback.STOPPED:
+            if observed == pending:
+                self._pending_playback = None          # confirmed
+            elif time.monotonic() - self._pending_since > self._PENDING_SETTLE_S:
+                self._pending_playback = None          # gave up — accept reality
+            else:
+                return                                 # still settling — hold intent
+        else:
+            self._pending_playback = None
+        self.playback = observed
 
     def _poll_spotify(self) -> None:
         if not self.spotify:
@@ -1066,7 +1106,8 @@ class BeatBirdBridge:
             # because every attempt hits the same livelock.
             if not state.paused and self.source != Source.SPOTIFY:
                 self._transition_source(Source.SPOTIFY)
-            self.playback = Playback.PAUSED if state.paused else Playback.PLAYING
+            self._observe_playback(
+                Playback.PAUSED if state.paused else Playback.PLAYING)
 
         self.song_pos_ms = state.position_ms
         self.song_dur_ms = max(1, state.duration_ms)
@@ -1677,6 +1718,12 @@ class BeatBirdBridge:
         t = time.localtime()
         return (f"{self._DE_WEEKDAYS[t.tm_wday]} · "
                 f"{t.tm_mday}. {self._DE_MONTHS[t.tm_mon - 1]}")
+
+    # Safety net: if the backend never confirms a pending playback transition
+    # (e.g. go-librespot wedged), give up holding the intent after this long so
+    # transport never locks up. This is the ONLY timer in the play-state logic —
+    # everything else is confirmation-driven.
+    _PENDING_SETTLE_S = 5.0
 
     # ── Time-of-day standby: auto-dim + night mode + phase greeting ──────────
     _PHASE_GREETINGS = {
