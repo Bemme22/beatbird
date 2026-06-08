@@ -316,9 +316,11 @@ static void draw_ring(lv_layer_t *layer, int radius, int width, float frac,
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     float f = State::app.volume / 100.0f;
-    // inner thin volume ring (no tip), counter-clockwise
-    draw_ring(layer, 188, 4, f, Theme::accent, (lv_opa_t)220,
-              Theme::accent_dim, (lv_opa_t)140, false, /*ccw=*/true);
+    // VOLUME — the interactive element: bold, bright OUTER ring that grows
+    // CLOCKWISE so it tracks the rotary turn (turning up = arc grows with the
+    // finger). The prominent ring tells the user "this is what you're changing".
+    draw_ring(layer, 205, 6, f, Theme::accent, LV_OPA_COVER,
+              Theme::accent_dim, (lv_opa_t)130, false, /*ccw=*/false);
 }
 
 static void prog_draw_cb(lv_event_t *e) {
@@ -329,9 +331,11 @@ static void prog_draw_cb(lv_event_t *e) {
         if (pos > State::app.dur_ms) pos = State::app.dur_ms;
         f = (float)pos / (float)State::app.dur_ms;
     }
-    // outer progress ring + red position tip, clockwise
-    draw_ring(layer, 205, 5, f, Theme::accent, LV_OPA_COVER,
-              Theme::Color::TEXT_FAINT, (lv_opa_t)150, true, /*ccw=*/false);
+    // PROGRESS — ambient, secondary: thin DIM inner hairline (clockwise, no
+    // tip). Clearly subordinate to the bold volume ring so the two never read
+    // as the same thing. MM:SS text carries the exact position.
+    draw_ring(layer, 186, 2, f, Theme::accent, (lv_opa_t)105,
+              Theme::Color::TEXT_FAINT, (lv_opa_t)80, false, /*ccw=*/false);
 }
 
 static void state_icon_draw_cb(lv_event_t *e) {
