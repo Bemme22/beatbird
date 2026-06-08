@@ -172,6 +172,10 @@ void handle_state_line(const char *line)
         else if (!strcmp(buf, "standby"))       State::set_play_state(State::PLAY_STANDBY);
         else if (!strcmp(buf, "shutdown_warn")) State::set_play_state(State::PLAY_SHUTDOWN_WARN);
         else if (!strcmp(buf, "shutdown"))      State::set_play_state(State::PLAY_SHUTDOWN);
+        // A fresh play state from the bridge — confirms a pending PLAYPAUSE
+        // (clears the CenterStage waiting spinner). Distinct from our optimistic
+        // flip, which does not touch this counter.
+        State::app.state_push_seq++;
     }
 
     if (parse_field(line, "TI", buf, sizeof(buf))) State::set_title(String(buf));

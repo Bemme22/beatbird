@@ -92,6 +92,13 @@ struct App {
     // Time-of-day base brightness (0..255), set by the Pi via BRT: (auto-dim).
     // check_dim() ramps to this when active, dimmer when idle. Default full.
     uint8_t   base_brightness = 255;
+
+    // PLAYPAUSE confirmation: true from the tap until the bridge pushes a fresh
+    // state (drives the CenterStage "waiting" spinner). state_push_seq advances
+    // ONLY on a bridge ST: push (not our optimistic flip), so the player can
+    // tell "confirmed" from "our own guess".
+    bool      play_pending  = false;
+    uint32_t  state_push_seq = 0;
 };
 
 // ─── System telemetry from SYS: line ────────────────────────────────────────

@@ -270,7 +270,7 @@ void update()
     // priority chain so it doesn't compete with PI OFFLINE / NO NETWORK
     // overlays — those are bigger emergencies that take the centre.
     const bool want_spinner =
-        State::sys.spotify_stuck &&
+        (State::sys.spotify_stuck || State::app.play_pending) &&
         State::app.state != State::PLAY_STANDBY &&
         State::app.state != State::PLAY_SHUTDOWN &&
         State::app.state != State::PLAY_SHUTDOWN_WARN &&

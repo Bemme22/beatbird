@@ -89,6 +89,10 @@ static bool     created            = false;
 static bool     in_standby         = false;
 static bool     in_shutdown        = false;
 static uint32_t last_energy_render = 0;
+// PLAYPAUSE "waiting for bridge confirmation" spinner state.
+static uint32_t play_spin_seq      = 0;
+static uint32_t play_spin_min      = 0;
+static uint32_t play_spin_until    = 0;
 // Low-passed app.energy in [0..1]. Updates from State::app.energy at the
 // 60 Hz repaint tick; vol-wobble and source-marker pulse both read from
 // this so they share inertia and stay phase-aligned.
@@ -542,6 +546,14 @@ static void on_released(lv_event_t *e) {
         State::set_play_state(State::PLAY_PLAYING);
     }
     Proto::send_command("PLAYPAUSE");
+
+    // Mark the command as awaiting confirmation → CenterStage shows a small
+    // "waiting" spinner until the bridge pushes a fresh state. Held a beat so
+    // it's visible even on a fast confirm; capped by a safety timeout.
+    State::app.play_pending = true;
+    play_spin_seq   = State::app.state_push_seq;
+    play_spin_min   = now + 350;
+    play_spin_until = now + 2000;
 }
 
 // ─── Mode switching ─────────────────────────────────────────────────────────
@@ -798,6 +810,17 @@ bool is_visible() {
 
 void update() {
     if (!created || !is_visible()) return;
+
+    // Clear the PLAYPAUSE "waiting" flag once the bridge confirms (a fresh ST:
+    // push advanced state_push_seq). Held ≥350 ms so the spinner is visible
+    // even on a fast confirm; safety-capped. CenterStage reads play_pending.
+    if (State::app.play_pending) {
+        uint32_t now_ms = millis();
+        if (now_ms > play_spin_min &&
+            (State::app.state_push_seq != play_spin_seq || now_ms > play_spin_until)) {
+            State::app.play_pending = false;
+        }
+    }
 
     if (State::app.state == State::PLAY_SHUTDOWN_WARN ||
         State::app.state == State::PLAY_SHUTDOWN)         show_shutdown_mode();
