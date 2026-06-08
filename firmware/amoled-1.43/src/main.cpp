@@ -233,12 +233,19 @@ static void touch_poll_task(void * /*arg*/)
             release_streak = 0;
             if (press_streak < PRESS_STREAK_THRESHOLD) press_streak++;
             if (press_streak >= PRESS_STREAK_THRESHOLD) was_pressed = true;
-        } else if (was_pressed && release_streak < RELEASE_STREAK_THRESHOLD) {
-            release_streak++;
-        } else {
-            was_pressed    = false;
-            release_streak = 0;
-            press_streak   = 0;
+        } else if (was_pressed) {
+            // Latched press: tolerate brief dropouts before signalling RELEASE.
+            if (release_streak < RELEASE_STREAK_THRESHOLD) release_streak++;
+            else { was_pressed = false; release_streak = 0; press_streak = 0; }
+        } else if (press_streak > 0) {
+            // Still ACCUMULATING a press (not latched yet). A flaky touch IC
+            // (RF off the Zipp's onboard radio) drops the odd read mid-tap —
+            // `da da weg da da`. A hard reset to 0 on that single gap meant a
+            // real tap never reached the streak and was swallowed ("Touch
+            // reagiert nicht"). DECAY the confidence by one instead: a real
+            // (noisy) press still climbs to the threshold, while a true
+            // single-frame phantom (+1 then −1) still nets out to zero.
+            press_streak--;
         }
 
         portENTER_CRITICAL(&touch_mux);
