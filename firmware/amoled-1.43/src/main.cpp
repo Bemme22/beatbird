@@ -192,13 +192,18 @@ static volatile uint16_t touch_state_y       = 0;
 // PLAYPAUSE fire twice.
 static void touch_poll_task(void * /*arg*/)
 {
-    constexpr uint8_t RELEASE_STREAK_THRESHOLD = 4;
-    // A genuine tap lasts tens of ms (≥10 ticks @ 4 ms). A phantom press from a
-    // single corrupt/noisy I²C read is a 1-frame blip. Require a short PRESS
-    // streak before latching so those blips can't fire a spurious tap → the
-    // standby CMD:WAKE that woke the Zipp by itself. 3 ticks ≈ 12 ms — far below
-    // human tap, ample to reject 1-2 frame glitches.
-    constexpr uint8_t PRESS_STREAK_THRESHOLD = 3;
+    // Release grace widened to 6 ticks (~24 ms): keeps a latched press alive a
+    // touch longer after the finger lifts so a very SHORT tap is still asserted
+    // when LVGL next samples the indev (short taps were getting dropped between
+    // polls otherwise).
+    constexpr uint8_t RELEASE_STREAK_THRESHOLD = 6;
+    // A phantom press from a single corrupt/noisy I²C read is a 1-frame blip;
+    // require a short PRESS streak before latching so those blips can't fire a
+    // spurious tap (the standby CMD:WAKE that woke the Zipp by itself). 2 ticks
+    // ≈ 8 ms still rejects every single-frame phantom, but latches fast enough
+    // that VERY short human taps register (3 ticks was dropping them on the
+    // Zipp's flaky IC — "kurze Taps werden verschluckt").
+    constexpr uint8_t PRESS_STREAK_THRESHOLD = 2;
     uint16_t lx = 0, ly = 0;
     bool     was_pressed    = false;
     uint8_t  release_streak = 0;
