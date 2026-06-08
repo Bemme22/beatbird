@@ -490,7 +490,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,  0);
     lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock_xl(), 0);
     lv_obj_set_style_text_letter_space(lbl_clock, -2, 0);
-    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 100);
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 106);
 
     // ── Date (weekday · date) ───────────────────────────────────────────────
     // TODO: wire a real DATE field over the serial protocol (the bridge has
@@ -500,16 +500,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_date, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_date, Theme::font_sm(), 0);
     lv_obj_set_style_text_letter_space(lbl_date, 3, 0);
-    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 226);
-
-    // ── Weather icon (Weather-Icons font) ───────────────────────────────────
-#ifdef HAS_WEATHER_ICONS
-    lbl_wxicon = lv_label_create(scr);
-    lv_label_set_text(lbl_wxicon, "");
-    lv_obj_set_style_text_color(lbl_wxicon, Theme::text_primary, 0);
-    lv_obj_set_style_text_font (lbl_wxicon, Theme::font_weather(), 0);
-    lv_obj_align(lbl_wxicon, LV_ALIGN_TOP_MID, 0, 256);
-#endif
+    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 230);
 
     // ── Weather icon (suppressed in Warm Funktional v1) ─────────────────────
     // The dot-matrix icon set belongs to the old Nothing-Glyph language and
@@ -523,12 +514,32 @@ void create()
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Temperature (Inter SemiBold ~30) ────────────────────────────────────
-    lbl_temp = lv_label_create(scr);
+    // ── Weather row: icon + temperature inline (auto-centered) ──────────────
+    // A flex row keeps the glyph and the temp as one centered unit, so the
+    // weather block stays compact (the icon-on-its-own-line version pushed the
+    // status line too far down on the round display).
+    lv_obj_t *wx_row = lv_obj_create(scr);
+    lv_obj_remove_style_all(wx_row);
+    lv_obj_set_style_bg_opa(wx_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(wx_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(wx_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(wx_row, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(wx_row, 9, 0);
+    lv_obj_clear_flag(wx_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(wx_row, LV_ALIGN_TOP_MID, 0, 280);
+
+#ifdef HAS_WEATHER_ICONS
+    lbl_wxicon = lv_label_create(wx_row);
+    lv_label_set_text(lbl_wxicon, "");
+    lv_obj_set_style_text_color(lbl_wxicon, Theme::text_primary, 0);
+    lv_obj_set_style_text_font (lbl_wxicon, Theme::font_weather(), 0);
+#endif
+
+    lbl_temp = lv_label_create(wx_row);
     lv_label_set_text(lbl_temp, "");
     lv_obj_set_style_text_color(lbl_temp, Theme::text_primary, 0);
     lv_obj_set_style_text_font (lbl_temp, Theme::font_lg(),    0);
-    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 300);
 
     // ── Condition (tracked label) ───────────────────────────────────────────
     lbl_condition = lv_label_create(scr);
@@ -536,7 +547,7 @@ void create()
     lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary, 0);
     lv_obj_set_style_text_font        (lbl_condition, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_condition, 3, 0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 342);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 322);
 
     // ── High / Low (tracked, dimmer tier) ───────────────────────────────────
     lbl_highlow = lv_label_create(scr);
@@ -545,7 +556,7 @@ void create()
     lv_obj_set_style_text_opa         (lbl_highlow, (lv_opa_t)170,         0);
     lv_obj_set_style_text_font        (lbl_highlow, Theme::font_sm(),      0);
     lv_obj_set_style_text_letter_space(lbl_highlow, 2, 0);
-    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 366);
+    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 346);
 
     // ── Idle text (quiet, secondary; clean cross-fade is a follow-up) ───────
     lbl_flap = lv_label_create(scr);
@@ -556,7 +567,7 @@ void create()
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,  0);
     lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 394);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 380);
 
     // ── Live dot (Warm Funktional: red — the speaker's stitching/zip) ───────
     heartbeat = lv_obj_create(scr);
@@ -565,7 +576,7 @@ void create()
     lv_obj_set_style_bg_color(heartbeat, Theme::accent_alert, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 418);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 406);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 
     // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
