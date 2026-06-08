@@ -506,7 +506,7 @@ void create()
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(wx_row, 9, 0);
     lv_obj_clear_flag(wx_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(wx_row, LV_ALIGN_TOP_MID, 0, 300);
+    lv_obj_align(wx_row, LV_ALIGN_TOP_MID, 0, 306);
 
 #ifdef HAS_WEATHER_ICONS
     lbl_wxicon = lv_label_create(wx_row);
@@ -546,7 +546,7 @@ void create()
     lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,  0);
     lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 386);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 362);
 
     // ── Live dot (Warm Funktional: red — the speaker's stitching/zip) ───────
     heartbeat = lv_obj_create(scr);
@@ -555,7 +555,7 @@ void create()
     lv_obj_set_style_bg_color(heartbeat, Theme::accent_alert, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 410);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 392);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 
     // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
@@ -824,18 +824,15 @@ void update()
             snprintf(buf, sizeof(buf), "%d\xC2\xB0", State::weather.temp_c);
             lv_label_set_text(lbl_temp, buf);
 
-            snprintf(buf, sizeof(buf), "H %d\xC2\xB0  \xC2\xB7  L %d\xC2\xB0",
-                     State::weather.high_c, State::weather.low_c);
-            lv_label_set_text(lbl_highlow, buf);
-
             if (lbl_wxicon) {
                 lv_label_set_text(lbl_wxicon, weather_glyph(State::weather.icon));
                 lv_obj_clear_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
             }
             lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
-            // The icon already conveys the condition — drop the redundant
-            // "PARTLY CLOUDY" text (only shown on a weather-fetch error below).
+            // The icon conveys the condition (redundant "PARTLY CLOUDY" text
+            // hidden, shown only on a fetch error). H/L dropped on purpose —
+            // the freed space goes to the idle/status line (future HA data).
+            lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (lbl_condition, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(icon_obj,      LV_OBJ_FLAG_HIDDEN);
         } else {
