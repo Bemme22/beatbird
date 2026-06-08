@@ -508,53 +508,18 @@ static void on_released(lv_event_t *e) {
     zone_overlay_fade(0, ZONE_OVERLAY_FADE_OUT_MS);
     if (in_shutdown) return;
 
-    int dx  = press_last_x - press_start_x;
-    int dy  = press_last_y - press_start_y;
-    int adx = abs(dx);
-    int ady = abs(dy);
-
-    // Tap-to-wake from standby. Any non-swipe release wakes — the bridge
-    // calls _exit_standby() on any CMD: so WAKE is a no-op past that point.
+    // Tap-to-wake from standby — any release wakes (bridge no-ops past exit).
     if (in_standby) {
         Proto::send_command("WAKE");
         return;
     }
 
-    // Rotary-volume wins over every other release gesture. If the user
-    // touched the outer ring and either dragged enough angle to consume
-    // a tick or just touched-and-released without movement, that's a
-    // volume interaction — don't double-interpret it as a swipe-down to
-    // settings. Earlier order had swipe-down evaluated first, which
-    // meant a downward drag starting on the outer ring both changed
-    // volume AND opened settings.
+    // "Glance + simple" interaction model (2026-06-08): swipe gestures removed.
+    // A release is now exactly ONE of two things — a rotary-volume turn, or a
+    // tap (play/pause). Dropping swipe-skip / swipe-settings removed the
+    // tap-vs-swipe ambiguity that was eating clean taps; skip + settings live
+    // on the phone / web UI instead. Rotary still wins if it consumed angle.
     if (rotary_consumed) return;
-
-    // Swipe-down → quick-settings panel. Reachable only when the press
-    // started inside the rotary inner radius (rotary_active stayed
-    // false), which is the unambiguous "I want to navigate, not change
-    // volume" zone. Threshold is looser than the horizontal NEXT/PREV
-    // check: ady > adx is enough (no 1.3:1 ratio) because a downward
-    // finger drag on a round display naturally has some horizontal
-    // wobble. Min 30 px so a static tap doesn't trip it.
-    if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY > 0) {
-        ScreenSettings::show();
-        return;
-    }
-
-    if (adx > SWIPE_MIN_PX && adx * SWIPE_RATIO_D > ady * SWIPE_RATIO_N) {
-        // Swipe physically right → NEXT, physically left → PREV.
-        // TOUCH_DIR_RIGHT_IS_POS_DX is +1 on Zipp and -1 on Beat (panel
-        // mount differs by 180° per case), so the same source code maps
-        // the user's intent consistently across both speakers.
-        if (dx * TOUCH_DIR_RIGHT_IS_POS_DX > 0) {
-            Proto::send_command("NEXT");
-            CenterStage::show_toast("SKIP >", 1200);
-        } else {
-            Proto::send_command("PREV");
-            CenterStage::show_toast("< SKIP", 1200);
-        }
-        return;
-    }
 
     // PLAYPAUSE — flip the local play_state immediately so CenterStage's
     // "PAUSE" overlay appears/disappears in the same frame as the tap.

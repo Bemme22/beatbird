@@ -86,10 +86,6 @@ static lv_anim_t anim_heartbeat;
 static bool      created                = false;
 static uint8_t   last_icon_rendered     = 255;   // force first paint
 static String    last_clock_rendered    = "";
-// Tap vs swipe distinguisher for the standby screen's release handler.
-// Capacitive touch is single-finger so file-scope is fine.
-static int       press_sx               = 0;
-static int       press_sy               = 0;
 
 // Fixed pixel width of the flap label. Used both when we configure the
 // label in create() and when set_flap_text decides whether the next
@@ -440,27 +436,10 @@ void create()
     // is fine. The decision happens on RELEASED so a downward drag can
     // be distinguished from a static tap.
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    // "Glance + simple" (2026-06-08): any tap on standby wakes. Swipe-to-
+    // settings removed — pairing/settings live on the web UI, so there are no
+    // hidden gestures to discover and a tap can't be misread as a swipe.
     lv_obj_add_event_cb(scr, [](lv_event_t * /*e*/) {
-        lv_indev_t *indev = lv_indev_active();
-        if (!indev) return;
-        lv_point_t p; lv_indev_get_point(indev, &p);
-        press_sx = p.x; press_sy = p.y;
-    }, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(scr, [](lv_event_t * /*e*/) {
-        lv_indev_t *indev = lv_indev_active();
-        if (!indev) { Proto::send_command("WAKE"); return; }
-        lv_point_t p; lv_indev_get_point(indev, &p);
-        int dx = p.x - press_sx, dy = p.y - press_sy;
-        int adx = (dx < 0 ? -dx : dx), ady = (dy < 0 ? -dy : dy);
-        // Swipe-down — looser threshold than horizontal swipes elsewhere.
-        // A real "swipe down" with finger drag has wobble; ady > adx (no
-        // 1.3:1 ratio) gives the gesture room. Min 30 px so a static tap
-        // with millimetre-jitter still resolves to WAKE. Direction
-        // multiplier handles the per-case panel-mount difference.
-        if (ady > 30 && ady > adx && dy * TOUCH_DIR_DOWN_IS_POS_DY > 0) {
-            ScreenSettings::show();
-            return;
-        }
         Proto::send_command("WAKE");
     }, LV_EVENT_RELEASED, NULL);
 
