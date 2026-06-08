@@ -45,13 +45,15 @@ static inline float  sf(float n)    { return n * (float)ICON_SCALE_NUM / (float)
 
 static lv_obj_t *scr           = nullptr;
 static lv_obj_t *scint_layer   = nullptr;   // background scintillation dots (ambient)
+static lv_obj_t *accent_tick   = nullptr;   // Warm-Funktional accent bar (top)
 static lv_obj_t *lbl_clock     = nullptr;
+static lv_obj_t *lbl_date      = nullptr;   // weekday · date (Warm-Funktional)
 static lv_obj_t *icon_obj      = nullptr;   // custom-draw container @ (233, 240)
 static lv_obj_t *lbl_temp      = nullptr;
 static lv_obj_t *lbl_highlow   = nullptr;
 static lv_obj_t *lbl_condition = nullptr;
 static lv_obj_t *lbl_flap      = nullptr;   // airport-board-style idle text
-static lv_obj_t *heartbeat     = nullptr;
+static lv_obj_t *heartbeat     = nullptr;   // Warm-Funktional: red "live" dot
 // BT-pairing QR widget + its caption. Created hidden; shown only while
 // State::sys.bt_pairing is true and a URL has been received from the
 // bridge. When shown, the clock + weather block are hidden so the QR
@@ -94,7 +96,7 @@ static int       press_sy               = 0;
 // a freshly created label returns 0 until LVGL's layout has run, and
 // on the very first standby transition that race made every short
 // message look like 'wider than the label → scroll → align LEFT'.
-static constexpr int FLAP_LABEL_WIDTH    = 380;
+static constexpr int FLAP_LABEL_WIDTH    = 300;
 // Cached flap text — set by the Pi-side STBY: line. Cached so a message
 // arriving before create() runs gets applied on the next create() pass.
 static String    pending_flap_text      = "ON STANDBY";
@@ -406,19 +408,10 @@ void create()
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Scintillation layer ────────────────────────────────────────────────
-    // First child = bottom of the z-stack, so all subsequent widgets
-    // (clock, weather, flap) render on top. Full-screen, transparent,
-    // not clickable — purely a draw canvas. Invalidated by update().
-    scint_layer = lv_obj_create(scr);
-    lv_obj_remove_style_all(scint_layer);
-    lv_obj_set_size(scint_layer, 466, 466);
-    lv_obj_set_pos (scint_layer, 0, 0);
-    lv_obj_set_style_bg_opa(scint_layer, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(scint_layer, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(scint_layer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag  (scint_layer, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_add_event_cb(scint_layer, scint_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+    // ── Scintillation removed (Warm Funktional) ─────────────────────────────
+    // The ambient dot field belonged to the old Nothing-Glyph language; it
+    // reads as noise against the clean Inter standby. scint_layer stays
+    // nullptr — update()'s invalidate is already null-guarded.
 
     // Touch model on standby:
     //   - Tap → CMD:WAKE (bridge no-ops past _exit_standby; firmware
@@ -462,78 +455,89 @@ void create()
     //   condition y=365  (22 px — was 11)
     //   heartbeat y=420  (10 px — was  8)
 
-    // ── Clock (top, 44 px) ──────────────────────────────────────────────────
+    // ── Accent tick (Warm Funktional — the speaker's body colour) ───────────
+    accent_tick = lv_obj_create(scr);
+    lv_obj_remove_style_all(accent_tick);
+    lv_obj_set_size(accent_tick, 46, 5);
+    lv_obj_set_style_bg_color(accent_tick, Theme::accent, 0);
+    lv_obj_set_style_bg_opa(accent_tick, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(accent_tick, 3, 0);
+    lv_obj_align(accent_tick, LV_ALIGN_TOP_MID, 0, 66);
+    lv_obj_clear_flag(accent_tick, LV_OBJ_FLAG_CLICKABLE);
+
+    // ── Clock (hero — Inter ExtraBold ~140) ─────────────────────────────────
     lbl_clock = lv_label_create(scr);
     lv_label_set_text(lbl_clock, "--:--");
-    lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,        0);
-    lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock(),        0);
-    lv_obj_set_style_text_letter_space(lbl_clock, Theme::LETTER_SPACE_DISPLAY,0);
-    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_style_text_color       (lbl_clock, Theme::text_primary,  0);
+    lv_obj_set_style_text_font        (lbl_clock, Theme::font_clock_xl(), 0);
+    lv_obj_set_style_text_letter_space(lbl_clock, -2, 0);
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_MID, 0, 110);
 
-    // ── Weather icon container (centered on 233, 180) ───────────────────────
+    // ── Date (weekday · date) ───────────────────────────────────────────────
+    // TODO: wire a real DATE field over the serial protocol (the bridge has
+    // it). Placeholder until then so the layout reads correctly in the sim.
+    lbl_date = lv_label_create(scr);
+    lv_label_set_text(lbl_date, "SAMSTAG \xC2\xB7 7. JUNI");
+    lv_obj_set_style_text_color       (lbl_date, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font        (lbl_date, Theme::font_sm(), 0);
+    lv_obj_set_style_text_letter_space(lbl_date, 3, 0);
+    lv_obj_align(lbl_date, LV_ALIGN_TOP_MID, 0, 236);
+
+    // ── Weather icon (suppressed in Warm Funktional v1) ─────────────────────
+    // The dot-matrix icon set belongs to the old Nothing-Glyph language and
+    // clashes with Inter. Kept in the tree (zero-size, no draw cb) so the
+    // weather update() logic keeps a valid target; a clean line-icon set is a
+    // follow-up. Weather shows as text below for now.
     icon_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(icon_obj);
-    lv_obj_set_size(icon_obj, ICON_OBJ_W, ICON_OBJ_H);
-    lv_obj_set_pos(icon_obj, Theme::CENTER - ICON_OBJ_W / 2, 180 - ICON_OBJ_H / 2);
+    lv_obj_set_size(icon_obj, 0, 0);
     lv_obj_set_style_bg_opa(icon_obj, LV_OPA_TRANSP, 0);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(icon_obj, icon_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
 
-    // ── Temperature (44 px, was 33) ─────────────────────────────────────────
+    // ── Temperature (Inter SemiBold ~30) ────────────────────────────────────
     lbl_temp = lv_label_create(scr);
     lv_label_set_text(lbl_temp, "");
-    lv_obj_set_style_text_color       (lbl_temp, Theme::text_primary,          0);
-    lv_obj_set_style_text_font        (lbl_temp, Theme::font_clock(),          0);
-    lv_obj_set_style_text_letter_space(lbl_temp, Theme::LETTER_SPACE_DISPLAY,  0);
-    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 255);
+    lv_obj_set_style_text_color(lbl_temp, Theme::text_primary, 0);
+    lv_obj_set_style_text_font (lbl_temp, Theme::font_lg(),    0);
+    lv_obj_align(lbl_temp, LV_ALIGN_TOP_MID, 0, 278);
 
-    // ── High / Low (22 px, was 11) ──────────────────────────────────────────
-    lbl_highlow = lv_label_create(scr);
-    lv_label_set_text(lbl_highlow, "");
-    lv_obj_set_style_text_color       (lbl_highlow, Theme::text_secondary,     0);
-    lv_obj_set_style_text_font        (lbl_highlow, Theme::font_display_md(),  0);
-    lv_obj_set_style_text_letter_space(lbl_highlow, Theme::LETTER_SPACE_LABEL, 0);
-    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 320);
-
-    // ── Condition label (22 px, was 11) ─────────────────────────────────────
+    // ── Condition (tracked label) ───────────────────────────────────────────
     lbl_condition = lv_label_create(scr);
     lv_label_set_text(lbl_condition, "");
-    lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary,    0);
-    lv_obj_set_style_text_opa         (lbl_condition, (lv_opa_t)128,            0);  // 50 % for darker tier
-    lv_obj_set_style_text_font        (lbl_condition, Theme::font_display_md(), 0);
-    lv_obj_set_style_text_letter_space(lbl_condition, Theme::LETTER_SPACE_LABEL,0);
-    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 355);   // bumped up 10 to make room for flap
+    lv_obj_set_style_text_color       (lbl_condition, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font        (lbl_condition, Theme::font_sm(),      0);
+    lv_obj_set_style_text_letter_space(lbl_condition, 3, 0);
+    lv_obj_align(lbl_condition, LV_ALIGN_TOP_MID, 0, 320);
 
-    // ── Idle flap text (airport board, accent colour) ───────────────────────
-    // Rotates every ~45s via Pi's STBY: serial line. Replaces the old static
-    // heartbeat as the "I'm still alive" cue — the periodic flap animation
-    // is more expressive than a pulsing dot, and the messages give the
-    // standby screen personality.
-    //
-    // Fixed width + SCROLL_CIRCULAR so long RSS headlines marquee instead
-    // of clipping at the round display's edge. Short local strings
-    // (≤ ~17 chars at font_display_md) fit without triggering the scroll.
-    // SplitFlap saves the long-mode at flap start and restores it on the
-    // final tick, so the marquee picks up cleanly once the flap settles.
+    // ── High / Low (tracked, dimmer tier) ───────────────────────────────────
+    lbl_highlow = lv_label_create(scr);
+    lv_label_set_text(lbl_highlow, "");
+    lv_obj_set_style_text_color       (lbl_highlow, Theme::text_secondary, 0);
+    lv_obj_set_style_text_opa         (lbl_highlow, (lv_opa_t)170,         0);
+    lv_obj_set_style_text_font        (lbl_highlow, Theme::font_sm(),      0);
+    lv_obj_set_style_text_letter_space(lbl_highlow, 2, 0);
+    lv_obj_align(lbl_highlow, LV_ALIGN_TOP_MID, 0, 346);
+
+    // ── Idle text (quiet, secondary; clean cross-fade is a follow-up) ───────
     lbl_flap = lv_label_create(scr);
     lv_label_set_text(lbl_flap, pending_flap_text.c_str());
-    lv_obj_set_style_text_color       (lbl_flap, Theme::accent,                 0);
-    lv_obj_set_style_text_font        (lbl_flap, Theme::font_display_md(),      0);
-    lv_obj_set_style_text_letter_space(lbl_flap, Theme::LETTER_SPACE_LABEL,     0);
-    lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,          0);
+    lv_obj_set_style_text_color       (lbl_flap, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font        (lbl_flap, Theme::font_sm(),      0);
+    lv_obj_set_style_text_letter_space(lbl_flap, 3, 0);
+    lv_obj_set_style_text_align       (lbl_flap, LV_TEXT_ALIGN_CENTER,  0);
     lv_obj_set_width                  (lbl_flap, FLAP_LABEL_WIDTH);
     lv_label_set_long_mode            (lbl_flap, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 400);
+    lv_obj_align(lbl_flap, LV_ALIGN_TOP_MID, 0, 376);
 
-    // ── Heartbeat dot (smaller, near bottom edge) ───────────────────────────
+    // ── Live dot (Warm Funktional: red — the speaker's stitching/zip) ───────
     heartbeat = lv_obj_create(scr);
     lv_obj_remove_style_all(heartbeat);
-    lv_obj_set_size(heartbeat, 6, 6);                          // shrunk from 10 — flap text is now the headliner
-    lv_obj_set_style_bg_color(heartbeat, Theme::accent, 0);
+    lv_obj_set_size(heartbeat, 6, 6);
+    lv_obj_set_style_bg_color(heartbeat, Theme::accent_alert, 0);
     lv_obj_set_style_bg_opa(heartbeat, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(heartbeat, LV_RADIUS_CIRCLE, 0);
-    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 445);
+    lv_obj_align(heartbeat, LV_ALIGN_TOP_MID, 0, 402);
     lv_obj_clear_flag(heartbeat, LV_OBJ_FLAG_CLICKABLE);
 
     // ── BT pairing QR + caption (hidden until SYS:bt=1 + URL set) ───────────
@@ -673,10 +677,13 @@ void show()
     // standby screen was unloaded, and the Dirty::ACCENT bit may already
     // have been consumed by ScreenPlayer's update().
     lv_obj_set_style_text_color(lbl_clock,     Theme::text_primary,   0);
+    lv_obj_set_style_text_color(lbl_date,      Theme::text_secondary, 0);
     lv_obj_set_style_text_color(lbl_temp,      Theme::text_primary,   0);
     lv_obj_set_style_text_color(lbl_highlow,   Theme::text_secondary, 0);
     lv_obj_set_style_text_color(lbl_condition, Theme::text_secondary, 0);
-    lv_obj_set_style_bg_color  (heartbeat,     Theme::accent,         0);
+    lv_obj_set_style_text_color(lbl_flap,      Theme::text_secondary, 0);
+    lv_obj_set_style_bg_color  (accent_tick,   Theme::accent,         0);
+    lv_obj_set_style_bg_color  (heartbeat,     Theme::accent_alert,   0);
     last_icon_rendered  = 255;
     last_clock_rendered = "";
     last_valid_rendered = !State::weather.valid;     // force first render
@@ -709,16 +716,18 @@ void update()
         auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
         auto HIDE = [](lv_obj_t *o) { if (o) lv_obj_add_flag  (o, LV_OBJ_FLAG_HIDDEN); };
         if (is_pairing) {
+            HIDE(accent_tick);
             HIDE(lbl_clock);
-            HIDE(icon_obj);
+            HIDE(lbl_date);
             HIDE(lbl_temp);
             HIDE(lbl_highlow);
             HIDE(lbl_condition);
             SHOW(qr_code);
             SHOW(qr_caption);
         } else {
+            SHOW(accent_tick);
             SHOW(lbl_clock);
-            SHOW(icon_obj);
+            SHOW(lbl_date);
             SHOW(lbl_temp);
             SHOW(lbl_highlow);
             SHOW(lbl_condition);
@@ -751,7 +760,8 @@ void update()
         lv_obj_set_style_text_color(lbl_temp,      Theme::text_primary,   0);
         lv_obj_set_style_text_color(lbl_highlow,   Theme::text_secondary, 0);
         lv_obj_set_style_text_color(lbl_condition, Theme::text_secondary, 0);
-        lv_obj_set_style_bg_color  (heartbeat,     Theme::accent,         0);
+        lv_obj_set_style_bg_color  (accent_tick,   Theme::accent,         0);
+        lv_obj_set_style_bg_color  (heartbeat,     Theme::accent_alert,   0);
         lv_obj_invalidate(icon_obj);
         State::clear_dirty(State::Dirty::ACCENT);
     }
@@ -759,7 +769,7 @@ void update()
     // Clock — flip-char on every minute tick (the ':' stays fixed; only the
     // digits cycle). SplitFlap::set_text no-ops if the text is unchanged.
     if (State::app.clockStr != last_clock_rendered) {
-        SplitFlap::set_text(lbl_clock, State::app.clockStr.c_str());
+        lv_label_set_text(lbl_clock, State::app.clockStr.c_str());
         last_clock_rendered = State::app.clockStr;
     }
 
@@ -785,14 +795,14 @@ void update()
             // truncated mid-string (lost the trailing "1°").
             char buf[32];
             snprintf(buf, sizeof(buf), "%d\xC2\xB0", State::weather.temp_c);
-            SplitFlap::set_text(lbl_temp, buf);
+            lv_label_set_text(lbl_temp, buf);
 
             snprintf(buf, sizeof(buf), "H %d\xC2\xB0  \xC2\xB7  L %d\xC2\xB0",
                      State::weather.high_c, State::weather.low_c);
-            SplitFlap::set_text(lbl_highlow, buf);
+            lv_label_set_text(lbl_highlow, buf);
 
-            SplitFlap::set_text(lbl_condition,
-                                condition_label_text(State::weather.icon));
+            lv_label_set_text(lbl_condition,
+                              condition_label_text(State::weather.icon));
 
             lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
@@ -809,7 +819,7 @@ void update()
             lv_obj_add_flag  (lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag  (icon_obj,      LV_OBJ_FLAG_HIDDEN);
-            SplitFlap::set_text(lbl_condition, "WETTER NICHT VERFUEGBAR");
+            lv_label_set_text(lbl_condition, "WETTER NICHT VERFUEGBAR");
             lv_obj_clear_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
         }
         lv_obj_invalidate(icon_obj);

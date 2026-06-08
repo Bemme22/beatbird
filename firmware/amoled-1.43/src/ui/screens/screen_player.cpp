@@ -82,6 +82,7 @@ static lv_obj_t *source_marker = nullptr;
 static lv_obj_t *lbl_source    = nullptr;
 static lv_obj_t *lbl_title     = nullptr;
 static lv_obj_t *lbl_artist    = nullptr;
+static lv_obj_t *lbl_time      = nullptr;   // MM:SS / MM:SS (Warm Funktional)
 static lv_obj_t *state_icon    = nullptr;
 // lbl_volume removed — CenterStage shows MUTE when volume == 0
 
@@ -269,37 +270,65 @@ static inline float energy_dyn(float raw) {
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
+// Warm Funktional: clean stroked ring (dim full circle + accent progress arc,
+// clockwise from 12 o'clock, optional red position tip). Replaces the old
+// dot-raster vol/progress rings.
+static void draw_ring(lv_layer_t *layer, int radius, int width, float frac,
+                      lv_color_t fg, lv_opa_t fg_opa,
+                      lv_color_t bg, lv_opa_t bg_opa, bool tip, bool ccw) {
+    lv_draw_arc_dsc_t d;
+    lv_draw_arc_dsc_init(&d);
+    d.center.x = Theme::CENTER;
+    d.center.y = Theme::CENTER;
+    d.radius   = radius;
+    d.width    = width;
+    d.rounded  = 1;
+    // background — full dim ring
+    d.color = bg; d.opa = bg_opa;
+    d.start_angle = 0; d.end_angle = 360;
+    lv_draw_arc(layer, &d);
+    // foreground — fills from the top (270°). Progress runs clockwise, volume
+    // counter-clockwise so the two concentric arcs are visually distinct.
+    if (frac > 0.0025f) {
+        int sweep = (int)(frac * 360.0f + 0.5f);
+        if (sweep < 2)   sweep = 2;
+        if (sweep > 360) sweep = 360;
+        int s_ang, e_ang, tip_ang;
+        if (!ccw) { s_ang = 270;         e_ang = 270 + sweep; tip_ang = 270 + sweep; }
+        else      { s_ang = 270 - sweep; e_ang = 270;         tip_ang = 270 - sweep; }
+        while (s_ang < 0) { s_ang += 360; e_ang += 360; }   // LVGL accepts >360
+        d.color = fg; d.opa = fg_opa;
+        d.start_angle = s_ang;
+        d.end_angle   = e_ang;
+        lv_draw_arc(layer, &d);
+        if (tip) {
+            float a  = (float)tip_ang * (float)M_PI / 180.0f;
+            int   tx = Theme::CENTER + (int)(radius * cosf(a));
+            int   ty = Theme::CENTER + (int)(radius * sinf(a));
+            draw_dot(layer, tx, ty, width / 2 + 2, Theme::accent_alert, LV_OPA_COVER);
+        }
+    }
+}
+
 static void vol_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
-    int vol = State::app.volume;
-    int lit = (vol * 24 + 50) / 100;
-    // Static volume indicator — redrawn only on Dirty::VOLUME / Dirty::ACCENT,
-    // never per-frame. Animating this screen-sized layer every frame (the old
-    // energy wobble + volume wave) is exactly what juddered the S3; the energy
-    // pulse now lives in the small source-marker instead.
-    for (int i = 1; i < 24; i++) {              // dot 0 is the ring gap
-        if (i < lit)
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R,     Theme::accent,     (lv_opa_t)217);
-        else
-            draw_dot(layer, vol_x[i], vol_y[i], Theme::VOL_DOT_R_DIM, Theme::accent_dim, (lv_opa_t)160);
-    }
+    float f = State::app.volume / 100.0f;
+    // inner thin volume ring (no tip), counter-clockwise
+    draw_ring(layer, 188, 4, f, Theme::accent, (lv_opa_t)220,
+              Theme::accent_dim, (lv_opa_t)140, false, /*ccw=*/true);
 }
 
 static void prog_draw_cb(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
-    int prog_pct = 0;
+    float f = 0.0f;
     if (State::app.dur_ms > 1) {
         uint32_t pos = State::app.pos_ms;
         if (pos > State::app.dur_ms) pos = State::app.dur_ms;
-        prog_pct = (int)((uint64_t)pos * 100u / State::app.dur_ms);
+        f = (float)pos / (float)State::app.dur_ms;
     }
-    int lit = (prog_pct * 60 + 50) / 100;
-    for (int i = 0; i < 60; i++) {
-        bool is_lit  = (i < lit);
-        lv_color_t c = is_lit ? Theme::accent : Theme::Color::TEXT_FAINT;
-        lv_opa_t   o = is_lit ? LV_OPA_COVER : (lv_opa_t)120;
-        draw_dot(layer, prog_x[i], prog_y[i], 2, c, o);
-    }
+    // outer progress ring + red position tip, clockwise
+    draw_ring(layer, 205, 5, f, Theme::accent, LV_OPA_COVER,
+              Theme::Color::TEXT_FAINT, (lv_opa_t)150, true, /*ccw=*/false);
 }
 
 static void state_icon_draw_cb(lv_event_t *e) {
@@ -553,8 +582,9 @@ static void show_player_mode() {
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     S(vol_layer); S(prog_layer);
-    S(source_marker); S(lbl_source);
-    S(lbl_title); S(lbl_artist);
+    S(lbl_source);
+    S(lbl_title); S(lbl_artist); S(lbl_time);
+    H(source_marker);              // music-reactive marker parked (hidden)
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
     // Switch back from the standby screen to our own (ScreenPlayer) scr.
     // Fade-in symmetric to ScreenStandby::show() so the standby→player
@@ -593,7 +623,7 @@ static void show_shutdown_mode() {
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     H(vol_layer); H(prog_layer);
     H(source_marker); H(lbl_source);
-    H(lbl_artist); H(state_icon);
+    H(lbl_artist); H(lbl_time); H(state_icon);
     CenterStage::invalidate();
     // Coming from standby — bring our own scr back so the shutdown text shows.
     // Hard-cut here on purpose: shutdown is urgent and an animated fade
@@ -678,13 +708,16 @@ void create() {
     lv_obj_set_style_transform_pivot_y(source_marker, Theme::SOURCE_MARKER_SIZE / 2, 0);
     lv_obj_add_flag(source_marker, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(source_marker, LV_OBJ_FLAG_CLICKABLE);
+    // Warm Funktional: the music-reactive marker is parked (see roadmap). Hide
+    // it so the player reads clean; the breathing loop in update() no-ops on it.
+    lv_obj_add_flag(source_marker, LV_OBJ_FLAG_HIDDEN);
 
     // ── Source label ────────────────────────────────────────────────────────
     lbl_source = lv_label_create(scr);
     lv_label_set_text(lbl_source, "");
-    lv_obj_set_style_text_color(lbl_source, Theme::accent_dim, 0);
-    lv_obj_set_style_text_font(lbl_source, Theme::font_display_md(), 0);
-    lv_obj_set_style_text_letter_space(lbl_source, Theme::LETTER_SPACE_LABEL, 0);
+    lv_obj_set_style_text_color(lbl_source, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font(lbl_source, Theme::font_sm(), 0);
+    lv_obj_set_style_text_letter_space(lbl_source, 3, 0);   // tracked
     lv_obj_align(lbl_source, LV_ALIGN_CENTER, 0, Theme::SOURCE_LABEL_Y);
     lv_obj_add_flag(lbl_source, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_source, LV_OBJ_FLAG_CLICKABLE);
@@ -693,11 +726,11 @@ void create() {
     lbl_title = lv_label_create(scr);
     lv_label_set_text(lbl_title, "");
     lv_obj_set_style_text_color(lbl_title, Theme::text_primary, 0);
-    lv_obj_set_style_text_font(lbl_title, Theme::font_clock(), 0);
-    lv_obj_set_style_text_letter_space(lbl_title, Theme::LETTER_SPACE_DISPLAY, 0);
+    lv_obj_set_style_text_font(lbl_title, Theme::font_title(), 0);
+    lv_obj_set_style_text_letter_space(lbl_title, 0, 0);
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(lbl_title, 4, 0);
-    lv_obj_set_width(lbl_title, 280);
+    lv_obj_set_width(lbl_title, 300);
     // SCROLL_CIRCULAR — left-to-right one-way scroll with the doubled-text
     // wrap. Tried SCROLL (back-and-forth) but the right-to-left return
     // sweep felt jarring on a single line of music title; users expect
@@ -711,14 +744,25 @@ void create() {
     lbl_artist = lv_label_create(scr);
     lv_label_set_text(lbl_artist, "");
     lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
-    lv_obj_set_style_text_font(lbl_artist, Theme::font_display_lg(), 0);
-    lv_obj_set_style_text_letter_space(lbl_artist, Theme::LETTER_SPACE_DISPLAY, 0);
+    lv_obj_set_style_text_font(lbl_artist, Theme::font_md(), 0);
+    lv_obj_set_style_text_letter_space(lbl_artist, 0, 0);
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(lbl_artist, 260);
+    lv_obj_set_width(lbl_artist, 280);
     lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);   // see title comment
     lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, Theme::ARTIST_Y_OFFSET);
     lv_obj_add_flag(lbl_artist, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_artist, LV_OBJ_FLAG_CLICKABLE);
+
+    // ── Elapsed / duration (MM:SS / MM:SS) ──────────────────────────────────
+    lbl_time = lv_label_create(scr);
+    lv_label_set_text(lbl_time, "");
+    lv_obj_set_style_text_color(lbl_time, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font(lbl_time, Theme::font_sm(), 0);
+    lv_obj_set_style_text_letter_space(lbl_time, 1, 0);
+    lv_obj_set_style_text_align(lbl_time, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, 112);
+    lv_obj_add_flag(lbl_time, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(lbl_time, LV_OBJ_FLAG_CLICKABLE);
 
     // ── State icon ──────────────────────────────────────────────────────────
     state_icon = lv_obj_create(scr);
@@ -789,7 +833,8 @@ void update() {
     if (State::is_dirty(State::Dirty::ACCENT)) {
         lv_obj_set_style_text_color(lbl_title,  Theme::text_primary,   0);
         lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
-        lv_obj_set_style_text_color(lbl_source, Theme::accent_dim,     0);
+        lv_obj_set_style_text_color(lbl_source, Theme::text_secondary, 0);
+        lv_obj_set_style_text_color(lbl_time,   Theme::text_secondary, 0);
         lv_obj_invalidate(state_icon);
         lv_obj_invalidate(vol_layer);
         lv_obj_invalidate(prog_layer);
@@ -911,6 +956,15 @@ void update() {
     }
     if (State::is_dirty(State::Dirty::PROGRESS)) {
         lv_obj_invalidate(prog_layer);
+        // Elapsed / duration as MM:SS / MM:SS.
+        if (lbl_time) {
+            uint32_t ps = State::app.pos_ms / 1000;
+            uint32_t ds = State::app.dur_ms / 1000;
+            char tb[28];
+            snprintf(tb, sizeof(tb), "%u:%02u / %u:%02u",
+                     ps / 60, ps % 60, ds / 60, ds % 60);
+            lv_label_set_text(lbl_time, tb);
+        }
         State::clear_dirty(State::Dirty::PROGRESS);
     }
 
