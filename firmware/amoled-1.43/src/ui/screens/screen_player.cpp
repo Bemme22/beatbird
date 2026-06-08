@@ -520,12 +520,22 @@ static void on_released(lv_event_t *e) {
     // on the phone / web UI instead. Rotary still wins if it consumed angle.
     if (rotary_consumed) return;
 
-    // PLAYPAUSE — flip the local play_state immediately so CenterStage's
-    // "PAUSE" overlay appears/disappears in the same frame as the tap.
-    // The bridge round-trip (Pi → go-librespot → state push) is ~150-
-    // 300 ms; without the optimistic flip the display feels laggy even
-    // when the tap was registered. The bridge's next state push will
-    // either confirm our guess (no-op) or correct it.
+    // Echo lockout: a single physical tap can fire TWO on_released events
+    // ~1 s apart on the Zipp's flaky touch IC (verified in the bridge log —
+    // PLAYPAUSE-twice ~1 s apart). After we send a PLAYPAUSE, drop another one
+    // for a short window so the duplicate never leaves the ESP — otherwise it
+    // toggles playback straight back ("zeigt Pause, spielt weiter"). This is an
+    // input debounce for a hardware echo at the SOURCE; the play-state *logic*
+    // is confirmation-driven in the bridge. ~1.2 s is well below any real
+    // re-tap intent and above the observed echo gap.
+    static uint32_t play_lockout_until = 0;
+    uint32_t now = millis();
+    if (now < play_lockout_until) return;        // echo within lockout — drop it
+    play_lockout_until = now + 1200;
+
+    // Optimistic flip so CenterStage's PAUSE overlay reacts in the same frame
+    // as the tap (the bridge round-trip is ~150-300 ms). The bridge's next
+    // state push confirms or corrects this.
     if (State::app.state == State::PLAY_PLAYING) {
         State::set_play_state(State::PLAY_PAUSED);
     } else if (State::app.state == State::PLAY_PAUSED) {
