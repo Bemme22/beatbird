@@ -163,12 +163,25 @@ class CoverBackground(BaseModel):
                              # cover, pre-decoded RGB565, or partial-redraw work).
 
 
+class AutoDim(BaseModel):
+    """Time-of-day display brightness + night standby. The bridge derives the
+    day phase from the local hour and pushes BRT:/NIGHT: to the AMOLED."""
+    enabled: bool = True
+    day_brightness: int = 255         # 0..255, morning + day
+    evening_brightness: int = 110
+    night_brightness: int = 16        # dim bedside-clock level
+    morning_hour: int = 7             # night ends → morning begins
+    evening_start_hour: int = 19
+    night_start_hour: int = 22        # night begins (minimal dim clock)
+
+
 class Display(BaseModel):
     type: Literal["amoled", "led-button", "none"] = "none"
     variant: Optional[str] = None
     serial_device: str = "auto"
     spectrum_bands: int = 16
     cover_background: CoverBackground = Field(default_factory=CoverBackground)
+    auto_dim: AutoDim = Field(default_factory=AutoDim)
 
     # ── Single accent colour (current PAL: protocol) ──
     # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; firmware derives

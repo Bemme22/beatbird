@@ -329,10 +329,13 @@ static void set_brightness(uint8_t b)
 static void check_dim()
 {
     static uint8_t target = 255;
+    uint8_t  base = State::app.base_brightness;          // time-of-day (BRT:)
     uint32_t idle = millis() - State::app.last_touch_ms;
-    uint8_t new_target = (idle > Theme::DIM_AFTER_MS)
-                       ? Theme::DIM_BRIGHTNESS
-                       : Theme::FULL_BRIGHTNESS;
+    // Active → the time-of-day base; untouched a while → dim further (~55 %),
+    // but never fully off. At night the base is already low, so the idle dip
+    // is gentle.
+    uint8_t idle_target = (uint8_t)max(8, ((int)base * 55) / 100);
+    uint8_t new_target  = (idle > Theme::DIM_AFTER_MS) ? idle_target : base;
     if (new_target != target) target = new_target;
     if (disp_brightness == target) return;
 

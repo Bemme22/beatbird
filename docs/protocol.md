@@ -75,6 +75,10 @@ DATE:<string>       standby date line, preformatted + localized by the Pi
                     so umlauts / middle-dot are fine (NOT split-flap text).
                     Re-sent on every idle rotation so it survives an ESP reboot.
 WX:t=18|c=2|h=22|l=12   weather snapshot (see below)
+BRT:<0-255>         display brightness (time-of-day auto-dim). Firmware ramps
+                    to this as the active level; dims further when untouched.
+NIGHT:<0|1>         minimal night standby (1 = dim clock only, weather/status/
+                    icon hidden). Driven by the Pi's day-phase logic.
 ```
 
 ### WX: — Weather data (Bridge → Display)

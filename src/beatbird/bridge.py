@@ -1678,6 +1678,50 @@ class BeatBirdBridge:
         return (f"{self._DE_WEEKDAYS[t.tm_wday]} · "
                 f"{t.tm_mday}. {self._DE_MONTHS[t.tm_mon - 1]}")
 
+    # ── Time-of-day standby: auto-dim + night mode + phase greeting ──────────
+    _PHASE_GREETINGS = {
+        "morning": "GUTEN MORGEN",
+        "day":     "SCHOENEN TAG",
+        "evening": "GUTEN ABEND",
+        "night":   "GUTE NACHT",
+    }
+
+    def _day_phase(self) -> str:
+        ad = self.profile.display.auto_dim
+        h = time.localtime().tm_hour
+        if h >= ad.night_start_hour or h < ad.morning_hour:
+            return "night"
+        if h < 11:
+            return "morning"
+        if h < ad.evening_start_hour:
+            return "day"
+        return "evening"
+
+    def _phase_greeting(self) -> str:
+        return self._PHASE_GREETINGS.get(self._day_phase(), "")
+
+    def _apply_auto_dim(self) -> None:
+        """Push time-of-day brightness (BRT:) + night standby (NIGHT:) to the
+        display, but only when they change. Called on the 5 s tick so it tracks
+        dusk/dawn and survives an ESP reconnect."""
+        ad = self.profile.display.auto_dim
+        if not self.display or not ad.enabled:
+            return
+        phase = self._day_phase()
+        brt = {"night": ad.night_brightness,
+               "evening": ad.evening_brightness}.get(phase, ad.day_brightness)
+        brt = max(0, min(255, int(brt)))
+        night = phase == "night"
+        try:
+            if brt != getattr(self, "_last_brt", None):
+                self.display.push_raw(f"BRT:{brt}")
+                self._last_brt = brt
+            if night != getattr(self, "_last_night", None):
+                self.display.push_raw(f"NIGHT:{1 if night else 0}")
+                self._last_night = night
+        except Exception as e:
+            log.debug("auto-dim push failed: %s", e)
+
     def _send_idle_message(self) -> None:
         """Pick the next standby flap line and push it to the display.
 
@@ -1717,7 +1761,12 @@ class BeatBirdBridge:
         use_rss = rss_pool and random.random() < self._rss_weight
         pool = rss_pool if use_rss else IDLE_MESSAGES
         choices = [m for m in pool if m != self._last_idle_msg] or pool
-        msg = random.choice(choices)
+        # ~1-in-4 rotations surface a time-of-day greeting ("GUTEN MORGEN" …).
+        greet = self._phase_greeting()
+        if greet and greet != self._last_idle_msg and random.random() < 0.25:
+            msg = greet
+        else:
+            msg = random.choice(choices)
         self._last_idle_msg = msg
         self._idle_msg_t = time.monotonic()
         try:
@@ -1928,6 +1977,11 @@ class BeatBirdBridge:
                         self._poll_overrides()
                     except Exception as e:
                         log.error("overrides poll: %s", e)
+                    # Time-of-day brightness + night standby (sends on change).
+                    try:
+                        self._apply_auto_dim()
+                    except Exception as e:
+                        log.error("auto-dim: %s", e)
 
                 # Source polling (every 2s)
                 if now - self.t_last_spotify >= self._spotify_poll_interval:

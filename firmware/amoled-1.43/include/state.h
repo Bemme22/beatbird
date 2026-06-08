@@ -88,6 +88,10 @@ struct App {
     uint32_t  last_touch_ms   = 0;
     uint32_t  last_audio_ms   = 0;
     uint32_t  last_status_rx  = 0;
+
+    // Time-of-day base brightness (0..255), set by the Pi via BRT: (auto-dim).
+    // check_dim() ramps to this when active, dimmer when idle. Default full.
+    uint8_t   base_brightness = 255;
 };
 
 // ─── System telemetry from SYS: line ────────────────────────────────────────

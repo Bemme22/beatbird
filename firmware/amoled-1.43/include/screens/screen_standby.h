@@ -52,6 +52,11 @@ void set_flap_text(const char *text);
  *  day-change. Safe to call before create(); cached and applied lazily. */
 void set_date(const char *text);
 
+/** Toggle the minimal night standby: only a dim clock (+ date) — weather,
+ *  status line, icon and live dot are hidden. Driven by the Pi's NIGHT: line
+ *  from the time-of-day logic. Brightness is handled separately (BRT:). */
+void set_night(bool night);
+
 /** Cache the BT-pairing QR URL (e.g. "http://zipp2minipi.local:8080/"). The
  *  bridge pushes this once at start + on display [boot] reconnect; the
  *  standby screen renders it as a QR code only while sys.bt_pairing == true,

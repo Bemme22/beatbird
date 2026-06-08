@@ -101,6 +101,8 @@ static bool      last_valid_rendered    = false;
 // Date line text (preformatted, localized by the Pi), pushed via DATE:. Cached
 // so a value arriving before create() still lands. Empty until the bridge sends.
 static String    pending_date           = "";
+// Night standby (minimal dim clock) — toggled by the Pi's NIGHT: line.
+static bool      s_night                = false;
 
 // ─── Dot drawing helper ─────────────────────────────────────────────────────
 
@@ -635,6 +637,26 @@ void set_date(const char *text)
     if (lbl_date) lv_label_set_text(lbl_date, pending_date.c_str());
 }
 
+void set_night(bool night)
+{
+    if (night == s_night) return;
+    s_night = night;
+    if (!created) return;
+    auto HIDE = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    if (night) {
+        // Minimal night clock: only the (brightness-dimmed) clock + date stay.
+        HIDE(accent_tick);
+        HIDE(lbl_wxicon); HIDE(lbl_temp); HIDE(lbl_highlow); HIDE(lbl_condition);
+        HIDE(lbl_flap);    HIDE(heartbeat);
+    } else {
+        SHOW(accent_tick); SHOW(lbl_flap); SHOW(heartbeat);
+        // Weather repaints + re-shows on the next update() tick.
+        last_icon_rendered  = 255;
+        last_valid_rendered = !State::weather.valid;
+    }
+}
+
 // Idle-line cross-fade (Warm Funktional) — replaces the old split-flap
 // byte-flip. New text fades the label out, swaps while invisible, fades in.
 static String flap_swap_target = "";
@@ -841,17 +863,19 @@ void update()
             snprintf(buf, sizeof(buf), "%d\xC2\xB0", State::weather.temp_c);
             lv_label_set_text(lbl_temp, buf);
 
-            if (lbl_wxicon) {
+            if (lbl_wxicon)
                 lv_label_set_text(lbl_wxicon, weather_glyph(State::weather.icon));
-                lv_obj_clear_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
+            // Weather block is hidden in the minimal night standby (s_night).
+            if (!s_night) {
+                if (lbl_wxicon) lv_obj_clear_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(lbl_temp, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(icon_obj, LV_OBJ_FLAG_HIDDEN);
             }
-            lv_obj_clear_flag(lbl_temp,      LV_OBJ_FLAG_HIDDEN);
             // The icon conveys the condition (redundant "PARTLY CLOUDY" text
             // hidden, shown only on a fetch error). H/L dropped on purpose —
             // the freed space goes to the idle/status line (future HA data).
-            lv_obj_add_flag  (lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag  (lbl_condition, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(icon_obj,      LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(lbl_highlow,   LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
         } else {
             // Weather data unavailable — provider down or first poll
             // pending. Surface the state instead of silently hiding the
