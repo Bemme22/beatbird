@@ -501,6 +501,13 @@ static void on_pressing(lv_event_t *e) {
         State::set_volume(new_vol);
         Proto::send_volume(new_vol);
         rotary_consumed = true;
+        // Volume HUD: a brief prominent "VOL nn" in the centre while turning.
+        // Refreshes on every tick (extends the toast) and fades ~0.9 s after the
+        // last change. The bold outer ring shows the level; the number confirms
+        // the exact value for the one "hidden" control.
+        char vbuf[16];
+        snprintf(vbuf, sizeof(vbuf), "VOL %d", new_vol);
+        CenterStage::show_toast(vbuf, 900);
     }
     if (fabsf(rotary_accumulated_deg) > ROTARY_MIN_DEG) {
         rotary_consumed = true;

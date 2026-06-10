@@ -658,6 +658,26 @@ void set_night(bool night)
 
 // Idle-line cross-fade (Warm Funktional) — replaces the old split-flap
 // byte-flip. New text fades the label out, swaps while invisible, fades in.
+// Clock minute-change cross-fade: fade the clock out, swap, fade back in.
+// One-shot per minute → bounded, hardware-safe (no sustained large redraw).
+static String clock_swap_target = "";
+static void clock_opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+static void clock_fade_in() {
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, lbl_clock);
+    lv_anim_set_exec_cb(&a, clock_opa_cb);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_time(&a, 260);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+static void clock_fade_out_done(lv_anim_t * /*a*/) {
+    lv_label_set_text(lbl_clock, clock_swap_target.c_str());
+    clock_fade_in();
+}
+
 static String flap_swap_target = "";
 
 static void flap_opa_cb(void *var, int32_t v) {
@@ -834,7 +854,22 @@ void update()
     // Clock — flip-char on every minute tick (the ':' stays fixed; only the
     // digits cycle). SplitFlap::set_text no-ops if the text is unchanged.
     if (State::app.clockStr != last_clock_rendered) {
-        lv_label_set_text(lbl_clock, State::app.clockStr.c_str());
+        if (last_clock_rendered.length() == 0) {
+            lv_label_set_text(lbl_clock, State::app.clockStr.c_str());  // first paint, no anim
+        } else {
+            // Cross-fade the minute change.
+            clock_swap_target = State::app.clockStr;
+            lv_anim_del(lbl_clock, clock_opa_cb);
+            int32_t from = (int32_t)lv_obj_get_style_text_opa(lbl_clock, LV_PART_MAIN);
+            lv_anim_t a; lv_anim_init(&a);
+            lv_anim_set_var(&a, lbl_clock);
+            lv_anim_set_exec_cb(&a, clock_opa_cb);
+            lv_anim_set_values(&a, from, 0);
+            lv_anim_set_time(&a, 180);
+            lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+            lv_anim_set_ready_cb(&a, clock_fade_out_done);
+            lv_anim_start(&a);
+        }
         last_clock_rendered = State::app.clockStr;
     }
 
