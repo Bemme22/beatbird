@@ -72,4 +72,10 @@ render_template \
   "GLSP_BIN=$GLSP_BIN" \
   "GLSP_CONF=$GLSP_CONF_DST"
 
+# The Pi has no RTC. time-sync.target only blocks until the clock is set if
+# systemd-time-wait-sync is enabled — without it go-librespot's After=time-sync
+# is a no-op and it still races NTP (TLS to Spotify fails on the wrong boot
+# clock → "connection refused", needs a manual restart). Enable it.
+enable_service systemd-time-wait-sync.service
+
 enable_service go-librespot.service

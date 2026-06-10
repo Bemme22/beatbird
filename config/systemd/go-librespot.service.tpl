@@ -1,7 +1,12 @@
 [Unit]
 Description=go-librespot — Spotify Connect daemon
-After=network-online.target avahi-daemon.service sound.target
-Wants=network-online.target avahi-daemon.service
+# time-sync.target: the Pi has no RTC, so the boot clock is wrong until NTP
+# syncs. Spotify uses TLS — a wrong clock fails the cert check, so go-librespot
+# would start, fail to reach an AP ("connection refused"), and need a manual
+# restart. Waiting for the clock fixes that (requires systemd-time-wait-sync,
+# enabled by install/40-go-librespot.sh).
+After=network-online.target avahi-daemon.service sound.target time-sync.target
+Wants=network-online.target avahi-daemon.service time-sync.target
 
 [Service]
 Type=simple
