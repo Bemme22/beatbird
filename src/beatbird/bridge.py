@@ -699,6 +699,21 @@ class BeatBirdBridge:
             except Exception as e:
                 log.debug("trust_all_paired failed: %s", e)
 
+            # Discoverable is a per-session, web-UI-triggered action only — the
+            # speaker must NOT boot into a discoverable (pairing) window. Some
+            # boot path can leave the adapter discoverable, which made the Beat
+            # show "PAIRING" + the QR for ~60 s after every reboot. Force it off
+            # at startup so the standby comes up as the clock straight away.
+            try:
+                from beatbird.sources.bluetooth import set_discoverable, is_discoverable
+                if is_discoverable():
+                    log.info("BT: adapter discoverable at startup — forcing off")
+                    set_discoverable(False)
+                self.sys_bt_pairing = False
+                self._last_bt_pairing = False
+            except Exception as e:
+                log.debug("startup discoverable-off failed: %s", e)
+
         # Initial sync. Order of preference:
         # 1) CamillaDSP's persistent volume if it's within the profile's
         #    sane range (i.e. someone has used the speaker before).
