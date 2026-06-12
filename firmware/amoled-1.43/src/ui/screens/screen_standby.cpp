@@ -636,6 +636,25 @@ void set_date(const char *text)
     if (lbl_date) lv_label_set_text(lbl_date, pending_date.c_str());
 }
 
+// Day↔night transition: fade the weather block (text_opa — cheap, no layer)
+// rather than snapping. The tiny tick/flap/heartbeat toggle instantly, and the
+// brightness ramp (BRT:/NIGHT: arrive together) smooths the overall change.
+static int night_fade_dummy = 0;
+static void wx_opa_cb(void * /*var*/, int32_t v) {
+    lv_opa_t o = (lv_opa_t)v;
+    if (lbl_wxicon)    lv_obj_set_style_text_opa(lbl_wxicon, o, 0);
+    if (lbl_temp)      lv_obj_set_style_text_opa(lbl_temp, o, 0);
+    if (lbl_highlow)   lv_obj_set_style_text_opa(lbl_highlow, o, 0);
+    if (lbl_condition) lv_obj_set_style_text_opa(lbl_condition, o, 0);
+}
+static void wx_fade_out_done(lv_anim_t * /*a*/) {
+    if (lbl_wxicon)    lv_obj_add_flag(lbl_wxicon, LV_OBJ_FLAG_HIDDEN);
+    if (lbl_temp)      lv_obj_add_flag(lbl_temp, LV_OBJ_FLAG_HIDDEN);
+    if (lbl_highlow)   lv_obj_add_flag(lbl_highlow, LV_OBJ_FLAG_HIDDEN);
+    if (lbl_condition) lv_obj_add_flag(lbl_condition, LV_OBJ_FLAG_HIDDEN);
+    wx_opa_cb(nullptr, 255);  // reset for the next show
+}
+
 void set_night(bool night)
 {
     if (night == s_night) return;
@@ -643,16 +662,34 @@ void set_night(bool night)
     if (!created) return;
     auto HIDE = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    lv_anim_del(&night_fade_dummy, wx_opa_cb);
     if (night) {
         // Minimal night clock: only the (brightness-dimmed) clock + date stay.
-        HIDE(accent_tick);
-        HIDE(lbl_wxicon); HIDE(lbl_temp); HIDE(lbl_highlow); HIDE(lbl_condition);
-        HIDE(lbl_flap);    HIDE(heartbeat);
+        HIDE(accent_tick); HIDE(lbl_flap); HIDE(heartbeat);
+        // Fade the weather block out, then hide it (ready_cb).
+        lv_anim_t a; lv_anim_init(&a);
+        lv_anim_set_var(&a, &night_fade_dummy);
+        lv_anim_set_exec_cb(&a, wx_opa_cb);
+        lv_anim_set_values(&a, 255, 0);
+        lv_anim_set_time(&a, 280);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+        lv_anim_set_ready_cb(&a, wx_fade_out_done);
+        lv_anim_start(&a);
     } else {
         SHOW(accent_tick); SHOW(lbl_flap); SHOW(heartbeat);
         // Weather repaints + re-shows on the next update() tick.
         last_icon_rendered  = 255;
         last_valid_rendered = !State::weather.valid;
+        // Bring the weather block back at 0 opacity and fade it in.
+        SHOW(lbl_wxicon); SHOW(lbl_temp);
+        wx_opa_cb(nullptr, 0);
+        lv_anim_t a; lv_anim_init(&a);
+        lv_anim_set_var(&a, &night_fade_dummy);
+        lv_anim_set_exec_cb(&a, wx_opa_cb);
+        lv_anim_set_values(&a, 0, 255);
+        lv_anim_set_time(&a, 280);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+        lv_anim_start(&a);
     }
 }
 

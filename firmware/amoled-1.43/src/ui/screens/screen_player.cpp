@@ -229,6 +229,66 @@ static void set_scroll_speed_pxs(lv_obj_t *lbl, const char *txt, int px_per_sec)
     lv_obj_set_style_anim_time(lbl, dur, LV_PART_MAIN);
 }
 
+// ── Track-change cross-fade (title/artist) ──────────────────────────────────
+// On a new track the title/artist fade out, swap, and fade back in instead of
+// snapping. One-shot per track → hardware-safe. Each label animates
+// independently (both go dirty the same tick, so they fade together anyway).
+static bool label_needs_scroll(lv_obj_t *lbl, const char *txt) {
+    if (!txt || !*txt) return false;
+    lv_coord_t w = lv_obj_get_width(lbl);
+    const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
+    int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
+    lv_point_t sz = {0, 0};
+    lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return sz.x > w;
+}
+// Apply text + scroll/align exactly as the dirty handlers used to inline.
+static void apply_scrolled_text(lv_obj_t *lbl, const char *txt, int speed) {
+    if (!lbl) return;
+    if (txt && *txt) {
+        set_scroll_speed_pxs(lbl, txt, speed);
+        // LEFT when it will marquee (SCROLL_CIRCULAR anchors left), else CENTER.
+        lv_obj_set_style_text_align(lbl,
+            label_needs_scroll(lbl, txt) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(lbl, txt);
+    } else {
+        lv_label_set_text(lbl, "\xc2\xb7\xc2\xb7\xc2\xb7");  // quiet "···"
+    }
+}
+static String title_target_txt = "", artist_target_txt = "";
+static void txt_opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+static void txt_fade_in(lv_obj_t *lbl) {
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, lbl);
+    lv_anim_set_exec_cb(&a, txt_opa_cb);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_time(&a, 240);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+static void title_fade_done(lv_anim_t * /*a*/) {
+    apply_scrolled_text(lbl_title, title_target_txt.c_str(), 30);
+    txt_fade_in(lbl_title);
+}
+static void artist_fade_done(lv_anim_t * /*a*/) {
+    apply_scrolled_text(lbl_artist, artist_target_txt.c_str(), 25);
+    txt_fade_in(lbl_artist);
+}
+static void crossfade_text(lv_obj_t *lbl, lv_anim_ready_cb_t done) {
+    lv_anim_del(lbl, txt_opa_cb);
+    int32_t from = (int32_t)lv_obj_get_style_text_opa(lbl, LV_PART_MAIN);
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, lbl);
+    lv_anim_set_exec_cb(&a, txt_opa_cb);
+    lv_anim_set_values(&a, from, 0);
+    lv_anim_set_time(&a, 160);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+    lv_anim_set_ready_cb(&a, done);
+    lv_anim_start(&a);
+}
+
 static void draw_dot(lv_layer_t *layer, int cx, int cy, int r,
                      lv_color_t color, lv_opa_t opa) {
     if (opa == LV_OPA_TRANSP || r <= 0) return;
@@ -884,41 +944,17 @@ void update() {
     // below would just thrash hidden widgets. Bail early.
     if (in_standby) return;
 
-    // ── Helper: does this text overflow the label width (i.e. would scroll)?
-    auto needs_scroll = [](lv_obj_t *lbl, const char *txt) -> bool {
-        if (!txt || !*txt) return false;
-        lv_coord_t w = lv_obj_get_width(lbl);
-        const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-        int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
-        lv_point_t sz = {0, 0};
-        lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        return sz.x > w;
-    };
-
     if (State::is_dirty(State::Dirty::TITLE)) {
-        // Player moved off the flip-char (that now lives only on standby).
-        // The title/artist are plain solid labels for legibility.
-        if (State::app.title.length()) {
-            const char *t = State::app.title.c_str();
-            set_scroll_speed_pxs(lbl_title, t, 30);
-            // Align LEFT when the text will marquee (SCROLL_CIRCULAR anchors
-            // at the left edge), else CENTER so short titles sit pretty.
-            lv_obj_set_style_text_align(lbl_title,
-                needs_scroll(lbl_title, t) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-            lv_label_set_text(lbl_title, t);
-        } else {
-            // No title → quiet placeholder "···" (three U+00B7 mid-dots).
-            lv_label_set_text(lbl_title, "\xc2\xb7\xc2\xb7\xc2\xb7");
-        }
+        // New track → cross-fade the title (fade out, swap, fade in). The
+        // text + scroll/align is applied post-fade in title_fade_done.
+        title_target_txt = State::app.title;
+        crossfade_text(lbl_title, title_fade_done);
         title_phase = 0; title_pending = "";
         State::clear_dirty(State::Dirty::TITLE);
     }
     if (State::is_dirty(State::Dirty::ARTIST)) {
-        const char *a = State::app.artist.c_str();
-        set_scroll_speed_pxs(lbl_artist, a, 25);
-        lv_obj_set_style_text_align(lbl_artist,
-            needs_scroll(lbl_artist, a) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(lbl_artist, a);
+        artist_target_txt = State::app.artist;
+        crossfade_text(lbl_artist, artist_fade_done);
         artist_phase = 0; artist_pending = "";
         State::clear_dirty(State::Dirty::ARTIST);
     }
