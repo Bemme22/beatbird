@@ -150,3 +150,19 @@ sees credentials in its YAML profile.
   physical speaker env on push/PR; **pushing a `fw-v*` tag** also attaches the
   `.bin`s to a GitHub Release, which is what `make firmware-update` pulls.
   Releases are tag-gated on purpose — not every main push ships to devices.
+
+## Project documentation (Obsidian)
+
+Long-form project memory lives in Steffen's Obsidian vault (synced via
+Syncthing, not reachable from this repo):
+
+- Hub note: `projekte/beatbird.md` — status, decision log, open items
+- Session notes land in `00-inbox/` as dated notes, linked to the hub
+
+Conventions for Claude Code:
+- This CLAUDE.md covers *how to work in the repo*; the vault covers *why
+  decisions were made*. Don't duplicate — when a session produces a durable
+  insight (hardware quirk, architecture decision, rejected approach), end by
+  offering a short German "Fazit für die Projektakte" the user can paste
+  into the inbox.
+- If repo reality and this file drift apart, flag it — Steffen updates both.
