@@ -15,15 +15,21 @@
   {% set t = theme() %}
   <style>
     /* ── BeatBird display theme on the web ──────────────────────────────────
-       The speaker's AMOLED runs a "Nothing-Glyph" look: pure-black background,
-       Departure Mono, cream/linen text, a champagne-gold accent (runtime).
-       We re-create it here so the browser feels like the same device. Colour
-       tokens come from theme() (= firmware theme.h, retinted by the user's
-       palette). Departure Mono is the actual display font, served locally. */
+       The speaker's AMOLED runs the "Warm Funktional" look: deep-black
+       background, Inter grotesk, cream/linen text, the speaker's body accent
+       (green / petrol / …, runtime). We re-create it here so the browser feels
+       like the same device. Colour tokens come from theme() (= firmware
+       theme.h, retinted by the user's palette). Inter is the actual display
+       font, served locally (Medium 500 body, SemiBold 600 headings/labels). */
     @font-face {
-      font-family: "Departure Mono";
-      src: url("/static/fonts/DepartureMono-Regular.otf") format("opentype");
-      font-weight: 400; font-display: swap;
+      font-family: "Inter";
+      src: url("/static/fonts/Inter-Medium.ttf") format("truetype");
+      font-weight: 500; font-display: swap;
+    }
+    @font-face {
+      font-family: "Inter";
+      src: url("/static/fonts/Inter-SemiBold.ttf") format("truetype");
+      font-weight: 600; font-display: swap;
     }
     :root {
       --bb-bg: #000;            /* AMOLED pixels-off */
@@ -40,8 +46,8 @@
       --bb-alert: {{ t.alert }};    /* rust */
       --bb-accent-rgb: {{ t.accent_rgb }};
 
-      --pico-font-family: "Departure Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-      --pico-font-family-monospace: "Departure Mono", ui-monospace, monospace;
+      --pico-font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --pico-font-family-monospace: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
       --pico-line-height: 1.45;
       --pico-form-element-spacing-vertical: 0.6rem;
       --pico-spacing: 0.9rem;
@@ -70,19 +76,21 @@
       /* A faint accent halo at the top — the AMOLED's glow, not flat black. */
       background-image: radial-gradient(130% 55% at 50% -12%, rgba(var(--bb-accent-rgb),0.07), transparent 70%);
       background-attachment: fixed;
+      font-weight: 500;            /* Inter Medium is the lightest weight we ship */
+      font-synthesis: none;        /* only the two real weights — no faux bold/italic */
     }
-    /* Mono numerals everywhere — the display reads like a flight board. */
+    /* Tabular numerals so volume/levels line up cleanly (Inter has tnum). */
     body { font-feature-settings: "tnum" 1; }
     header.app { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.2rem; }
     header.app .mark {
       font-size: 1.5rem; line-height: 1;
       filter: drop-shadow(0 0 7px rgba(var(--bb-accent-rgb),0.55));
     }
-    h1 { font-size: 1.4rem; letter-spacing: 0.08em; text-transform: uppercase; margin: 0; line-height: 1.15; color: var(--bb-text); }
+    h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; line-height: 1.15; color: var(--bb-text); }
     h1 .sub { display: block; color: var(--bb-text-2); font-size: 0.8rem; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; margin-top: 0.15rem; }
     .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--bb-accent); box-shadow: 0 0 7px var(--bb-accent); margin-left: auto; flex: none; }
     article { border: 1px solid var(--bb-line); box-shadow: none; }
-    h2 { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bb-text-3); font-weight: 400; margin: 1.4rem 0 0.4rem; }
+    h2 { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--bb-text-3); font-weight: 600; margin: 1.4rem 0 0.4rem; }
     nav.bottom { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--bb-line); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; }
     nav.bottom a { margin-right: 1.1rem; color: var(--bb-text-3); text-decoration: none; padding-bottom: 0.25rem; }
     nav.bottom a:hover { color: var(--bb-text-2); }
