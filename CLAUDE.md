@@ -161,8 +161,15 @@ Syncthing, not reachable from this repo):
 
 Conventions for Claude Code:
 - This CLAUDE.md covers *how to work in the repo*; the vault covers *why
-  decisions were made*. Don't duplicate — when a session produces a durable
-  insight (hardware quirk, architecture decision, rejected approach), end by
-  offering a short German "Fazit für die Projektakte" the user can paste
-  into the inbox.
+  decisions were made*. Don't duplicate.
+- **At the end of a working session, offer a paste-ready German Obsidian inbox
+  note** (a fenced ` ```markdown ` block) Steffen drops into `00-inbox/`. Fixed
+  format:
+  - YAML frontmatter: `date: YYYY-MM-DD`, `tags: [beatbird, <topic>, session]`
+  - `# YYYY-MM-DD — <kurzer Titel>` heading
+  - `Hub: [[projekte/beatbird]]` link
+  - sections, in order: **Erledigt** · **Entscheidungen (warum)** ·
+    **Erkenntnisse (durable)** · **Offen**
+  - Capture the *why* behind decisions and durable gotchas, not just what
+    changed. Keep it tight — bullets, no prose walls.
 - If repo reality and this file drift apart, flag it — Steffen updates both.
