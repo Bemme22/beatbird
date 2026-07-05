@@ -58,7 +58,7 @@ secrets: ## Create secrets/*.example templates (then edit them locally; NOT comm
 	@[ -f secrets/mqtt.pass ] || { echo "your-mqtt-password" > secrets/mqtt.pass; chmod 600 secrets/mqtt.pass; echo "  wrote secrets/mqtt.pass"; }
 	@[ -f secrets/location.coords ] || { echo "0.0,0.0" > secrets/location.coords; chmod 600 secrets/location.coords; echo "  wrote secrets/location.coords (replace with 'lat,lon' to enable weather)"; }
 	@[ -f secrets/snapcast.host ] || { echo "snapserver.local" > secrets/snapcast.host; chmod 600 secrets/snapcast.host; echo "  wrote secrets/snapcast.host (mDNS name or IP — names survive DHCP changes)"; }
-	@[ -f secrets/static-ip.conf ] || { printf 'IPV4=192.168.1.50/24\nGATEWAY=192.168.1.1\nDNS=192.168.1.1 1.1.1.1\n' > secrets/static-ip.conf; chmod 600 secrets/static-ip.conf; echo "  wrote secrets/static-ip.conf — fill or delete to skip static IP fallback"; }
+	@[ -f secrets/static-ip.conf ] || { printf '# Static-IP fallback (OPT-IN). Uncomment + set all three for a pinned wlan0\n# IP; leave commented (or delete) to stay DHCP-only. DNS MUST be quoted.\n#IPV4=192.168.178.50/24\n#GATEWAY=192.168.178.1\n#DNS="192.168.178.1 1.1.1.1"\n' > secrets/static-ip.conf; chmod 600 secrets/static-ip.conf; echo "  wrote secrets/static-ip.conf (commented template — DHCP-only unless you edit it)"; }
 	@echo "Edit these files, then run 'make install'. They are in .gitignore."
 
 # ─── Full install ────────────────────────────────────────────────────────────

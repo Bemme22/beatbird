@@ -15,9 +15,9 @@
 #
 #     IPV4=192.168.178.113/24
 #     GATEWAY=192.168.178.1
-#     DNS=192.168.178.1 1.1.1.1
+#     DNS="192.168.178.1 1.1.1.1"   # QUOTE it — sourced as shell, space-separated
 #
-# If the file doesn't exist, this script is a no-op.
+# If the file doesn't exist (or has no IPV4/GATEWAY), this script is a no-op.
 
 source "$(dirname "$0")/_lib.sh"
 
@@ -31,8 +31,13 @@ fi
 # shellcheck source=/dev/null
 source "$CONF"
 
-: "${IPV4:?static-ip.conf must define IPV4 (e.g. 192.168.178.113/24)}"
-: "${GATEWAY:?static-ip.conf must define GATEWAY}"
+# Optional feature: a present-but-incomplete conf (e.g. the commented-out
+# template from `make secrets`) must NOT abort the whole install. Skip
+# gracefully unless both required values are actually set.
+if [[ -z "${IPV4:-}" || -z "${GATEWAY:-}" ]]; then
+  log_step "$CONF present but IPV4/GATEWAY unset — skipping static-ip (DHCP-only)"
+  exit 0
+fi
 DNS="${DNS:-$GATEWAY 1.1.1.1}"
 
 log_step "Static-IP reservation on wlan0"
