@@ -60,6 +60,11 @@ sub_enabled:       true
 sub_crossover_hz:  150      # TAS internal DSP (not CamillaDSP)
 sub_digital_volume: 110     # 0..127 — stay ≤110 at 24V PVDD
 analog_gain_db:    -3       # safety margin at boot
+pbtl:              false    # Plus 1X only: bridge mono (OUT_A||OUT_B) for one
+                            # high-power driver. Also close the SJ5+SJ6 solder
+                            # bridges on the board — the flag only sets the
+                            # chip's modulation (bridge_mode=1 + mixer_mode=1,
+                            # in-chip L+R→mono). Leave false for stereo.
 ```
 
 ## `audio`

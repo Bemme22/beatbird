@@ -1,0 +1,59 @@
+---
+# CamillaDSP — RobinPi (Rotkehlchen) — STARTER, pre-measurement.
+# Single fullrange Mark Audio Pluvia 11, PR-loaded (Dayton DS175-PR), MONO.
+#
+# Amp: Louder Hat Plus 1X (TAS5825M @ 0x4c) in PBTL. The overlay sets
+# bridge_mode=1 + mixer_mode=1, so the CHIP sums L+R to mono and bridges
+# OUT_A||OUT_B into the single driver. Therefore this config does NOT add a
+# mono mixer (that would double-sum) — it voices both channels identically and
+# the amp collapses them to the one bridged output.
+#
+# Baseline is flat (gain 0) except the subsonic protect + soft limiter. Replace
+# the EQ once the Pluvia 11 is measured in the enclosure with REW/UMIK-1.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+
+filters:
+  # ── Subsonic: PR-loaded box, protect the driver below the ~45 Hz tuning.
+  #    Set final corner after Fb is measured (added-mass, REW/DATS).
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 32, order: 4}
+  # ── Baffle-step: 24 cm baffle → step ≈ 480 Hz. Placeholder shelf, gain 0
+  #    until measured (expect a gentle low-shelf lift / high-shelf cut).
+  baffle_step:
+    type: Biquad
+    parameters: {type: Highshelf, freq: 480, gain: 0, q: 0.7}
+  # ── Loudness targets (the bridge boosts these at low volume) — flat base.
+  #    Names MUST match audio.loudness.filters in profiles/robinpi.yml.
+  bass_shelf:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 0, q: 0.7}
+  timpani_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 0, q: 1.0}
+  # ── Soft clip: loudness adds bass boost at low vol; cap peaks at high vol so
+  #    a hot track distorts gracefully instead of hard-clipping.
+  fullrange_limiter:
+    type: Limiter
+    parameters: {clip_limit: -1.0, soft_clip: true}
+
+pipeline:
+  # Same chain on both channels — the amp sums them (mixer_mode=1) to mono.
+  - type: Filter
+    channels: [0, 1]
+    names: [sub_protect, baffle_step, bass_shelf, timpani_body, fullrange_limiter]

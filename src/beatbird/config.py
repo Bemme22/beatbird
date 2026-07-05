@@ -59,6 +59,12 @@ class Soundcard(BaseModel):
     sub_crossover_hz: int = 150
     sub_digital_volume: int = 110
     analog_gain_db: float = -3.0
+    # PBTL / bridge mono: parallels OUT_A||OUT_B for a single high-power mono
+    # driver (e.g. RobinPi). On a Plus 1X you must ALSO close the SJ5+SJ6
+    # solder bridges on the board. Drives the tas58xx overlay's bridge_mode=1
+    # (+ mixer_mode=1 = in-chip L+R sum) instead of stereo — see
+    # install/10-soundcard/louder-hat-plus-1x.sh. Ignored on the 2X/triple.
+    pbtl: bool = False
 
     @field_validator("primary_i2c", "secondary_i2c", "tertiary_i2c", mode="before")
     @classmethod

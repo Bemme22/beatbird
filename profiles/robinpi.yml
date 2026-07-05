@@ -1,0 +1,70 @@
+# RobinPi (Rotkehlchen) — Mono fullrange streamer
+# Pi Zero 2W · Louder Hat Plus 1X (TAS5825M @ 0x4c) · PBTL bridge mono
+# Driver: Mark Audio Pluvia 11 (single fullrange), PR-loaded (Dayton DS175-PR).
+# Zipp2/BeatBird recipe, but mono/PBTL instead of stereo — see the vault
+# (projekte/RobinPi) for the "why".
+
+identity:
+  hostname: robinpi
+  friendly_name: "RobinPi"
+  speaker_id: robin_pi
+
+platform: pi-zero-2w
+
+soundcard:
+  driver: louder-hat-plus-1x
+  primary_i2c: 0x4c
+  pbtl: true              # bridge mono — ALSO close SJ5+SJ6 on the board
+  sub_enabled: false
+  analog_gain_db: -3
+
+audio:
+  camilladsp_config: robinpi     # config/camilladsp/robinpi.yml — STARTER, flat
+                                 # until Pluvia 11 is measured in the enclosure
+  sample_rate: 48000
+  format: S32_LE
+  loudness:
+    enabled: true
+    filters:
+      - {name: bass_shelf,   max_boost_db: 3.0}
+      - {name: timpani_body, max_boost_db: 1.5}
+
+display:
+  # RobinPi reuses the running AMOLED stack (template from Zipp2/Beat).
+  # NOTE: the "Brustfleck" NeoPixel strip (WS2801/SK6812 on SPI/MOSI) is a
+  # separate status LED not covered by this schema yet — tracked in the vault
+  # (projekte/RobinPi, "Status-LED"), wire up once the display schema grows an
+  # spi-led type. Set type: none if no AMOLED is attached during bring-up.
+  type: amoled
+  variant: waveshare-1.43
+  serial_device: auto
+  spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback
+
+wifi:
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: true
+  disable_onboard_radio: true
+  disable_bluetooth: true
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/robinpi
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "RobinPi"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: false, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+
+web:
+  enabled: true
+  port: 8080
