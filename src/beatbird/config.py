@@ -385,6 +385,12 @@ class Timing(BaseModel):
 class Profile(BaseModel):
     identity: Identity = Field(default_factory=Identity)
     platform: Literal["pi-zero-2w", "pi-3b-plus", "pi-4", "pi-5"] = "pi-zero-2w"
+    # Compressed RAM swap (zram). Default on: the Pi Zero 2W has 464 MB and no
+    # disk swap is possible under overlayroot (read-only SD), so without zram the
+    # kernel OOM-killer takes out services under load — which is what killed
+    # go-librespot mid-track and cascaded into a false standby. Set false on a
+    # big-RAM host (Pi 4/5) where it's unnecessary. Applied by install/03-zram.sh.
+    zram: bool = True
     soundcard: Soundcard
     audio: Audio = Field(default_factory=Audio)
     display: Display = Field(default_factory=Display)
