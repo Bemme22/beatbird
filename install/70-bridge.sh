@@ -60,7 +60,8 @@ render_template \
   /etc/systemd/system/beatbird-bridge.service \
   "BEATBIRD_USER=$BEATBIRD_USER" \
   "VENV=$VENV" \
-  "REPO_DIR=$REPO_DIR"
+  "REPO_DIR=$REPO_DIR" \
+  "SPOTIFY_CONFIG_DIR=$BRIDGE_USER_HOME/.config/go-librespot"
 
 # ─── Webserver service (optional per profile) ────────────────────────────────
 WEB_ENABLED="$(pq_bool web.enabled)"

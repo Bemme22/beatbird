@@ -108,6 +108,35 @@ def test_amp_deep_sleep_enable_parses():
     assert p.audio.amp_deep_sleep.timeout_s == 300
 
 
+# ─── Idle / standby ─────────────────────────────────────────────────────────
+
+def test_idle_standby_defaults():
+    """Standby must not tear down the Spotify Connect session by default, and
+    the idle-timeout floors carry the historical content-adaptive values."""
+    idle = Profile.model_validate(
+        {"soundcard": {"driver": "louder-hat-plus-1x"}}).idle
+    assert idle.close_session_on_standby is False
+    assert idle.standby_timeout_s == 60.0
+    assert idle.standby_timeout_idle_s == 10.0
+    assert idle.standby_timeout_stopped_s == 30.0
+
+
+def test_idle_standby_overrides_parse():
+    idle = Profile.model_validate({
+        "soundcard": {"driver": "louder-hat-plus-1x"},
+        "idle": {
+            "close_session_on_standby": True,
+            "standby_timeout_s": 120.0,
+            "standby_timeout_idle_s": 20.0,
+            "standby_timeout_stopped_s": 45.0,
+        },
+    }).idle
+    assert idle.close_session_on_standby is True
+    assert idle.standby_timeout_s == 120.0
+    assert idle.standby_timeout_idle_s == 20.0
+    assert idle.standby_timeout_stopped_s == 45.0
+
+
 # ─── Main-loop timing (profile-driven poll cadences) ────────────────────────
 
 def test_timing_defaults_match_historical_constants():

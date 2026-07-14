@@ -337,8 +337,22 @@ class Idle(BaseModel):
     rss_weight: float = 0.5
     # Seconds of non-PLAYING before the display drops to the clock-standby
     # screen. Per-speaker: a kitchen speaker may want a longer grace than a
-    # desk one. (A stopped stream uses a shorter fixed window regardless.)
+    # desk one. This is the PAUSED-with-a-track-loaded window — the user
+    # likely walked away mid-song and will be back to resume.
     standby_timeout_s: float = 60.0
+    # Shorter windows for the two "nothing meaningful on the player screen"
+    # cases, so the clock-standby screen comes up quickly instead of sitting
+    # on empty slots. idle = no source / never played; stopped = a track was
+    # loaded but playback stopped (queue ended / remote stopped).
+    standby_timeout_idle_s: float = 10.0
+    standby_timeout_stopped_s: float = 30.0
+    # Whether entering standby also tears down the Spotify Connect session
+    # (POST /player/close). Default OFF: keep the speaker visible in the
+    # Spotify device list and preserve the session across an idle spell —
+    # standby then only affects the display/LEDs/SFX. Set true only if you
+    # want the Connect slot freed at night so no other device can silently
+    # grab the speaker (the historical behaviour).
+    close_session_on_standby: bool = False
     # How often the standby flap text rotates to a fresh line, in seconds.
     # Purely cosmetic pacing of the airport-board cycle.
     idle_message_interval_s: float = 45.0

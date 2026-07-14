@@ -160,3 +160,31 @@ web:
 ```
 
 Dashboard at `http://<hostname>.local:8080`.
+
+## `idle`
+
+Standby-screen behaviour and the idle-timeout that drops the player screen to
+the clock-standby screen. All optional.
+
+```yaml
+idle:
+  standby_timeout_s: 60.0          # PAUSED with a track loaded → standby
+  standby_timeout_stopped_s: 30.0  # track loaded but playback STOPPED
+  standby_timeout_idle_s: 10.0     # no source / nothing meaningful on screen
+  close_session_on_standby: false  # tear down Spotify Connect on standby?
+  idle_message_interval_s: 45.0    # standby flap-text rotation cadence
+  rss_url: ""                      # optional Atom/RSS feed for standby headlines
+  rss_refresh_minutes: 30
+  rss_weight: 0.5                  # 0=always local list, 1=always RSS
+  max_chars: 50                    # per-headline cap (flap label width)
+```
+
+- The idle timeout is **content-adaptive**: `standby_timeout_idle_s` (empty
+  player), `standby_timeout_stopped_s` (stopped), else `standby_timeout_s`
+  (paused with a track). The idle clock is reset by *any* playback observation
+  (Spotify/BT/Snapcast), so active playback never trips standby.
+- `close_session_on_standby` is **false by default** — standby only affects the
+  display/LEDs/SFX and the Spotify Connect session stays alive, so the speaker
+  remains in the device list and resumes instantly. Set `true` only if you want
+  the Connect slot freed while idle (e.g. so no other device can silently grab
+  the speaker at night).

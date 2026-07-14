@@ -355,6 +355,9 @@ class BeatBirdBridge:
         self._idle_max_chars = profile.idle.max_chars
         self._rss_weight = profile.idle.rss_weight
         self._standby_timeout_s = profile.idle.standby_timeout_s
+        self._standby_timeout_idle_s = profile.idle.standby_timeout_idle_s
+        self._standby_timeout_stopped_s = profile.idle.standby_timeout_stopped_s
+        self._standby_close_session = profile.idle.close_session_on_standby
         self._idle_message_interval = profile.idle.idle_message_interval_s
 
         # Main-loop poll/push cadences — profile-driven (profile.timing) so a
@@ -381,9 +384,9 @@ class BeatBirdBridge:
 
         # ── Standby ──
         # last_playback_time = monotonic timestamp of last PLAYING observation.
-        # After STANDBY_TIMEOUT_S of non-PLAYING, enter standby: display → clock,
-        # /player/close frees the Spotify Connect slot so no other device can
-        # silently take over the speaker at night.
+        # After the idle timeout of non-PLAYING, enter standby: display → clock.
+        # Standby is display/LED/SFX only by default; the Spotify Connect session
+        # is left intact (idle.close_session_on_standby opts back into closing it).
         self.last_playback_time: float = time.monotonic()
         self.in_standby: bool = False
         # Standby flap text rotation — pick a new random message every
@@ -444,8 +447,16 @@ class BeatBirdBridge:
         self.t_last_status = 0.0
         self.t_last_spotify = 0.0
         self.t_last_snapcast = 0.0
+        self.t_last_standby = 0.0
         self.t_last_level = 0.0
         self.t_last_state_push = 0.0
+        # Consecutive failed Spotify polls tolerated before we give up the
+        # SPOTIFY source. go-librespot can OOM-restart or be updated (~10s
+        # down here); dropping straight to source=NONE on the first miss
+        # shortens _idle_timeout() to its floor and trips a spurious
+        # standby on a source that's merely bouncing. Grace ≈ 20s.
+        self._spotify_source_drop_after = max(
+            3, int(round(20.0 / self._spotify_poll_interval)))
         # Spotify stuck-state watchdog. Pattern: go-librespot's local API
         # keeps responding but its Spotify-cloud session is broken — track
         # loads (we see title/artist), but state.paused stays true and
@@ -1009,6 +1020,13 @@ class BeatBirdBridge:
         else:
             self._pending_playback = None
         self.playback = observed
+        # Any observed playback is an activity signal — reset the idle clock
+        # here (not only on the Snapcast tick) so a Spotify/BT resume can't be
+        # out-raced by a stale idle timeout, and wake from standby at once.
+        if observed == Playback.PLAYING:
+            self.last_playback_time = time.monotonic()
+            if self.in_standby:
+                self._exit_standby("playback resumed")
 
     def _poll_spotify(self) -> None:
         if not self.spotify:
@@ -1031,7 +1049,16 @@ class BeatBirdBridge:
                     )
                 except Exception as e:
                     log.error("librespot restart failed: %s", e)
-            if self.source == Source.SPOTIFY:
+            # Hold the last known Spotify state through a brief outage. A
+            # go-librespot OOM-restart / update leaves /status unreachable for
+            # a handful of polls; flipping to source=NONE immediately drops
+            # _idle_timeout() to its short floor and used to enter standby (and
+            # historically close the session) on a source that's just bouncing.
+            # Only give up the source after the grace window.
+            if (
+                self.source == Source.SPOTIFY
+                and self._spotify_fail_count >= self._spotify_source_drop_after
+            ):
                 self.playback = Playback.STOPPED
                 self.source = Source.NONE
             return
@@ -1701,11 +1728,11 @@ class BeatBirdBridge:
         # Nothing connected / never played anything this session — the
         # player screen would just be empty slots. Standby is more useful.
         if self.source == Source.NONE or not self.song_title:
-            return 10.0
+            return self._standby_timeout_idle_s
         # Track was loaded but playback stopped (queue ended, or remote
         # stopped). Moderate window so a quick resume still feels live.
         if self.playback == Playback.STOPPED:
-            return 30.0
+            return self._standby_timeout_stopped_s
         # Paused with a track loaded — keep the full grace, the user
         # likely walked away mid-song and will be back to resume.
         return self._standby_timeout_s
@@ -1854,13 +1881,16 @@ class BeatBirdBridge:
             except Exception as e:
                 log.debug("standby Spotify recheck failed: %s", e)
         log.info("entering standby (%s)", reason)
-        # Goodnight sound *before* the close_session, while audio is
-        # still flowing through CamillaDSP. close_session is what
-        # silences Spotify, so playing the SFX after would route into
-        # the void on the next bridge tick.
+        # Goodnight sound first, while audio is still flowing through
+        # CamillaDSP (if close-on-standby is enabled, close_session silences
+        # Spotify, so the SFX has to come before it).
         self.sfx.play("standby")
         self.in_standby = True
-        if self.spotify:
+        # By default standby is display/LED/SFX only — the Spotify Connect
+        # session stays alive so the speaker remains in the device list and a
+        # resume wakes it instantly. Only tear the session down when the
+        # profile explicitly opts in (idle.close_session_on_standby).
+        if self.spotify and self._standby_close_session:
             try:
                 self.spotify.close_session()
             except Exception as e:
@@ -2066,9 +2096,16 @@ class BeatBirdBridge:
                         log.error("snapcast poll: %s", e)
                         self._log_wifi_snapshot("snapcast-poll-error")
 
-                    # Standby transitions: track last PLAYING observation, enter
-                    # standby after a content-adaptive idle timeout, exit on
-                    # any new playback. See _idle_timeout() for the policy.
+                # Standby / idle evaluation — own cadence, independent of
+                # Snapcast so a speaker with no Snapcast server still enters
+                # standby + amp deep-sleep. (The idle clock is reset from every
+                # PLAYING observation in _observe_playback / _poll_snapcast, so
+                # this block only decides transitions, not activity.)
+                if now - self.t_last_standby >= self._snapcast_poll_interval:
+                    self.t_last_standby = now
+
+                    # Standby transitions: enter standby after a content-adaptive
+                    # idle timeout, exit on any new playback. See _idle_timeout().
                     if self.playback == Playback.PLAYING:
                         self.last_playback_time = now
                         if self.in_standby:
