@@ -91,6 +91,11 @@ class AmoledDisplay(DisplayInterface):
         self._reconnect_delay = 5.0
         # Re-send palette on every reconnect — the ESP32 may have rebooted
         self._palette_sent = False
+        # Signature of the last palette we *logged*. Legitimate re-sends
+        # (startup init + override-apply, plus the [boot] re-push after an
+        # ESP32 reboot) otherwise spam identical "palette sent" lines; the
+        # send still happens every time, only the log line dedups on content.
+        self._last_logged_palette: str | None = None
         # QR URL is similarly volatile across firmware reboots. The bridge
         # pushes it once at start; on a mid-session ESP32 boot we re-send
         # via the [boot] handler so the standby screen has it ready
@@ -189,8 +194,11 @@ class AmoledDisplay(DisplayInterface):
         else:
             self._send(f"PAL:{self.accent_color}")
         self._palette_sent = True
-        log.info("palette sent: a=%s%s", self.accent_color,
-                 "".join(f" {k}={v}" for k, v in extras))
+        sig = "a=%s%s" % (self.accent_color,
+                          "".join(f" {k}={v}" for k, v in extras))
+        if sig != self._last_logged_palette:
+            self._last_logged_palette = sig
+            log.info("palette sent: %s", sig)
 
     def set_accent_color(self, hex_color: str) -> None:
         """Update the accent colour at runtime (e.g. after a profile reload)."""
@@ -460,16 +468,21 @@ class AmoledDisplay(DisplayInterface):
             # Firmware version self-report on boot. Stored so the updater can
             # skip flashing if the running version already matches the latest
             # release tag.
-            self.firmware_version = raw[3:].strip()
-            log.info("Display firmware version: %s", self.firmware_version)
-            # Persist to a tiny file the OTA script reads. Best-effort —
-            # off-Pi (dev machine) the path won't exist and that's fine.
-            try:
-                import os
-                os.makedirs("/var/lib/beatbird", exist_ok=True)
-                with open("/var/lib/beatbird/firmware-version", "w") as f:
-                    f.write(self.firmware_version + "\n")
-            except OSError:
-                pass
+            # The firmware re-announces FW: on each boot/handshake (2-3× at
+            # startup); only act on an actual version change so the log and
+            # the state file aren't rewritten every time.
+            new_ver = raw[3:].strip()
+            if new_ver != self.firmware_version:
+                self.firmware_version = new_ver
+                log.info("Display firmware version: %s", new_ver)
+                # Persist to a tiny file the OTA script reads. Best-effort —
+                # off-Pi (dev machine) the path won't exist and that's fine.
+                try:
+                    import os
+                    os.makedirs("/var/lib/beatbird", exist_ok=True)
+                    with open("/var/lib/beatbird/firmware-version", "w") as f:
+                        f.write(new_ver + "\n")
+                except OSError:
+                    pass
         else:
             log.debug("unknown RX: %s", raw)
