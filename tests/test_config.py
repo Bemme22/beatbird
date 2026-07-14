@@ -108,6 +108,20 @@ def test_amp_deep_sleep_enable_parses():
     assert p.audio.amp_deep_sleep.timeout_s == 300
 
 
+# ─── zram ───────────────────────────────────────────────────────────────────
+
+def test_zram_default_on():
+    """Memory-starved fleet: zram is on unless a big-RAM host opts out."""
+    p = Profile.model_validate({"soundcard": {"driver": "louder-hat-plus-1x"}})
+    assert p.zram is True
+
+
+def test_zram_opt_out():
+    p = Profile.model_validate({
+        "soundcard": {"driver": "louder-hat-plus-1x"}, "zram": False})
+    assert p.zram is False
+
+
 # ─── Idle / standby ─────────────────────────────────────────────────────────
 
 def test_idle_standby_defaults():
