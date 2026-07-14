@@ -48,7 +48,13 @@ SyslogIdentifier=beatbird-bridge
 # flag is set, which prevents sudo from running as root".
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/beatbird /etc/beatbird
+# go-librespot's config dir must be writable *from inside this namespace*:
+# beatbird-set-spotify-name runs via sudo, which inherits the service mount
+# namespace, and `sed -i` needs to write a temp file next to config.yml. Under
+# ProtectHome=read-only that dir is otherwise read-only → EROFS ("Read-only
+# file system"). The leading '-' makes it ignore-if-missing so a fresh install
+# where go-librespot hasn't created the dir yet doesn't block the bridge start.
+ReadWritePaths=/var/lib/beatbird /etc/beatbird -{{ SPOTIFY_CONFIG_DIR }}
 
 [Install]
 WantedBy=multi-user.target
