@@ -713,9 +713,14 @@ class BluetoothSource:
             return self._last_state
         self._last_poll = now
 
-        # Single GetPCMs call gives us all BlueALSA info at once
-        pcms = _get_bluealsa_pcms()
+        # Single GetPCMs call gives us all BlueALSA info at once — but only
+        # ask when a device is actually connected. Nothing connected means
+        # BlueALSA has no PCMs, so `pcms` would go unused in the loop below
+        # while the call still costs a busctl fork every 2 s *and* a debug
+        # line in bluealsa's journal. Idle is the normal state, and that spam
+        # was two thirds of the Pi's (RAM-backed) journal — measured 03.08.26.
         devices = _list_connected_devices()
+        pcms = _get_bluealsa_pcms() if devices else {}
 
         for d in devices:
             # Find this device's sink PCM (if any)
