@@ -236,7 +236,8 @@ class AmoledDisplay(DisplayInterface):
         pin = int(led.get("pin", 18))
         bri = int(led.get("brightness", 120))
         mapping = led.get("mapping") or "area"
-        body = f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|map={mapping}"
+        join = led.get("chain_join") or "inner"
+        body = f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|map={mapping}|join={join}"
         self._send("LED:" + body)
         if body != self._last_logged_led:
             self._last_logged_led = body

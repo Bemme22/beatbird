@@ -359,6 +359,7 @@ void handle_led_line(const char *body)
     static bool rgbw  = true;
     static int  bri   = 120;
     static LedStatus::Mapping map = LedStatus::MAP_AREA;
+    static LedStatus::ChainJoin join = LedStatus::JOIN_INNER;
 
     char buf[16];
     if (parse_field_eq(body, "pin",  buf, sizeof(buf))) pin   = atoi(buf);
@@ -368,11 +369,14 @@ void handle_led_line(const char *body)
     if (parse_field_eq(body, "map",  buf, sizeof(buf)))
         map = strcmp(buf, "mirror") == 0 ? LedStatus::MAP_MIRROR
                                          : LedStatus::MAP_AREA;
+    if (parse_field_eq(body, "join", buf, sizeof(buf)))
+        join = strcmp(buf, "outer") == 0 ? LedStatus::JOIN_OUTER
+                                         : LedStatus::JOIN_INNER;
 
     if (bri < 0)   bri = 0;
     if (bri > 255) bri = 255;
 
-    LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map);
+    LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map, join);
 }
 // ─── BOOT: progress line ────────────────────────────────────────────────────
 

@@ -50,7 +50,9 @@ display:
     chip: sk6812-rgbw      # GRBW byte order, verified on hardware 03.09.2026
     brightness: 120        # Betriebsmittel, not taste: ~1.3 A here vs ~2.8 A
                            # uncapped — must stay under the 5 V converter budget
-    mapping: area          # one cluster behind resin: level, not position
+    mapping: mirror        # zwei sichtbare Balken links/rechts vom Treiber
+                           # → von der Mitte nach außen füllen
+    chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
 
 wifi:
   ssid: "your-ssid"

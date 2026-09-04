@@ -65,6 +65,7 @@ display:
   #   chip: sk6812-rgbw      # sk6812-rgbw | ws2812-rgb
   #   brightness: 120        # 0..255 — cap it to the 5 V converter budget
   #   mapping: area          # area (one diffused cluster) | mirror (two strips)
+  #   chain_join: inner      # mirror only: where the two bars are joined (inner | outer)
   # For led-button (to be implemented):
   # led_pin: 18                          # GPIO pin (BCM numbering)
   # led_count: 12

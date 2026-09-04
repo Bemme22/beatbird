@@ -204,6 +204,12 @@ class StatusLed(BaseModel):
     #          behind a diffuser, where pixel position is lost anyway.
     # mirror = symmetric centre-to-outside meter (two visible side strips).
     mapping: Literal["area", "mirror"] = "area"
+    # Where the two bars of a mirror strip are joined — a WIRING fact, so it
+    # belongs here and not in the code. inner: the jumper hides behind the
+    # driver, chain runs outer-left -> centre -> outer-right. outer: the bars
+    # are joined at their far ends. Wrong value = the meter fills from the
+    # outside in; flip it here, no reflash.
+    chain_join: Literal["inner", "outer"] = "inner"
 
 
 class Display(BaseModel):

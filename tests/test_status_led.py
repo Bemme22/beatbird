@@ -66,6 +66,7 @@ def test_robinpi_profile_carries_the_verified_wiring():
     sl = Profile.model_validate(data).display.status_led
     assert sl.enabled and sl.pin == 18 and sl.count == 46
     assert sl.chip == "sk6812-rgbw"
+    assert sl.mapping == "mirror"   # zwei sichtbare Balken, nicht ein Cluster
 
 
 # ─── LED: line rendering ────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ def test_led_line_format():
         "enabled": True, "pin": 18, "count": 46,
         "chip": "sk6812-rgbw", "brightness": 120, "mapping": "area",
     })
-    assert sent == ["LED:pin=18|n=46|rgbw=1|bri=120|map=area"]
+    assert sent == ["LED:pin=18|n=46|rgbw=1|bri=120|map=area|join=inner"]
 
 
 def test_rgb_chip_clears_the_rgbw_flag():
@@ -92,7 +93,7 @@ def test_rgb_chip_clears_the_rgbw_flag():
         "enabled": True, "pin": 17, "count": 12,
         "chip": "ws2812-rgb", "brightness": 60, "mapping": "mirror",
     })
-    assert sent == ["LED:pin=17|n=12|rgbw=0|bri=60|map=mirror"]
+    assert sent == ["LED:pin=17|n=12|rgbw=0|bri=60|map=mirror|join=inner"]
 
 
 def test_disabled_strip_is_sent_as_zero_not_skipped():
