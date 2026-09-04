@@ -30,13 +30,14 @@ audio:
       - {name: timpani_body, max_boost_db: 1.5}
 
 display:
-  # RobinPi reuses the running AMOLED stack (template from Zipp2/Beat).
-  # NOTE: the "Brustfleck" NeoPixel strip (WS2801/SK6812 on SPI/MOSI) is a
-  # separate status LED not covered by this schema yet — tracked in the vault
-  # (projekte/RobinPi, "Status-LED"), wire up once the display schema grows an
-  # spi-led type. Set type: none if no AMOLED is attached during bring-up.
+  # RobinPi uses the Waveshare AMOLED 1.75 (CO5300) — different board than
+  # Beat/Zipp (1.43/SH8601) but same 466×466 UI. Firmware: flash env `robinpi`
+  # (BOARD_AMOLED_175). NOTE: the "Brustfleck" NeoPixel strip (WS2801/SK6812 on
+  # SPI/MOSI) is a separate status LED not covered by this schema yet — tracked
+  # in the vault (projekte/RobinPi, "Status-LED"). Set type: none if no AMOLED
+  # is attached during bring-up.
   type: amoled
-  variant: waveshare-1.43
+  variant: waveshare-1.75
   serial_device: auto
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback
 
