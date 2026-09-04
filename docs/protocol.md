@@ -58,6 +58,39 @@ inherit from it. Source markers remain coloured per source.
 
 Format: 6-char hexadecimal RGB, with or without leading `#`. Case-insensitive.
 
+### `LED` — status-strip wiring (once per connect)
+
+```
+LED:pin=18|n=46|rgbw=1|bri=120|map=area
+```
+
+Pushed right after `PAL:` on every (re)connect, and again when the ESP32
+reports a reboot. Describes the addressable status strip wired to a free GPIO
+of the display board — RobinPi calls it the *Brustfleck*.
+
+| Key    | Meaning                                        | Range / values          |
+|--------|------------------------------------------------|-------------------------|
+| `pin`  | ESP32 GPIO the strip data line hangs on        | 0–48 (NOT a Pi BCM pin) |
+| `n`    | number of pixels; `0` disables the strip       | 0–300                   |
+| `rgbw` | `1` = SK6812 RGBW (GRBW), `0` = WS2812 RGB (GRB) | `0` / `1`             |
+| `bri`  | global brightness/current cap                  | 0–255                   |
+| `map`  | `area` = one diffused cluster (level drives brightness); `mirror` = symmetric centre→outside meter | `area` / `mirror` |
+
+Every token is optional; a missing one keeps its previous value, so a partial
+line is a valid update. Values come from `display.status_led` in the speaker
+profile.
+
+**Why this is on the wire and not a build flag.** Pin, count and chip type are
+facts about *one enclosure*, and the repo ships one firmware image for every
+speaker — same argument as `PAL:`. Consequently the firmware drives **no GPIO
+at all** until this line arrives; that is a safety property, not laziness:
+GPIO18 is the strip pin on RobinPi but `MAIN_I2C_SDA` on the 1.43 board, so a
+compiled-in default would have a Beat/Zipp bit-banging its own I²C bus.
+
+Re-sends are idempotent — the firmware compares the wiring and only rebuilds
+the driver when pin, count or chip actually changed, so a flapping USB link
+does not blink the strip.
+
 ### Single-shot messages
 
 These are legacy from v1 and may still be emitted occasionally for UX

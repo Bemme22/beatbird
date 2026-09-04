@@ -181,6 +181,31 @@ class AutoDim(BaseModel):
     night_start_hour: int = 22        # night begins (minimal dim clock)
 
 
+class StatusLed(BaseModel):
+    """Addressable status strip wired to the display ESP32 (RobinPi Brustfleck).
+
+    Lives in the profile rather than in the firmware build because pin, count
+    and chip type are facts about ONE enclosure, while the repo ships a single
+    firmware image for every speaker (same rule as the accent palette). The
+    bridge pushes them as a LED: line on each ESP32 (re)connect; the firmware
+    drives no GPIO until that line arrives.
+
+    brightness is a Betriebsmittel, not a taste setting: 46 SK6812-RGBW at full
+    white draw ~2.8 A, at 120 about 1.3 A — the cap has to match the 5 V
+    converter feeding the strip.
+    """
+
+    enabled: bool = False
+    pin: int = Field(default=18, ge=0, le=48)      # ESP32-S3 GPIO, not Pi BCM
+    count: int = Field(default=0, ge=0, le=300)
+    chip: Literal["sk6812-rgbw", "ws2812-rgb"] = "sk6812-rgbw"
+    brightness: int = Field(default=120, ge=0, le=255)
+    # area   = whole cluster is one field, level drives brightness. Correct
+    #          behind a diffuser, where pixel position is lost anyway.
+    # mirror = symmetric centre-to-outside meter (two visible side strips).
+    mapping: Literal["area", "mirror"] = "area"
+
+
 class Display(BaseModel):
     type: Literal["amoled", "led-button", "none"] = "none"
     variant: Optional[str] = None
@@ -188,6 +213,9 @@ class Display(BaseModel):
     spectrum_bands: int = 16
     cover_background: CoverBackground = Field(default_factory=CoverBackground)
     auto_dim: AutoDim = Field(default_factory=AutoDim)
+    # Status strip on the display ESP32 — distinct from the led_pin/led_count
+    # fields further down, which are the Pi-side "led-button" display type.
+    status_led: StatusLed = Field(default_factory=StatusLed)
 
     # ── Single accent colour (current PAL: protocol) ──
     # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; firmware derives

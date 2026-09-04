@@ -32,14 +32,25 @@ audio:
 display:
   # RobinPi uses the Waveshare AMOLED 1.75 (CO5300) — different board than
   # Beat/Zipp (1.43/SH8601) but same 466×466 UI. Firmware: flash env `robinpi`
-  # (BOARD_AMOLED_175). NOTE: the "Brustfleck" NeoPixel strip (WS2801/SK6812 on
-  # SPI/MOSI) is a separate status LED not covered by this schema yet — tracked
-  # in the vault (projekte/RobinPi, "Status-LED"). Set type: none if no AMOLED
-  # is attached during bring-up.
+  # (BOARD_AMOLED_175). Set type: none if no AMOLED is attached during bring-up.
   type: amoled
   variant: waveshare-1.75
   serial_device: auto
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback
+  # ── Brustfleck: SK6812-RGBW status strip on the DISPLAY ESP32 (GPIO18) ──
+  # Not on the Pi: display and strip both sit on the front (one harness instead
+  # of a lead across the pressure chamber), and the ESP32 already parses the
+  # ST:/SYS:/PAL: lines, so the status logic is free there.
+  # Pushed to the firmware as a LED: line on every (re)connect — the firmware
+  # ships identical for all speakers and drives no GPIO until it arrives.
+  status_led:
+    enabled: true
+    pin: 18                # ESP32-S3 GPIO on the 8-pin 2.54 header (17/21 also free)
+    count: 46
+    chip: sk6812-rgbw      # GRBW byte order, verified on hardware 03.09.2026
+    brightness: 120        # Betriebsmittel, not taste: ~1.3 A here vs ~2.8 A
+                           # uncapped — must stay under the 5 V converter budget
+    mapping: area          # one cluster behind resin: level, not position
 
 wifi:
   ssid: "your-ssid"

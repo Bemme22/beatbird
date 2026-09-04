@@ -38,6 +38,7 @@
 #include "screens/screen_boot.h"
 #include "screens/screen_player.h"
 #include "screens/screen_standby.h"
+#include "led_status.h"
 
 // LVGL internal hit-test shim — kept for compilation parity with prior builds.
 struct _lv_hit_test_info_t {
@@ -580,6 +581,10 @@ void loop()
             fw_resends_left--;
         }
     }
+
+    // Status strip ("Brustfleck"): a second view of the same state, dark until
+    // the bridge pushes a LED: line from the speaker profile.
+    LedStatus::tick();
 
     check_dim();
 

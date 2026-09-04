@@ -6,6 +6,7 @@
 #include "theme.h"
 #include "screens/center_stage.h"
 #include "screens/screen_standby.h"
+#include "led_status.h"
 
 #ifdef ARDUINO
   #include <Arduino.h>
@@ -81,6 +82,7 @@ void handle_line(const char *line)
 
     // Cheap prefix-check, no String allocation
     if (!strncmp(line, "PAL:",  4))     { handle_palette_line(line + 4); return; }
+    if (!strncmp(line, "LED:",  4))     { handle_led_line(line + 4);     return; }
     if (!strncmp(line, "SYS:",  4))     { handle_system_line(line);      return; }
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }
@@ -332,6 +334,46 @@ void handle_palette_line(const char *body)
     if (any) State::app.connected_to_pi = true;
 }
 
+
+// ─── LED: status-strip wiring from the speaker profile ──────────────────────
+//
+//   LED:pin=18|n=46|rgbw=1|bri=120|map=area
+//
+// Pushed once per (re)connect, right behind PAL:. Every token is optional and
+// a missing one keeps its previous value, so the bridge may send a partial
+// update. n=0 disables the strip and releases the pin.
+//
+// Why a protocol line and not a build flag: pin, count and chip type are facts
+// about ONE enclosure, and the repo ships one firmware image for every speaker.
+// Same rule as the palette — the profile YAML is the single source of truth,
+// the firmware only renders it. The firmware therefore drives no pin at all
+// until this line arrives; see led_status.h for why a default would be unsafe.
+
+void handle_led_line(const char *body)
+{
+    if (!body) return;
+
+    // Persist across calls so a partial LED: line updates only what it carries.
+    static int  pin   = -1;
+    static int  count = 0;
+    static bool rgbw  = true;
+    static int  bri   = 120;
+    static LedStatus::Mapping map = LedStatus::MAP_AREA;
+
+    char buf[16];
+    if (parse_field_eq(body, "pin",  buf, sizeof(buf))) pin   = atoi(buf);
+    if (parse_field_eq(body, "n",    buf, sizeof(buf))) count = atoi(buf);
+    if (parse_field_eq(body, "rgbw", buf, sizeof(buf))) rgbw  = (atoi(buf) != 0);
+    if (parse_field_eq(body, "bri",  buf, sizeof(buf))) bri   = atoi(buf);
+    if (parse_field_eq(body, "map",  buf, sizeof(buf)))
+        map = strcmp(buf, "mirror") == 0 ? LedStatus::MAP_MIRROR
+                                         : LedStatus::MAP_AREA;
+
+    if (bri < 0)   bri = 0;
+    if (bri > 255) bri = 255;
+
+    LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map);
+}
 // ─── BOOT: progress line ────────────────────────────────────────────────────
 
 void handle_boot_line(const char *body)
