@@ -86,6 +86,9 @@ class AmoledDisplay(DisplayInterface):
             "s": _norm(text_secondary),
             "e": _norm(accent_alert),
         }
+        # Day-phase strip brightness, set by the bridge at runtime. None =
+        # use the profile's ceiling.
+        self._strip_bri_override: int | None = None
         self.ser: serial.Serial | None = None
         self.on_command: CommandCallback | None = None
         self.on_volume: VolumeCallback | None = None
@@ -179,7 +182,15 @@ class AmoledDisplay(DisplayInterface):
         if "a" in slots and slots["a"]:
             self.accent_color = _norm(slots["a"])
         for k in ("g", "d", "p", "s", "e"):
-            if k in slots and slots[k]:
+            # `k in slots` decides, NOT the truthiness of its value: an empty
+            # slot has to CLEAR the entry so the firmware derives it again.
+            # Testing the value instead made a slot one-way - once set it could
+            # never be released, so removing g/d from the override left a stale
+            # colour (or, from the settings page, a literal 000000) in place
+            # until the bridge restarted. RobinPi went dark that way on
+            # 06.09.2026: glow stuck at black, and glow is what the strip
+            # blooms in.
+            if k in slots:
                 self.palette[k] = _norm(slots[k])
         # Force re-send next poll cycle.
         self._palette_sent = False
@@ -235,13 +246,34 @@ class AmoledDisplay(DisplayInterface):
         rgbw = 0 if led.get("chip") == "ws2812-rgb" else 1
         pin = int(led.get("pin", 18))
         bri = int(led.get("brightness", 120))
+        if self._strip_bri_override is not None:
+            bri = self._strip_bri_override
         mapping = led.get("mapping") or "area"
         join = led.get("chain_join") or "inner"
-        body = f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|map={mapping}|join={join}"
+        wmix = int(led.get("white_mix", 45))
+        wp = str(led.get("white_point", "FFFFFF")).lstrip("#").upper()
+        body = (f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|wmix={wmix}|wp={wp}"
+                f"|map={mapping}|join={join}")
         self._send("LED:" + body)
         if body != self._last_logged_led:
             self._last_logged_led = body
             log.info("led config sent: %s", body)
+
+    def set_strip_brightness(self, bri: int) -> None:
+        """Set the strip's day-phase brightness and re-push LED: on a change.
+
+        Cheap by design: the firmware compares pin/count/chip and rebuilds the
+        SPI bus only on a REAL change, so a re-sent line with a new `bri` just
+        re-caps the level — no flicker, no bus teardown. Idempotent, so the
+        bridge may call it on every tick."""
+        bri = max(0, min(255, int(bri)))
+        if bri == self._strip_bri_override:
+            return
+        self._strip_bri_override = bri
+        try:
+            self._send_led_config()
+        except Exception as e:
+            log.debug("strip brightness push failed: %s", e)
 
     def set_accent_color(self, hex_color: str) -> None:
         """Update the accent colour at runtime (e.g. after a profile reload)."""

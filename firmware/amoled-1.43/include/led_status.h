@@ -32,8 +32,15 @@ namespace LedStatus {
 enum Mapping : uint8_t {
     MAP_AREA   = 0,  // whole strip = one field; level and colour carry the
                      // state, position carries nothing. For a diffused cluster.
-    MAP_MIRROR = 1,  // two symmetric bars, filled from the centre outwards.
-                     // For bars that are visible along their length.
+    MAP_MIRROR = 1,  // two symmetric bars, filled from the CHAIN's middle
+                     // (the two inner ends beside the driver) outwards.
+    MAP_BLOOM  = 2,  // two bars, each blooming from ITS OWN midpoint outwards
+                     // to both of its ends - LED 12 of 23, then 11+13, 10+14.
+                     // Reads as light swelling in place rather than as a bar
+                     // growing from one end; the level drives a fractional
+                     // radius with a one-pixel soft edge, so it does not step
+                     // in whole LEDs. Bloom is symmetric about the midpoint,
+                     // so ChainJoin makes no visible difference here.
 };
 
 // Where the two bars of a MAP_MIRROR strip are joined — a WIRING fact, hence a
@@ -53,14 +60,16 @@ enum ChainJoin : uint8_t {
  *  task on first success. Returns false if the config was rejected
  *  (implausible pin/count). */
 bool configure(int pin, int count, bool rgbw, uint8_t brightness,
-               Mapping mapping, ChainJoin join);
+               Mapping mapping, ChainJoin join, uint8_t white_mix,
+               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b);
 
 /** True once a LED: line has enabled a strip. */
 bool active();
 
 #else   // desktop simulator — no strip hardware
 
-inline bool configure(int, int, bool, uint8_t, Mapping, ChainJoin) { return false; }
+inline bool configure(int, int, bool, uint8_t, Mapping, ChainJoin, uint8_t,
+                      uint8_t, uint8_t, uint8_t) { return false; }
 inline bool active() { return false; }
 
 #endif

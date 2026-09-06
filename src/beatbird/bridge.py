@@ -1802,6 +1802,22 @@ class BeatBirdBridge:
                "evening": ad.evening_brightness}.get(phase, ad.day_brightness)
         brt = max(0, min(255, int(brt)))
         night = phase == "night"
+
+        # The status strip rides on the same phase but its own curve: ambience
+        # only in the evening, feedback whenever something is playing. Sent
+        # through set_strip_brightness(), which is idempotent and only re-pushes
+        # LED: when the number actually changes.
+        led_dim = self.profile.display.status_led.auto_dim
+        if led_dim.enabled and self.profile.display.status_led.enabled:
+            bucket = "night" if phase == "night" else (
+                "evening" if phase == "evening" else "day")
+            playing = self.playback == Playback.PLAYING
+            led_bri = getattr(led_dim, ("active_" if playing else "idle_") + bucket)
+            try:
+                self.display.set_strip_brightness(led_bri)
+            except Exception as e:
+                log.debug("strip auto-dim failed: %s", e)
+
         try:
             if brt != getattr(self, "_last_brt", None):
                 self.display.push_raw(f"BRT:{brt}")

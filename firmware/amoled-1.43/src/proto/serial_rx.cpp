@@ -358,6 +358,8 @@ void handle_led_line(const char *body)
     static int  count = 0;
     static bool rgbw  = true;
     static int  bri   = 120;
+    static int  wmix  = 45;
+    static int  wp_r = 255, wp_g = 255, wp_b = 255;
     static LedStatus::Mapping map = LedStatus::MAP_AREA;
     static LedStatus::ChainJoin join = LedStatus::JOIN_INNER;
 
@@ -367,16 +369,27 @@ void handle_led_line(const char *body)
     if (parse_field_eq(body, "rgbw", buf, sizeof(buf))) rgbw  = (atoi(buf) != 0);
     if (parse_field_eq(body, "bri",  buf, sizeof(buf))) bri   = atoi(buf);
     if (parse_field_eq(body, "map",  buf, sizeof(buf)))
-        map = strcmp(buf, "mirror") == 0 ? LedStatus::MAP_MIRROR
+        map = strcmp(buf, "bloom")  == 0 ? LedStatus::MAP_BLOOM
+            : strcmp(buf, "mirror") == 0 ? LedStatus::MAP_MIRROR
                                          : LedStatus::MAP_AREA;
+    if (parse_field_eq(body, "wp", buf, sizeof(buf)) && strlen(buf) == 6) {
+        char h[3] = {0};
+        h[0]=buf[0]; h[1]=buf[1]; wp_r = (int)strtol(h, nullptr, 16);
+        h[0]=buf[2]; h[1]=buf[3]; wp_g = (int)strtol(h, nullptr, 16);
+        h[0]=buf[4]; h[1]=buf[5]; wp_b = (int)strtol(h, nullptr, 16);
+    }
+    if (parse_field_eq(body, "wmix", buf, sizeof(buf))) wmix  = atoi(buf);
     if (parse_field_eq(body, "join", buf, sizeof(buf)))
         join = strcmp(buf, "outer") == 0 ? LedStatus::JOIN_OUTER
                                          : LedStatus::JOIN_INNER;
 
+    if (wmix < 0)   wmix = 0;
+    if (wmix > 100) wmix = 100;
     if (bri < 0)   bri = 0;
     if (bri > 255) bri = 255;
 
-    LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map, join);
+    LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map, join, (uint8_t)wmix,
+                         (uint8_t)wp_r, (uint8_t)wp_g, (uint8_t)wp_b);
 }
 // ─── BOOT: progress line ────────────────────────────────────────────────────
 

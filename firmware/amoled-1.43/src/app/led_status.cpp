@@ -57,6 +57,33 @@ static int       cfg_count      = 0;
 static bool      cfg_rgbw       = true;
 static uint8_t   cfg_brightness = 120;
 static Mapping   cfg_mapping    = MAP_AREA;
+// How much of a colour's achromatic part is handed to the W die, in percent.
+// NOT a taste setting and not 100: the white die is a phosphor emitter and puts
+// out far more light per digit than R+G+B do at the same value, so a 1:1
+// substitution over-whitens. At 100 RobinPi's bronze read as plain warm white;
+// at 0 the unsaturated part is mixed from three narrow-band dies and comes out
+// cold (the original blue-white cast). The balance is a property of THIS strip's
+// dies, which is why it rides on the profile like every other wiring fact.
+static uint8_t   cfg_white_mix  = 45;
+// WHITE POINT: the RGB triple that renders as NEUTRAL white on this strip.
+//
+// DURABLE - an 8-bit value is a DRIVE level, not a brightness. sRGB assumes a
+// display with defined primaries and a white point; an LED strip has neither.
+// A green die emits roughly 2-3x the perceived light of a red one at the same
+// digit (higher efficacy, and the eye peaks at 555 nm), so equal digits do not
+// look equal. RobinPi 06.09.2026: FFDD00 (R 255, G 221) came out GREEN, and
+// every earlier colour failure pointed the same way - the less green and blue a
+// colour carried, the better it looked.
+//
+// So each channel is scaled by wp/255 before anything else. 255,255,255 = no
+// correction (what we did until now, and what made every warm tone drift).
+// This is a calibration of THIS strip's dies, hence a profile value.
+//
+// It cannot live in the palette: the display and the strip share one palette,
+// so a colour bent until the strip looks right would be wrong on the panel.
+static uint8_t   cfg_wp_r       = 255;
+static uint8_t   cfg_wp_g       = 255;
+static uint8_t   cfg_wp_b       = 255;
 static ChainJoin cfg_join       = JOIN_INNER;
 
 // ─── SPI transport ──────────────────────────────────────────────────────────
@@ -154,26 +181,74 @@ static inline void encode_byte(uint8_t *out, uint8_t v)
     }
 }
 
-/** Write one pixel: base colour at `level` (0 = off, 1 = full). The perceptual
- *  curve is applied to the level ONCE, so the channel ratio — and with it the
- *  hue — survives every dimming step. GRB(W) order, W left dark because the
- *  accent is a warm tint that a white LED would wash out. */
+/** Write one pixel in GRB(W) order: `base` colour at `level` (0 = off,
+ *  1 = full). The perceptual curve is applied to the level ONCE, so the channel
+ *  ratio - and with it the hue - survives every dimming step.
+ *
+ *  DURABLE - ON AN RGBW STRIP THE ACHROMATIC PART BELONGS ON THE W DIE.
+ *  This used to write W = 0 always, reasoning that a white LED would wash out a
+ *  warm accent. Measured on RobinPi 06.09.2026, that is backwards: a colour's
+ *  unsaturated part was then MIXED from the three narrow-band dies, and that mix
+ *  is never neutral - blue is far more efficient per digit, so it comes out
+ *  cold. Bronze FFA548 (28 % achromatic) read as blue-white while fully
+ *  saturated FF6A00 (0 % achromatic) read as clean orange: the error tracked the
+ *  white content exactly, which is what pointed at the mix rather than at the
+ *  byte order (GRBW is verified, 03.09.2026).
+ *
+ *  So: split off W = min(R,G,B) and leave only the chroma residual on RGB - the
+ *  standard RGB->RGBW conversion. It is only correct because THIS strip's W die
+ *  is warm white (verified at the panel, 06.09.2026). On a cold-white strip it
+ *  would trade one cast for another; that day this becomes a profile flag, like
+ *  every other per-enclosure wiring fact. */
 static inline void put(int i, RGB base, float level)
 {
     if (i < 0 || i >= cfg_count) return;
-    uint8_t r = 0, g = 0, b = 0;
+    int r = 0, g = 0, b = 0, w = 0;
     if (level > 0.0f) {
         if (level > 1.0f) level = 1.0f;
         const float lin = powf(level, GAMMA) * (cfg_brightness / 255.0f);
-        r = clamp8((int)(base.r * lin + 0.5f));
-        g = clamp8((int)(base.g * lin + 0.5f));
-        b = clamp8((int)(base.b * lin + 0.5f));
+        // White balance first: after this the three channels carry comparable
+        // amounts of LIGHT, which is the premise the RGB->RGBW split below
+        // relies on (min() over unbalanced channels picks the wrong amount).
+        r = (int)(base.r * lin * (cfg_wp_r / 255.0f) + 0.5f);
+        g = (int)(base.g * lin * (cfg_wp_g / 255.0f) + 0.5f);
+        b = (int)(base.b * lin * (cfg_wp_b / 255.0f) + 0.5f);
+        if (cfg_rgbw) {
+            const int achromatic = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            w = achromatic * cfg_white_mix / 100;
+            r -= w; g -= w; b -= w;
+        }
     }
     uint8_t *p = dma_buf + (size_t)i * (cfg_rgbw ? 16 : 12);
-    encode_byte(p + 0, g);
-    encode_byte(p + 4, r);
-    encode_byte(p + 8, b);
-    if (cfg_rgbw) encode_byte(p + 12, 0);
+    encode_byte(p + 0, clamp8(g));
+    encode_byte(p + 4, clamp8(r));
+    encode_byte(p + 8, clamp8(b));
+    if (cfg_rgbw) encode_byte(p + 12, clamp8(w));
+}
+
+/** Write one pixel as PURE WHITE DIE at `level`, no RGB at all.
+ *
+ *  A single die has no channel ratio to quantise, so this is hue-stable all the
+ *  way down to one digit - unlike a dimmed colour, whose hue collapses once the
+ *  smallest channel lands on 2 or 3 (RobinPi: the resting bar rendered (6,3,0)
+ *  and read RED beside an orange meter of the same nominal hue). That makes the
+ *  W die the right source for anything that must stay calm and very dim:
+ *  resting level, unfilled meter, standby breathe.
+ *  Only meaningful on an RGBW strip; on RGB the pixel goes dark instead. */
+static inline void put_white(int i, float level)
+{
+    if (i < 0 || i >= cfg_count) return;
+    if (!cfg_rgbw) { put(i, RGB{0, 0, 0}, 0.0f); return; }
+    int w = 0;
+    if (level > 0.0f) {
+        if (level > 1.0f) level = 1.0f;
+        w = (int)(255.0f * powf(level, GAMMA) * (cfg_brightness / 255.0f) + 0.5f);
+    }
+    uint8_t *p = dma_buf + (size_t)i * 16;
+    encode_byte(p + 0, 0);
+    encode_byte(p + 4, 0);
+    encode_byte(p + 8, 0);
+    encode_byte(p + 12, clamp8(w));
 }
 
 static void flush()
@@ -190,6 +265,57 @@ static bool amp_fault()
 {
     auto bad = [](const String &s) { return s != "ok" && s != "---"; };
     return bad(State::sys.amp_stereo) || bad(State::sys.amp_sub);
+}
+
+// --- Musical envelope -------------------------------------------------------
+// LV: carries CamillaDSP's capture_peak = peak SINCE THE LAST POLL, pushed
+// every ~200 ms. That is the least stable quantity in the system: a single
+// transient pins it to full scale. The bar used to map it straight onto its
+// length with nothing in between, so it jumped five times a second - the
+// "hektisch" reported on 06.09.2026. (The alpha=0.12 low-pass mentioned in
+// camilladsp.py lives in the GUI energy ring, never in this path.)
+//
+// Two followers on the same input, advanced at the render tick (20 ms):
+//   env_fast - what a level meter would show: fast attack, slow release, so a
+//              transient lights instantly and then decays musically.
+//   env_ref  - what the track has been doing over the last few seconds.
+//
+// The BLOOM rides on (env_fast - env_ref): loudness the track does NOT already
+// have. That is what a "pregnant passage" is - an accent is relative to its own
+// context. Absolute level cannot express it: a loud track would sit permanently
+// at full scale and a quiet one would never move.
+static float env_fast = 0.0f;
+static float env_ref  = 0.0f;
+static float bloom    = 0.0f;
+
+static inline float follow(float cur, float target, float a)
+{
+    return cur + (target - cur) * a;
+}
+
+// alpha = 1 - exp(-dt/tau) at dt = FRAME_MS (20 ms).
+static void advance_envelope(float energy, bool playing)
+{
+    static constexpr float A_ATTACK  = 0.283f;   // tau  60 ms
+    static constexpr float A_RELEASE = 0.049f;   // tau 400 ms
+    static constexpr float A_REF     = 0.006f;   // tau 3.5 s
+    static constexpr float B_ATTACK  = 0.330f;   // tau  50 ms
+    static constexpr float B_RELEASE = 0.033f;   // tau 600 ms
+
+    if (!playing) { env_fast = env_ref = bloom = 0.0f; return; }
+
+    env_fast = follow(env_fast, energy, energy > env_fast ? A_ATTACK : A_RELEASE);
+    env_ref  = follow(env_ref,  env_fast, A_REF);
+
+    // Relative to the headroom left above the running mean: the same absolute
+    // jump has to mean MORE in a quiet passage, or quiet music never blooms.
+    float head = 1.0f - env_ref;
+    if (head < 0.15f) head = 0.15f;
+    float x = (env_fast - env_ref) / head;
+    if (x < 0.0f) x = 0.0f;
+    if (x > 1.0f) x = 1.0f;
+
+    bloom = follow(bloom, x, x > bloom ? B_ATTACK : B_RELEASE);
 }
 
 // ─── Render ─────────────────────────────────────────────────────────────────
@@ -212,11 +338,61 @@ static inline void mirror_pair(int p, int half, int &left, int &right)
     else                        { left = p;             right = cfg_count - 1 - p; }
 }
 
+// --- Standby: starfield ------------------------------------------------------
+// Ambience should not be a wall of light. A uniform breathe lights all 46
+// pixels at once, which is both the least interesting picture and the most
+// expensive one; a sparse field of slow glimmers with the occasional bright
+// star looks alive and costs a fraction of the current, because only a handful
+// of dies are up at any instant. Idle ambience is exactly where that trade is
+// free - nothing here has to be READ, unlike the meter.
+//
+// Stateless on purpose: each pixel derives its own period, phase and role from
+// a hash of its index, so there is no per-pixel RAM, no RNG to seed and no
+// state to resynchronise after a reconfigure. The pattern is deterministic but
+// has no visible repeat - the periods are mutually irrational in practice.
+static inline uint32_t hash32(uint32_t x)
+{
+    x ^= x >> 16; x *= 0x7feb352dU;
+    x ^= x >> 15; x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x;
+}
+
+static void render_twinkle(uint32_t now, RGB accent)
+{
+    for (int i = 0; i < cfg_count; i++) {
+        const uint32_t h = hash32((uint32_t)i * 2654435761u);
+        const float period = 2600.0f + (float)(h % 5200);      // 2.6 - 7.8 s
+        const float phase  = (float)((h >> 9) & 1023) / 1024.0f;
+
+        float x = sinf(6.2831853f * ((float)now / period + phase));
+        if (x <= 0.0f) { put(i, accent, 0.0f); continue; }      // dark half
+        x = x * x * x;   // cubed: mostly dark, brief peak = a glimmer, not a pulse
+
+        // Roughly one pixel in seven is a "star" that reaches full power; the
+        // rest only ever glimmer, which is what keeps the field sparse.
+        const bool star = ((h >> 3) % 7u) == 0u;
+        const float lv = star ? x : x * 0.35f;
+
+        // Colour follows the level, not the role: the accent is only used where
+        // there is enough level to carry a hue, everything fainter rides the
+        // white die, which stays true to the last digit. Same rule as the
+        // meter's resting glow, for the same reason.
+        if (lv > 0.45f) put(i, accent, lit(accent, lv));
+        else            put_white(i, lv * 0.7f);
+    }
+    flush();
+}
+
 static void render()
 {
     const uint32_t now = millis();
 
     RGB accent = from_theme(Theme::accent);
+    // ⚠️ glow is the only colour here that gets rendered at ~full level (the
+    // PLAY meter below). It is therefore the accent at full chroma, NOT a
+    // pastel — see Theme::brighten_saturating. A washed-out glow shows up as
+    // a white bar while every other state still looks right.
     RGB glow   = from_theme(Theme::accent_glow);
     RGB dim    = from_theme(Theme::accent_dim);
     RGB alert  = from_theme(Theme::accent_alert);
@@ -238,6 +414,15 @@ static void render()
 
     const State::PlayState ps = State::app.state;
     const float energy = State::app.energy;
+    advance_envelope(energy, ps == State::PLAY_PLAYING);
+
+    // Standby is ambience, and it gets its own picture regardless of mapping -
+    // a starfield rather than a uniform breathe. A volume change still wins,
+    // because that one IS feedback and has to be readable.
+    if (ps == State::PLAY_STANDBY && !vol_overlay) {
+        render_twinkle(now, accent);
+        return;
+    }
 
     if (cfg_mapping == MAP_AREA) {
         // One field of light: level and colour carry everything, position
@@ -248,8 +433,10 @@ static void render()
             lv = lit(accent, 0.20f + 0.80f * (State::app.volume / 100.0f));
         } else if (ps == State::PLAY_PLAYING) {
             base = glow;
-            const float beat = 0.85f + 0.15f * sinf(now / 140.0f);
-            lv = lit(glow, (0.18f + 0.82f * energy) * beat);
+            // Was multiplied by a 1.1 Hz sine that tracked nothing in the
+            // music - a shimmer on top of an already jumpy level. The
+            // envelope supplies the motion now, so the decoration is gone.
+            lv = lit(glow, 0.18f + 0.82f * bloom);
         } else if (ps == State::PLAY_PAUSED) {
             lv = lit(accent, 0.20f);
         } else if (ps == State::PLAY_STANDBY) {
@@ -264,28 +451,63 @@ static void render()
     const int half = cfg_count / 2;
     if (half < 1) { flush(); return; }
 
+    // Where "the centre" is, is the whole difference between the two mappings:
+    //   MIRROR - fills from the CHAIN's middle, i.e. the two inner ends beside
+    //            the driver, outwards.
+    //   BLOOM  - each bar blooms from ITS OWN midpoint: index 11 of 0..22, the
+    //            twelfth LED of a 23-LED bar, spreading to 10+12, 9+13, ...
+    //            Join-independent by construction, because a bloom is symmetric
+    //            about its midpoint - which end the chain enters at cannot be
+    //            seen. (Asked for on 06.09.2026; MIRROR was a different picture,
+    //            and the difference is visible, not cosmetic.)
+    const bool  do_bloom = (cfg_mapping == MAP_BLOOM);
+    const float bar_mid  = (half - 1) * 0.5f;
+    const float bar_maxr = bar_mid + 1.0f;
+
+    // The resting glow rides on the WHITE die, not on a dimmed accent: at these
+    // levels a colour's hue collapses (dim rendered (6,3,0) and read RED beside
+    // an orange meter of the same nominal hue, 06.09.2026), while a single die
+    // stays true down to the last digit.
+    const float rest   = 0.05f + 0.10f * env_ref;
+    const float radius = bloom * bar_maxr;
+
     for (int p = 0; p < half; p++) {
         int li, ri;
-        mirror_pair(p, half, li, ri);
-        RGB  base = accent;
-        float lv  = 0.0f;
+        if (do_bloom) { li = p; ri = half + p; }
+        else          { mirror_pair(p, half, li, ri); }
+
+        RGB   base  = accent;
+        float lv    = 0.0f;
+        bool  white = false;
 
         if (vol_overlay) {
             const int filled = (int)((State::app.volume / 100.0f) * half + 0.5f);
-            if (p < filled) { base = accent; lv = lit(accent, 0.9f); }
-            else            { base = dim;    lv = lit(dim,    0.25f); }
+            const int rank   = do_bloom ? (int)(fabsf(p - bar_mid) + 0.5f) : p;
+            if (rank < filled) { base = accent; lv = lit(accent, 0.9f); }
+            else               { white = true;  lv = rest; }
         } else if (ps == State::PLAY_PLAYING) {
-            const float beat = 0.85f + 0.15f * sinf(now / 140.0f);
-            const int filled = (int)(energy * half + 0.5f);
-            if (p < filled) { base = glow; lv = lit(glow, beat); }
-            else            { base = dim;  lv = lit(dim,  0.30f); }
+            if (do_bloom) {
+                // Fractional radius with a one-pixel soft edge. Without it the
+                // bloom steps in whole LEDs and reads as jumpy all over again -
+                // the soft edge is what makes it look like light rather than
+                // like pixels, and it costs one subtraction.
+                const float edge = radius - fabsf(p - bar_mid);
+                const float f = edge <= 0.0f ? 0.0f : (edge >= 1.0f ? 1.0f : edge);
+                if (f > 0.0f) { base = glow; lv = lit(glow, f); }
+                else          { white = true; lv = rest; }
+            } else {
+                const int filled = (int)(bloom * half + 0.5f);
+                if (p < filled) { base = glow;  lv = lit(glow, 1.0f); }
+                else            { white = true; lv = rest; }
+            }
         } else if (ps == State::PLAY_PAUSED) {
             lv = lit(accent, 0.20f);
         } else if (ps == State::PLAY_STANDBY) {
             lv = lit(accent, 0.5f + 0.5f * sinf(now / 1300.0f));
         }
-        put(li, base, lv);
-        put(ri, base, lv);
+
+        if (white) { put_white(li, lv); put_white(ri, lv); }
+        else       { put(li, base, lv); put(ri, base, lv); }
     }
     if (cfg_count & 1) put(cfg_count - 1, accent, 0.0f);   // odd pixel stays dark
     flush();
@@ -312,7 +534,8 @@ static void led_task_fn(void *)
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 bool configure(int pin, int count, bool rgbw, uint8_t brightness,
-               Mapping mapping, ChainJoin join)
+               Mapping mapping, ChainJoin join, uint8_t white_mix,
+               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b)
 {
     if (count < 0 || count > 300) {
         Serial.printf("LED: rejected count=%d\n", count);
@@ -327,6 +550,8 @@ bool configure(int pin, int count, bool rgbw, uint8_t brightness,
     cfg_mapping    = mapping;
     cfg_join       = join;
     cfg_brightness = brightness;
+    cfg_white_mix  = white_mix > 100 ? 100 : white_mix;
+    cfg_wp_r = wp_r; cfg_wp_g = wp_g; cfg_wp_b = wp_b;
 
     // count == 0 → this speaker has no strip. Release bus, pin and buffer.
     if (count == 0) {
@@ -393,9 +618,10 @@ bool configure(int pin, int count, bool rgbw, uint8_t brightness,
     cfg_count = count;
     cfg_rgbw  = rgbw;
 
-    Serial.printf("LED: pin=%d n=%d %s bri=%u map=%s join=%s (SPI3, %u B DMA)\n",
-                  cfg_pin, cfg_count, cfg_rgbw ? "RGBW" : "RGB", cfg_brightness,
-                  cfg_mapping == MAP_AREA ? "area" : "mirror",
+    Serial.printf("LED: pin=%d n=%d %s bri=%u wmix=%u wp=%02X%02X%02X map=%s join=%s (SPI3, %u B DMA)\n",
+                  cfg_pin, cfg_count, cfg_rgbw ? "RGBW" : "RGB", cfg_brightness, cfg_white_mix, cfg_wp_r, cfg_wp_g, cfg_wp_b,
+                  cfg_mapping == MAP_AREA ? "area"
+                      : cfg_mapping == MAP_BLOOM ? "bloom" : "mirror",
                   cfg_join == JOIN_INNER ? "inner" : "outer", (unsigned)dma_len);
 
     xSemaphoreGive(cfg_lock);

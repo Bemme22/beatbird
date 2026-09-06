@@ -58,10 +58,30 @@ inherit from it. Source markers remain coloured per source.
 
 Format: 6-char hexadecimal RGB, with or without leading `#`. Case-insensitive.
 
+**Extended form.** If the profile sets any of `accent_glow`, `accent_dim`,
+`text_primary`, `text_secondary` or `accent_alert`, the bridge sends the
+key=value form instead — `PAL:a=2D6A4F|g=52B788|d=1B4332|p=F4EFE0|s=A89E89|e=C73E2C`.
+Slots are applied in the fixed order `agdpse`, so an explicit `g=`/`d=` in the
+same line overrides what `a=` derived. Both forms are accepted; the firmware
+tells them apart by the presence of `=`.
+
+**Two slots are derived from the accent** whenever they are not pushed:
+
+| Slot | Derivation | Why |
+|------|-----------|-----|
+| `d` accent_dim  | each channel `>> 2` (~25 % on black) | unfilled ring/bar segments |
+| `g` accent_glow | one gain on all channels until the largest hits 255 — HSV `V → 1`, hue and saturation untouched | the "playing" colour |
+
+⚠️ `g` is brightened by **saturating, never by mixing in white**. Its only
+consumer is the LED strip's PLAY state, which renders it at ~full level, and a
+pastel at full level is white light. Before 05.09.2026 `g` was not derived at
+all: a profile with no palette left it on the compile-time default, so RobinPi
+played a white VU meter while every other state showed the accent.
+
 ### `LED` — status-strip wiring (once per connect)
 
 ```
-LED:pin=18|n=46|rgbw=1|bri=120|map=area
+LED:pin=18|n=46|rgbw=1|bri=40|wmix=45|wp=FF8C64|map=bloom|join=inner
 ```
 
 Pushed right after `PAL:` on every (re)connect, and again when the ESP32
@@ -74,7 +94,10 @@ of the display board — RobinPi calls it the *Brustfleck*.
 | `n`    | number of pixels; `0` disables the strip       | 0–300                   |
 | `rgbw` | `1` = SK6812 RGBW (GRBW), `0` = WS2812 RGB (GRB) | `0` / `1`             |
 | `bri`  | global brightness/current cap                  | 0–255                   |
-| `map`  | `area` = one diffused cluster (level drives brightness); `mirror` = symmetric centre→outside meter | `area` / `mirror` |
+| `map`  | `area` = one diffused cluster (level drives brightness); `mirror` = bars filled from the CHAIN's middle outwards; `bloom` = each bar swells from ITS OWN midpoint to both ends | `area` / `mirror` / `bloom` |
+| `join` | which ends the two bars are wired together at (`mirror` only — a bloom is symmetric, so it cannot tell) | `inner` / `outer` |
+| `wp`   | **white point**: the RGB triple that renders as neutral white on this strip; each channel is scaled by `wp/255` | 6-char hex, `FFFFFF` = off |
+| `wmix` | percent of a colour's achromatic part rendered on the RGBW white die instead of mixed from R+G+B | 0–100 |
 
 Every token is optional; a missing one keeps its previous value, so a partial
 line is a valid update. Values come from `display.status_led` in the speaker
@@ -86,6 +109,29 @@ speaker — same argument as `PAL:`. Consequently the firmware drives **no GPIO
 at all** until this line arrives; that is a safety property, not laziness:
 GPIO18 is the strip pin on RobinPi but `MAIN_I2C_SDA` on the 1.43 board, so a
 compiled-in default would have a Beat/Zipp bit-banging its own I²C bus.
+
+**Why an RGBW strip needs `wp` and `wmix` — measured on RobinPi, 06.09.2026.**
+Both exist because an LED strip is *not* a colour-managed display, and sRGB
+values sent to one are drive levels, not brightnesses.
+
+* `wp` — a green die emits roughly 2–3× the perceived light of a red one at the
+  same digit (higher efficacy, and the eye peaks near 555 nm). Uncorrected, every
+  warm colour drifts green or white: champagne `F0CB7B` read as arctic blue-white,
+  bronze `E0913F` as yellow-green, and yellow `FFDD00` kept a green cast, while
+  `FF6A00` — the one colour with little green and no blue — was clean. One
+  calibration fixes all of them. Calibrate on **white**, never on the target
+  colour: a cast hides inside a saturated hue (yellow *is* red plus green) and
+  is obvious on a neutral. Do it at high `bri`, where the dies still scale.
+* `wmix` — the achromatic part of a colour must come from the white die, not be
+  mixed from three narrow-band dies (that mix is never neutral; blue dominates,
+  hence the cold cast). But a phosphor white die is far brighter per digit, so a
+  1:1 substitution over-whitens — at `wmix=100` bronze rendered as plain warm
+  white. Hence a percentage, applied **after** `wp`: the minimum over unbalanced
+  channels would pick the wrong achromatic amount.
+
+⚠️ Neither belongs in `PAL:`. The display and the strip share one palette, so a
+colour bent until the strip looks right would be wrong on the panel. These are
+calibrations of one strip's dies and live in `display.status_led`.
 
 Re-sends are idempotent — the firmware compares the wiring and only rebuilds
 the driver when pin, count or chip actually changed, so a flapping USB link
