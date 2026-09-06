@@ -376,6 +376,10 @@ def get_settings():
     }
     ov_palette = ov.get("palette") if isinstance(ov.get("palette"), dict) else {}
     palette = {k: _hex6(ov_palette.get(k)) or base_palette.get(k) for k in _PALETTE_SLOTS}
+    # An empty slot is not black — the firmware derives glow/dim from the
+    # accent and keeps its own constants for text/alert. Show those, and say
+    # which ones they are, so the form never claims the profile set them.
+    palette, derived = settings_overrides.fill_derived_palette(palette)
 
     base_idle = {
         "rss_url":             p.idle.rss_url,
@@ -392,7 +396,8 @@ def get_settings():
         "default": p.resolved_friendly_name,
     }
 
-    return {"palette": palette, "idle": idle, "identity": identity, "overrides": ov}
+    return {"palette": palette, "derived": derived, "idle": idle,
+            "identity": identity, "overrides": ov}
 
 
 # ─── Web theme — mirror the speaker's display palette into CSS ────────────────

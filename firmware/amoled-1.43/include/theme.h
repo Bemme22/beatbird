@@ -133,7 +133,10 @@ namespace Color {
     // the firmware always boots with sensible colours even before the Pi
     // pushes a PAL: line.
     constexpr lv_color_t ACCENT_DEFAULT         = LV_COLOR_MAKE(0xF0, 0xCB, 0x7B);  // champagne gold
-    constexpr lv_color_t ACCENT_GLOW_DEFAULT    = LV_COLOR_MAKE(0xFF, 0xE6, 0xB3);  // brighter champagne
+    // champagne at FULL CHROMA = brighten_saturating(ACCENT_DEFAULT), so the
+    // boot palette already matches what set_accent() derives. Was FFE6B3, a
+    // pastel that the strip rendered as white light in PLAY (05.09.2026).
+    constexpr lv_color_t ACCENT_GLOW_DEFAULT    = LV_COLOR_MAKE(0xFF, 0xD8, 0x83);
     constexpr lv_color_t ACCENT_DIM_DEFAULT     = LV_COLOR_MAKE(0x3c, 0x32, 0x1e);  // ~25% of accent on black
     constexpr lv_color_t TEXT_PRIMARY_DEFAULT   = LV_COLOR_MAKE(0xF4, 0xEF, 0xE0);  // cream
     constexpr lv_color_t TEXT_SECONDARY_DEFAULT = LV_COLOR_MAKE(0xA8, 0x9E, 0x89);  // linen
@@ -148,19 +151,24 @@ namespace Color {
 // All six tokens above are mirrored as runtime variables. The bridge pushes
 // the per-speaker palette once after serial connect:
 //     PAL:a=2D6A4F|g=52B788|d=1B4332|p=F4EFE0|s=A89E89|e=C73E2C
-// Legacy `PAL:2D6A4F` (single accent, no key=value) is still accepted and
-// only sets `accent`; the other slots stay at their defaults.
+// Legacy `PAL:2D6A4F` (single accent, no key=value) is still accepted; it
+// sets `accent` and DERIVES `accent_glow` + `accent_dim` from it. The three
+// text/alert slots stay at their defaults.
 
 extern lv_color_t accent;           // primary highlight (e.g. forest mid)
-extern lv_color_t accent_glow;      // brighter variant (e.g. sage glow)
+extern lv_color_t accent_glow;      // accent at full chroma — derived if not pushed.
+                                    // ⚠️ Its only consumer is the LED strip's PLAY
+                                    // state, which renders it at ~full level: it must
+                                    // be SATURATED, never pastel, or the bar reads
+                                    // white instead of the speaker's colour.
 extern lv_color_t accent_dim;       // ~25% accent on black — derived if not pushed
 extern lv_color_t text_primary;     // body / title text (e.g. cream)
 extern lv_color_t text_secondary;   // labels / sublines (e.g. linen)
 extern lv_color_t accent_alert;     // warnings / errors  (e.g. rust)
 
 /** Apply a new accent colour. Called by the protocol layer when a legacy
- *  PAL:<hex> line arrives. Recomputes accent_dim and triggers a refresh.
- *  Other palette slots are left untouched. */
+ *  PAL:<hex> line arrives. Recomputes accent_dim AND accent_glow, then
+ *  triggers a refresh. The text/alert slots are left untouched. */
 void set_accent(uint8_t r, uint8_t g, uint8_t b);
 
 /** Parse a 6-char hex string (no leading #) and apply as accent. */

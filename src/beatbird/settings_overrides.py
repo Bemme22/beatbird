@@ -45,6 +45,65 @@ def empty() -> dict:
             "dsp_config": None, "friendly_name": None, "eq_editing": None}
 
 
+# ─── Palette: what the firmware fills in for the slots nobody set ───────────
+# Mirror of theme.h `Color::*_DEFAULT` and of the two slots
+# `Theme::set_accent()` derives from the accent. Lives here (dependency-free)
+# rather than in webserver.py so CI can test it without the FastAPI stack.
+
+PALETTE_SLOTS = ("a", "g", "d", "p", "s", "e")
+
+FW_TEXT_DEFAULTS = {"p": "#f4efe0", "s": "#a89e89", "e": "#c73e2c"}
+
+
+def _rgb(hexstr: str) -> tuple[int, int, int]:
+    h = hexstr.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def derive_glow(accent: str) -> str:
+    """The accent at full chroma: one gain on all three channels until the
+    largest reaches 255 — HSV V→1, hue and saturation untouched. Mirrors
+    `Theme::brighten_saturating()`, integer truncation included.
+
+    ⚠️ Never lerp this slot towards white. Its only consumer is the LED
+    strip's PLAY state, which renders it at ~full level, and a pastel at full
+    level is white light — that was RobinPi's white VU meter (05.09.2026)."""
+    r, g, b = _rgb(accent)
+    mx = max(r, g, b)
+    if not mx:
+        return accent
+    return "#%02x%02x%02x" % tuple((v * 255 + mx // 2) // mx for v in (r, g, b))
+
+
+def derive_dim(accent: str) -> str:
+    """~25 % of the accent on black — mirrors the firmware's `>> 2`."""
+    r, g, b = _rgb(accent)
+    return "#%02x%02x%02x" % (r >> 2, g >> 2, b >> 2)
+
+
+def fill_derived_palette(palette: dict) -> tuple[dict, list[str]]:
+    """Complete a merged palette the way the ESP32 does, and report which
+    slots that filled in.
+
+    An unset slot is NOT black: with a legacy `PAL:<hex>` line the firmware
+    derives glow + dim from the accent and keeps its compile-time constants
+    for text/alert. The settings page has to show those, or it draws #000000
+    for every slot the profile leaves out — and a plain save then persists
+    BLACK as an override (invisible text, dark LED bar)."""
+    out = dict(palette)
+    derived: list[str] = []
+    if out.get("a"):
+        for slot, fn in (("g", derive_glow), ("d", derive_dim)):
+            if not out.get(slot):
+                out[slot] = fn(out["a"])
+                derived.append(slot)
+    for slot, colour in FW_TEXT_DEFAULTS.items():
+        if not out.get(slot):
+            out[slot] = colour
+            derived.append(slot)
+    return out, derived
+
+
 def effective_friendly_name(overrides: dict | None, resolved_default: str) -> str:
     """The speaker's shown name (identity-split phase 4): the ``friendly_name``
     override slot (a browser rename) wins; otherwise the profile's resolved
