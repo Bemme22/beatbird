@@ -362,17 +362,24 @@ static void render_twinkle(uint32_t now, RGB accent)
 {
     for (int i = 0; i < cfg_count; i++) {
         const uint32_t h = hash32((uint32_t)i * 2654435761u);
-        const float period = 2600.0f + (float)(h % 5200);      // 2.6 - 7.8 s
+        const float period = 6000.0f + (float)(h % 12000);     // 6 - 18 s
         const float phase  = (float)((h >> 9) & 1023) / 1024.0f;
 
         float x = sinf(6.2831853f * ((float)now / period + phase));
         if (x <= 0.0f) { put(i, accent, 0.0f); continue; }      // dark half
-        x = x * x * x;   // cubed: mostly dark, brief peak = a glimmer, not a pulse
 
-        // Roughly one pixel in seven is a "star" that reaches full power; the
+        // ^8, not ^3. The exponent IS the density control: it sets how much of
+        // each cycle a pixel spends visible, and with 46 pixels that decides how
+        // many are up at once. Cubed left ~20 % duty = about ten glowing
+        // simultaneously, which reads as flicker rather than as stars (06.09.2026).
+        // ^8 keeps a pixel visible for ~9 % of its cycle => roughly four at a time.
+        const float x2 = x * x, x4 = x2 * x2;
+        x = x4 * x4;
+
+        // Roughly one pixel in eleven is a "star" that reaches full power; the
         // rest only ever glimmer, which is what keeps the field sparse.
-        const bool star = ((h >> 3) % 7u) == 0u;
-        const float lv = star ? x : x * 0.35f;
+        const bool star = ((h >> 3) % 11u) == 0u;
+        const float lv = star ? x : x * 0.30f;
 
         // Colour follows the level, not the role: the accent is only used where
         // there is enough level to carry a hue, everything fainter rides the
