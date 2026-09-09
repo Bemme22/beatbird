@@ -486,6 +486,48 @@ void setup()
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+
+    // ── Wipe the controller's frame RAM before anything is shown ────────────
+    // The CO5300 comes out of reset with GREEN in its frame memory. That was
+    // known - the init table below ends with a note that Display On (0x29) is
+    // held back until after the first LVGL frame "to avoid green flash on
+    // boot". But that hides the flash, it does not clear the memory: every
+    // pixel the first frame does not paint keeps the green permanently.
+    //
+    // RobinPi showed exactly that as two small green crescents (09.09.2026).
+    // They survived a forced whole-screen LVGL repaint, never appeared in the
+    // draw buffer (scanned before AND after the byte swap), and were absent on
+    // Beat/Zipp - which run the same UI at the same 466x466 on the SH8601.
+    // Board-specific, not UI.
+    //
+    // Cleared with gap 0 ON PURPOSE and over 480x480, not 466x466: the visible
+    // window sits at a 6-column offset, so those six columns lie OUTSIDE the
+    // coordinate space LVGL can ever address. They are unreachable for the
+    // normal flush path and can only be cleared here.
+    {
+        // 512, not 480: at 480 the LEFT crescent cleared and the BOTTOM one
+        // survived (09.09.2026), so the controller's RAM reaches past 480 in
+        // at least one axis. With MADCTL=270 rows and columns are exchanged,
+        // so the visible BOTTOM edge is a native COLUMN - which is exactly the
+        // direction that was still short. Sized to cover the RAM, not the
+        // panel; addresses past the real array are clipped by the controller.
+        constexpr int CLR_W = 512, CLR_H = 512, BAND = 10;
+        uint16_t *zeros = (uint16_t *)heap_caps_calloc(
+            CLR_W * BAND, sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (zeros) {
+            for (int y = 0; y < CLR_H; y += BAND) {
+                const int h = (y + BAND <= CLR_H) ? BAND : (CLR_H - y);
+                // Not ESP_ERROR_CHECK: addressing past the panel's real RAM is
+                // harmless here but must never abort the boot.
+                esp_lcd_panel_draw_bitmap(panel_handle, 0, y, CLR_W, y + h, zeros);
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));   // let the last DMA finish reading
+            heap_caps_free(zeros);
+            Serial.println("Display: frame RAM cleared");
+        } else {
+            Serial.println("Display: frame RAM clear skipped (no DMA memory)");
+        }
+    }
     // SH8601 has a 6-pixel column offset between its raw addressing and the
     // visible 466×466 active area. Without compensating, the last 6 columns
     // wrap to the opposite edge of the display as visible "stripes".
