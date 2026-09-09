@@ -15,6 +15,7 @@ Invoked by systemd as ``python -m beatbird.bridge``.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 import signal
@@ -1787,6 +1788,55 @@ class BeatBirdBridge:
             return "day"
         return "evening"
 
+    # ── Daylight: what the sun is actually doing ─────────────────────────────
+    # Brightness should follow daylight, not the clock. At 51 N sunset moves by
+    # more than three hours across the year, so fixed hours are either too
+    # bright in December or too dim in June.
+    #
+    # Coordinates come from the SAME env vars the weather poller uses
+    # (BEATBIRD_WEATHER_LAT/LON, from gitignored secrets/location.coords) —
+    # personal data never belongs in the committed profile YAML. No coordinates
+    # means no sun phase, and the clock rule below carries on alone.
+    def _sun_coords(self) -> tuple[float, float] | None:
+        try:
+            lat = float(os.environ.get("BEATBIRD_WEATHER_LAT", "").strip())
+            lon = float(os.environ.get("BEATBIRD_WEATHER_LON", "").strip())
+        except ValueError:
+            return None
+        # ⚠️ 0,0 is the PLACEHOLDER in secrets/location.coords, not a location.
+        # Taking it at face value is worse than having no sun rule at all: the
+        # Gulf of Guinea has a 12-hour day all year, so the display would hold
+        # "day" until 20:00 local in December while it is dark outside — and
+        # nothing would look broken. Found on RobinPi, whose coords file had
+        # never been filled in (09.09.2026). Same for anything out of range.
+        if (lat == 0.0 and lon == 0.0) or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            if not getattr(self, "_sun_coords_warned", False):
+                self._sun_coords_warned = True
+                log.info("sun-based dimming off: no real coordinates "
+                         "(secrets/location.coords is still the 0,0 placeholder) "
+                         "— falling back to the clock")
+            return None
+        return (lat, lon)
+
+    def _light_phase(self) -> str | None:
+        """`day` / `twilight` / `night` from the sun's elevation, or None when
+        no coordinates are configured."""
+        coords = self._sun_coords()
+        if not coords:
+            return None
+        try:
+            from beatbird import sun
+            now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            el = sun.elevation(coords[0], coords[1], now)
+        except Exception as e:
+            log.debug("sun elevation failed: %s", e)
+            return None
+        if el > 3.0:
+            return "day"
+        if el > sun.CIVIL_ALT:      # -6 deg: still readable outside
+            return "twilight"
+        return "night"
+
     def _phase_greeting(self) -> str:
         return self._PHASE_GREETINGS.get(self._day_phase(), "")
 
@@ -1797,11 +1847,25 @@ class BeatBirdBridge:
         ad = self.profile.display.auto_dim
         if not self.display or not ad.enabled:
             return
-        phase = self._day_phase()
+        # The SUN decides day vs twilight; the CLOCK may only make it darker.
+        # Both rules answer different questions — "is it dark out" and "are you
+        # asleep" — and neither subsumes the other: in December it is dark at
+        # 17:00 while the clock still says day, and in June the sun is up at
+        # 22:00 while you are not. Taking the darker of the two is the only
+        # combination that is never wrong in the annoying direction.
+        phase = self._day_phase()          # clock — greetings, and the night floor
+        light = self._light_phase()        # sun — actual illumination
+        effective = phase
+        if light is not None:
+            effective = "night" if phase == "night" else {
+                "day": "day", "twilight": "evening", "night": "evening",
+            }[light]
+            # The sun being down is not by itself bedtime: outside the clock's
+            # night window a dark sky gets the evening level, not the minimum.
         brt = {"night": ad.night_brightness,
-               "evening": ad.evening_brightness}.get(phase, ad.day_brightness)
+               "evening": ad.evening_brightness}.get(effective, ad.day_brightness)
         brt = max(0, min(255, int(brt)))
-        night = phase == "night"
+        night = effective == "night"
 
         # The status strip rides on the same phase but its own curve: ambience
         # only in the evening, feedback whenever something is playing. Sent
@@ -1809,8 +1873,8 @@ class BeatBirdBridge:
         # LED: when the number actually changes.
         led_dim = self.profile.display.status_led.auto_dim
         if led_dim.enabled and self.profile.display.status_led.enabled:
-            bucket = "night" if phase == "night" else (
-                "evening" if phase == "evening" else "day")
+            bucket = "night" if effective == "night" else (
+                "evening" if effective == "evening" else "day")
             playing = self.playback == Playback.PLAYING
             led_bri = getattr(led_dim, ("active_" if playing else "idle_") + bucket)
             try:
