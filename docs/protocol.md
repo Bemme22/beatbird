@@ -81,7 +81,7 @@ played a white VU meter while every other state showed the accent.
 ### `LED` — status-strip wiring (once per connect)
 
 ```
-LED:pin=18|n=46|rgbw=1|bri=40|wmix=45|wp=FF8C64|map=bloom|join=inner
+LED:pin=18|n=46|rgbw=1|bri=40|wmix=45|wp=FF8C64|twk=30|map=bloom|join=inner
 ```
 
 Pushed right after `PAL:` on every (re)connect, and again when the ESP32
@@ -98,6 +98,16 @@ of the display board — RobinPi calls it the *Brustfleck*.
 | `join` | which ends the two bars are wired together at (`mirror` only — a bloom is symmetric, so it cannot tell) | `inner` / `outer` |
 | `wp`   | **white point**: the RGB triple that renders as neutral white on this strip; each channel is scaled by `wp/255` | 6-char hex, `FFFFFF` = off |
 | `wmix` | percent of a colour's achromatic part rendered on the RGBW white die instead of mixed from R+G+B | 0–100 |
+| `twk`  | base period of one standby-twinkle cycle in seconds; each pixel picks its own between this and twice it | 2–600 |
+
+**`twk` carries the „calm“ axis of the standby starfield on its own — 09.09.2026.**
+Duty and period MULTIPLY, so they cannot be tuned apart. The sine exponent
+(compiled in) sets the duty, i.e. what fraction of a cycle a pixel is visible,
+and duty × pixel count is how MANY glow at once. But a single glimmer lasts
+duty × period. Raising the exponent alone therefore makes the field sparser
+*and* each star shorter — quieter and twitchier at the same time, which still
+reads as flicker. Whoever lowers the count has to raise the period to match.
+At 30 s a glimmer takes ~3–8 s to swell and fade at unchanged density.
 
 Every token is optional; a missing one keeps its previous value, so a partial
 line is a valid update. Values come from `display.status_led` in the speaker
