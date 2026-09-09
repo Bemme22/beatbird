@@ -504,6 +504,13 @@ void setup()
     // window sits at a 6-column offset, so those six columns lie OUTSIDE the
     // coordinate space LVGL can ever address. They are unreachable for the
     // normal flush path and can only be cleared here.
+#if defined(BOARD_AMOLED_175)
+    // Guarded to the CO5300 board on purpose. The green-on-reset frame memory
+    // is a property of THIS controller: Beat and Zipp run the SH8601 with the
+    // same UI at the same 466x466 and have never shown it. A wipe there would
+    // be a behaviour change on speakers in daily use, verified on none of them,
+    // to fix a problem they do not have. If an SH8601 ever turns out to need it
+    // too, that is a measurement, not an assumption.
     {
         // 512, not 480: at 480 the LEFT crescent cleared and the BOTTOM one
         // survived (09.09.2026), so the controller's RAM reaches past 480 in
@@ -528,6 +535,7 @@ void setup()
             Serial.println("Display: frame RAM clear skipped (no DMA memory)");
         }
     }
+#endif  // BOARD_AMOLED_175
     // SH8601 has a 6-pixel column offset between its raw addressing and the
     // visible 466×466 active area. Without compensating, the last 6 columns
     // wrap to the opposite edge of the display as visible "stripes".
