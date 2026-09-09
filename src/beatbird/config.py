@@ -249,6 +249,12 @@ class StatusLed(BaseModel):
     # a=FFFFFF and compare wmix=0 (RGB white) with wmix=100 (W-die white),
     # then trim until they match. Per-strip, hence profile.
     white_point: str = "FFFFFF"
+    # Base period of one standby-twinkle cycle in seconds; each pixel picks its
+    # own between this and twice it. Duty (the sine exponent, fixed in the
+    # firmware) decides HOW MANY pixels glow at once; duty x this decides how
+    # LONG a single glimmer takes. They multiply, so the period has to carry
+    # the "calm" axis on its own: bigger = slower swell, same star count.
+    twinkle_period_s: int = Field(30, ge=2, le=600)
     # Day-phase dimming. `brightness` above stays the CEILING (the current
     # budget), this picks what is actually used at a given hour.
     auto_dim: StatusLedDim = Field(default_factory=StatusLedDim)

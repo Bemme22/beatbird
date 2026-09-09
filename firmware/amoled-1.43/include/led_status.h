@@ -61,7 +61,7 @@ enum ChainJoin : uint8_t {
  *  (implausible pin/count). */
 bool configure(int pin, int count, bool rgbw, uint8_t brightness,
                Mapping mapping, ChainJoin join, uint8_t white_mix,
-               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b);
+               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b, uint16_t twinkle_s);
 
 /** True once a LED: line has enabled a strip. */
 bool active();
@@ -69,7 +69,7 @@ bool active();
 #else   // desktop simulator — no strip hardware
 
 inline bool configure(int, int, bool, uint8_t, Mapping, ChainJoin, uint8_t,
-                      uint8_t, uint8_t, uint8_t) { return false; }
+                      uint8_t, uint8_t, uint8_t, uint16_t) { return false; }
 inline bool active() { return false; }
 
 #endif

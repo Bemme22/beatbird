@@ -252,7 +252,8 @@ class AmoledDisplay(DisplayInterface):
         join = led.get("chain_join") or "inner"
         wmix = int(led.get("white_mix", 45))
         wp = str(led.get("white_point", "FFFFFF")).lstrip("#").upper()
-        body = (f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|wmix={wmix}|wp={wp}"
+        twk = int(led.get("twinkle_period_s", 30))
+        body = (f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|wmix={wmix}|wp={wp}|twk={twk}"
                 f"|map={mapping}|join={join}")
         self._send("LED:" + body)
         if body != self._last_logged_led:

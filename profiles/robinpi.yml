@@ -73,6 +73,11 @@ display:
     # 0 = nie (blasse Toene werden kalt, weil drei schmalbandige Dioden kein
     # neutrales Weiss mischen), 100 = ganz (warme Toene werden zu Warmweiss,
     # weil die Phosphordiode pro Digit viel heller ist). Beides gemessen.
+    # Grundperiode eines Twinkle-Zyklus (jedes Pixel wuerfelt zwischen 1x und
+    # 2x davon). Duty und Periode MULTIPLIZIEREN sich: der Exponent bestimmt,
+    # wie VIELE Pixel gleichzeitig leuchten, Duty x Periode wie LANG ein
+    # einzelnes Glimmen dauert. 30 s => ~3-8 s Auf- und Abschwellen.
+    twinkle_period_s: 30
     white_mix: 45
     mapping: bloom         # zwei sichtbare Balken links/rechts vom Treiber.
                            # Jeder Balken blüht aus SEINER EIGENEN Mitte auf

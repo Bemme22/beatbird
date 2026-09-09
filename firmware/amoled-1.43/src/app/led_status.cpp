@@ -81,6 +81,18 @@ static uint8_t   cfg_white_mix  = 45;
 //
 // It cannot live in the palette: the display and the strip share one palette,
 // so a colour bent until the strip looks right would be wrong on the panel.
+// Base period of one twinkle cycle, in seconds; each pixel picks its own
+// between this and twice it.
+//
+// DURABLE - DUTY AND PERIOD MULTIPLY, so they cannot be tuned apart.
+// The sine exponent sets the DUTY (what fraction of a cycle a pixel is
+// visible), and duty x 46 pixels is HOW MANY glow at once. But the length of a
+// single glimmer is duty x period. Raising the exponent from ^3 to ^8 on
+// 06.09.2026 cut the duty 20 % -> 9 % and left the period alone: fewer stars,
+// but each one more than twice as SHORT. Sparser and twitchier at the same
+// time, which still read as flicker. The period has to follow the exponent.
+// At 30 s base with ^8 a glimmer takes ~3-8 s to swell and fade.
+static uint16_t  cfg_twinkle_s  = 30;
 static uint8_t   cfg_wp_r       = 255;
 static uint8_t   cfg_wp_g       = 255;
 static uint8_t   cfg_wp_b       = 255;
@@ -362,7 +374,8 @@ static void render_twinkle(uint32_t now, RGB accent)
 {
     for (int i = 0; i < cfg_count; i++) {
         const uint32_t h = hash32((uint32_t)i * 2654435761u);
-        const float period = 6000.0f + (float)(h % 12000);     // 6 - 18 s
+        const float base   = (float)cfg_twinkle_s * 1000.0f;
+        const float period = base + (float)(h % (uint32_t)base);   // base .. 2x base
         const float phase  = (float)((h >> 9) & 1023) / 1024.0f;
 
         float x = sinf(6.2831853f * ((float)now / period + phase));
@@ -542,7 +555,7 @@ static void led_task_fn(void *)
 
 bool configure(int pin, int count, bool rgbw, uint8_t brightness,
                Mapping mapping, ChainJoin join, uint8_t white_mix,
-               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b)
+               uint8_t wp_r, uint8_t wp_g, uint8_t wp_b, uint16_t twinkle_s)
 {
     if (count < 0 || count > 300) {
         Serial.printf("LED: rejected count=%d\n", count);
@@ -559,6 +572,7 @@ bool configure(int pin, int count, bool rgbw, uint8_t brightness,
     cfg_brightness = brightness;
     cfg_white_mix  = white_mix > 100 ? 100 : white_mix;
     cfg_wp_r = wp_r; cfg_wp_g = wp_g; cfg_wp_b = wp_b;
+    cfg_twinkle_s = twinkle_s < 2 ? 2 : twinkle_s;   // /0 guard on the hash
 
     // count == 0 → this speaker has no strip. Release bus, pin and buffer.
     if (count == 0) {
@@ -625,8 +639,8 @@ bool configure(int pin, int count, bool rgbw, uint8_t brightness,
     cfg_count = count;
     cfg_rgbw  = rgbw;
 
-    Serial.printf("LED: pin=%d n=%d %s bri=%u wmix=%u wp=%02X%02X%02X map=%s join=%s (SPI3, %u B DMA)\n",
-                  cfg_pin, cfg_count, cfg_rgbw ? "RGBW" : "RGB", cfg_brightness, cfg_white_mix, cfg_wp_r, cfg_wp_g, cfg_wp_b,
+    Serial.printf("LED: pin=%d n=%d %s bri=%u wmix=%u wp=%02X%02X%02X twk=%us map=%s join=%s (SPI3, %u B DMA)\n",
+                  cfg_pin, cfg_count, cfg_rgbw ? "RGBW" : "RGB", cfg_brightness, cfg_white_mix, cfg_wp_r, cfg_wp_g, cfg_wp_b, cfg_twinkle_s,
                   cfg_mapping == MAP_AREA ? "area"
                       : cfg_mapping == MAP_BLOOM ? "bloom" : "mirror",
                   cfg_join == JOIN_INNER ? "inner" : "outer", (unsigned)dma_len);

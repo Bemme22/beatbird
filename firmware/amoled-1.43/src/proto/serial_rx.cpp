@@ -360,6 +360,7 @@ void handle_led_line(const char *body)
     static int  bri   = 120;
     static int  wmix  = 45;
     static int  wp_r = 255, wp_g = 255, wp_b = 255;
+    static int  twk  = 30;
     static LedStatus::Mapping map = LedStatus::MAP_AREA;
     static LedStatus::ChainJoin join = LedStatus::JOIN_INNER;
 
@@ -378,18 +379,22 @@ void handle_led_line(const char *body)
         h[0]=buf[2]; h[1]=buf[3]; wp_g = (int)strtol(h, nullptr, 16);
         h[0]=buf[4]; h[1]=buf[5]; wp_b = (int)strtol(h, nullptr, 16);
     }
+    if (parse_field_eq(body, "twk", buf, sizeof(buf))) twk = atoi(buf);
     if (parse_field_eq(body, "wmix", buf, sizeof(buf))) wmix  = atoi(buf);
     if (parse_field_eq(body, "join", buf, sizeof(buf)))
         join = strcmp(buf, "outer") == 0 ? LedStatus::JOIN_OUTER
                                          : LedStatus::JOIN_INNER;
 
+    if (twk < 2)    twk = 2;
+    if (twk > 600)  twk = 600;
     if (wmix < 0)   wmix = 0;
     if (wmix > 100) wmix = 100;
     if (bri < 0)   bri = 0;
     if (bri > 255) bri = 255;
 
     LedStatus::configure(pin, count, rgbw, (uint8_t)bri, map, join, (uint8_t)wmix,
-                         (uint8_t)wp_r, (uint8_t)wp_g, (uint8_t)wp_b);
+                         (uint8_t)wp_r, (uint8_t)wp_g, (uint8_t)wp_b,
+                         (uint16_t)twk);
 }
 // ─── BOOT: progress line ────────────────────────────────────────────────────
 
