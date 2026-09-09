@@ -104,6 +104,37 @@ def fill_derived_palette(palette: dict) -> tuple[dict, list[str]]:
     return out, derived
 
 
+def merge_palette(current: dict | None, incoming: dict) -> dict | None:
+    """Layer `incoming` slots onto the stored palette override, PER SLOT.
+
+    The settings API promises PATCH semantics, and honoured them at the top
+    level while *replacing* the set inside `palette`. A request carrying only
+    the slots a user had just changed therefore dropped every other override.
+    RobinPi ended up with `g` derived from one accent and `d` from another and
+    no `a` at all (06.09.2026); the browser had been papering over it by
+    re-sending known overrides, which only works while its copy is current and
+    never for a hand-written request.
+
+    Rules: a slot that is absent stays as it was, a slot with a valid colour
+    replaces it, and a slot present but empty clears it. Clearing the whole
+    override is `{}` at the call site, not this function's job. Returns None
+    when nothing is left, so the caller stores "no override" rather than an
+    empty dict.
+
+    Values are NOT validated here — the caller normalises them first; this
+    function only decides what survives."""
+    out = dict(current) if isinstance(current, dict) else {}
+    for slot in PALETTE_SLOTS:
+        if slot not in incoming:
+            continue
+        value = incoming.get(slot)
+        if value:
+            out[slot] = value
+        else:
+            out.pop(slot, None)
+    return out or None
+
+
 def effective_friendly_name(overrides: dict | None, resolved_default: str) -> str:
     """The speaker's shown name (identity-split phase 4): the ``friendly_name``
     override slot (a browser rename) wins; otherwise the profile's resolved

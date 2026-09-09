@@ -487,16 +487,24 @@ def set_settings(req: SettingsReq):
     out = settings_overrides.load()
 
     if req.palette is not None:
-        # Empty dict = "clear the palette override".
+        # Empty dict = "clear the whole palette override" (the reset button).
         if not req.palette:
             out["palette"] = None
         else:
-            clean: dict[str, str] = {}
-            for k in _PALETTE_SLOTS:
-                v = _hex6(req.palette.get(k, ""))
-                if v:
-                    clean[k] = v
-            out["palette"] = clean or None
+            # MERGE per slot, do not replace the set. The endpoint promises
+            # PATCH semantics and delivered them at the top level, but inside
+            # `palette` it used to replace: a request carrying only the slots
+            # the user had just changed silently dropped every other override.
+            # That is the same footgun the docstring above warns about, one
+            # level deeper, and it is how RobinPi ended up with an override
+            # holding `g` derived from one accent and `d` from another, with
+            # no `a` at all (06.09.2026). The browser compensated by re-sending
+            # known overrides, which only holds while its copy is current — and
+            # never for a hand-written curl.
+            incoming = {k: (_hex6(req.palette.get(k) or "") or "")
+                        for k in _PALETTE_SLOTS if k in req.palette}
+            out["palette"] = settings_overrides.merge_palette(
+                out.get("palette"), incoming)
 
     if req.idle is not None:
         if not req.idle:

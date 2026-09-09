@@ -84,3 +84,40 @@ def test_fill_derived_palette_keeps_explicit_slots():
     assert pal["g"] == "#63c6d8"        # zipp-mini-2's hand-picked glow wins
     assert "g" not in derived
     assert "d" in derived
+
+
+# ─── merge_palette: PATCH per slot, not replace ─────────────────────────────
+# The regression these guard against: a save that carried only the slots the
+# user had just touched used to REPLACE the override set, silently dropping the
+# rest. That is how RobinPi ended up with a glow derived from one accent, a dim
+# derived from another, and no accent at all.
+
+def test_merge_palette_keeps_untouched_slots():
+    cur = {"a": "#e0913f", "e": "#c73e2c"}
+    assert so.merge_palette(cur, {"g": "#ffa548"}) == {
+        "a": "#e0913f", "e": "#c73e2c", "g": "#ffa548"}
+
+
+def test_merge_palette_overwrites_a_given_slot():
+    cur = {"a": "#e0913f"}
+    assert so.merge_palette(cur, {"a": "#ff9500"}) == {"a": "#ff9500"}
+
+
+def test_merge_palette_clears_a_slot_sent_empty():
+    cur = {"a": "#e0913f", "g": "#ffa548"}
+    assert so.merge_palette(cur, {"g": ""}) == {"a": "#e0913f"}
+
+
+def test_merge_palette_returns_none_when_nothing_is_left():
+    assert so.merge_palette({"a": "#e0913f"}, {"a": ""}) is None
+    assert so.merge_palette(None, {}) is None
+
+
+def test_merge_palette_survives_a_partial_hand_written_request():
+    # The exact shape of a curl that only sets the accent: everything else the
+    # speaker already had must still be there afterwards.
+    cur = {"a": "#f0cb7b", "g": "#ffa548", "d": "#6c5b37",
+           "p": "#f4efe0", "s": "#a89e89", "e": "#c73e2c"}
+    out = so.merge_palette(cur, {"a": "#e0913f"})
+    assert out["a"] == "#e0913f"
+    assert len(out) == 6 and out["d"] == "#6c5b37"
