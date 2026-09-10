@@ -103,8 +103,15 @@ display:
 wifi:
   ssid: "your-ssid"
   country: DE
-  use_usb_dongle: true
-  disable_onboard_radio: true
+  # Measured on the device 10.09.2026: wlan0 with a Raspberry Pi MAC and NO USB
+  # wireless adapter present. RobinPi runs on the ONBOARD radio.
+  # ⚠️ These two said true/false the other way round from the start, which made
+  # this profile describe hardware that is not there. Harmless at runtime — the
+  # values are only read by install/20-wifi.sh — but a reinstall would have
+  # disabled the only radio this speaker has and taken it off the network for
+  # good. A profile that lies about the hardware is a trap that springs later.
+  use_usb_dongle: false
+  disable_onboard_radio: false
   disable_bluetooth: true
 
 mqtt:
