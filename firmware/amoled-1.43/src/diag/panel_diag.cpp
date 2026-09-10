@@ -152,8 +152,18 @@ static void pattern()
     const uint16_t TOP    = rgb565(0x30, 0x60, 0xFF);   // blue
     const uint16_t BOTTOM = rgb565(0xFF, 0xE0, 0x00);   // yellow
 
+    const uint16_t RING_IN = rgb565(0x00, 0xE0, 0xFF);   // cyan, INSET ring
+
     const int   cx = LCD_WIDTH / 2, cy = LCD_HEIGHT / 2;
     const float R  = 232.0f;
+    // A ring at the rim CANNOT reveal an offset: shift it and the overhanging
+    // part simply falls outside the round aperture and is cropped, so it reads
+    // as even either way. The mask hides exactly the error one is measuring.
+    // This second ring sits well inside, where nothing crops it - an offset
+    // shows immediately as an uneven gap between the two rings.
+    // (RobinPi 10.09.2026: the r=232 ring read as centred while the player's
+    // r=205 arc visibly did not.)
+    const float R2 = 180.0f;
 
     for (int y0 = 0; y0 < LCD_HEIGHT; y0 += BAND_H) {
         int h = (y0 + BAND_H <= LCD_HEIGHT) ? BAND_H : (LCD_HEIGHT - y0);
@@ -165,6 +175,7 @@ static void pattern()
                 const float fx = x - cx + 0.5f, fy = y - cy + 0.5f;
                 const float d  = sqrtf(fx * fx + fy * fy);
                 if (d > R - 1.5f && d < R + 1.5f) c = RING;
+                if (d > R2 - 1.5f && d < R2 + 1.5f) c = RING_IN;
                 // Centre cross, so a shift is visible even without the ring.
                 if ((x >= cx - 20 && x <= cx + 20 && y >= cy - 1 && y <= cy + 1) ||
                     (y >= cy - 20 && y <= cy + 20 && x >= cx - 1 && x <= cx + 1))
