@@ -88,11 +88,28 @@ constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 // the priority-chain status label (PAUSE / MUTE / PI OFFLINE / …).
 // STATE_ICON_Y and VOLUME_PCT_Y are kept for backward compat but unused
 // now that state_icon is permanently hidden and lbl_volume is gone.
-constexpr int TITLE_Y_OFFSET     = -43;   // y ≈ 190
-constexpr int ARTIST_Y_OFFSET    =  32;   // y ≈ 265
-constexpr int STATE_ICON_Y       =  66;   // unused after CenterStage refactor
+// ── Player block, vertical ──────────────────────────────────────────────
+// All five are LV_ALIGN_CENTER offsets from the screen centre (233), so they
+// move as a unit: add the same delta to all of them and the block slides.
+//
+// ⚠️ These were 29 px higher until 10.09.2026, which put the block's centre at
+// 204 against a screen centre of 233 and left 54 px of air above the source
+// label against 112 px below the time — a 1:2 split that reads as "squeezed
+// upwards" and was reported as exactly that. The standby screen has always
+// been balanced (block centre 238), which is why only the player looked wrong.
+// Worth 2.8 mm on this panel, i.e. nearly 3x the ~1 mm the active area itself
+// sits high inside its cover glass.
+//
+// After the shift the block spans 83..383, centre 233, and clears the inner
+// ring (r=186, so 47..419) by 36 px at BOTH ends — centred in the ring as well
+// as on the screen.
+constexpr int SOURCE_LABEL_Y     = -141;  // y ≈  63 + 29 =  92
+constexpr int TITLE_Y_OFFSET     =  -14;  // y ≈ 190 + 29 = 219
+constexpr int ARTIST_Y_OFFSET    =   61;  // y ≈ 265 + 29 = 294
+constexpr int STATE_ICON_Y       =   95;  // y ≈ 299 + 29 = 328  (IS used — the
+                                          // "unused" note here was stale)
+constexpr int TIME_Y_OFFSET      =  141;  // y ≈ 345 + 29 = 374
 constexpr int VOLUME_PCT_Y       =  124;  // unused after CenterStage refactor
-constexpr int SOURCE_LABEL_Y     = -170;
 
 // ─── Animations & timing ────────────────────────────────────────────────────
 
