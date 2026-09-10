@@ -1862,10 +1862,22 @@ class BeatBirdBridge:
             }[light]
             # The sun being down is not by itself bedtime: outside the clock's
             # night window a dark sky gets the evening level, not the minimum.
+        # A running track keeps the SCREEN awake. Night level is a bedside-clock
+        # brightness and the standby night mode goes with it — right for an idle
+        # speaker, wrong for one that is playing, where the panel is showing
+        # something you are actively looking at.
+        #
+        # Applied to the screen only, deliberately: the strip keeps its own
+        # curve below (active_night is a quiet 12, not the evening 40), because
+        # a bar of light beside the driver at night is a different proposition
+        # from the panel you just walked up to.
+        screen_phase = effective
+        if self.playback == Playback.PLAYING and screen_phase == "night":
+            screen_phase = "evening"
         brt = {"night": ad.night_brightness,
-               "evening": ad.evening_brightness}.get(effective, ad.day_brightness)
+               "evening": ad.evening_brightness}.get(screen_phase, ad.day_brightness)
         brt = max(0, min(255, int(brt)))
-        night = effective == "night"
+        night = screen_phase == "night"
 
         # The status strip rides on the same phase but its own curve: ambience
         # only in the evening, feedback whenever something is playing. Sent
