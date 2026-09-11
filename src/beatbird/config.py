@@ -563,7 +563,7 @@ def load_profile(path: Optional[str | Path] = None) -> Profile:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Profile not found: {path}")
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     prof = Profile.model_validate(raw)
 

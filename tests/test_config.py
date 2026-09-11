@@ -28,7 +28,7 @@ def _profile_yamls():
 def test_profile_loads(yml):
     """Every committed profile must validate against the Pydantic schema.
     Doesn't run the speaker, just checks the static config."""
-    with open(yml) as f:
+    with open(yml, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     assert data is not None, f"{yml.name} parses to None"
     Profile.model_validate(data)
