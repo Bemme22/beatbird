@@ -9,7 +9,6 @@ keeps them out of the committed YAML. Invariants test the same maths, hold
 everywhere, and need no almanac.
 """
 import datetime as dt
-import math
 
 from beatbird import sun
 
