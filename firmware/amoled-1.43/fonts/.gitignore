@@ -2,3 +2,7 @@
 DepartureMono-Regular.otf
 DepartureMono-Regular.ttf
 *.zip
+# Downloaded by build_inter.py / build_weather.py. Both scripts already
+# document these outputs as gitignored; the rules were simply never added.
+Inter-*.ttf
+weathericons-regular-webfont.ttf
