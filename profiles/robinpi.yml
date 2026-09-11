@@ -30,21 +30,88 @@ audio:
       - {name: timpani_body, max_boost_db: 1.5}
 
 display:
-  # RobinPi reuses the running AMOLED stack (template from Zipp2/Beat).
-  # NOTE: the "Brustfleck" NeoPixel strip (WS2801/SK6812 on SPI/MOSI) is a
-  # separate status LED not covered by this schema yet — tracked in the vault
-  # (projekte/RobinPi, "Status-LED"), wire up once the display schema grows an
-  # spi-led type. Set type: none if no AMOLED is attached during bring-up.
+  # RobinPi uses the Waveshare AMOLED 1.75 (CO5300) — different board than
+  # Beat/Zipp (1.43/SH8601) but same 466×466 UI. Firmware: flash env `robinpi`
+  # (BOARD_AMOLED_175). Set type: none if no AMOLED is attached during bring-up.
   type: amoled
-  variant: waveshare-1.43
+  variant: waveshare-1.75
   serial_device: auto
   spectrum_bands: 0      # FFT capture conflicts with CamillaDSP on ALSA Loopback
+  # ── Palette: petrol enclosure, bronze/champagne cone ──
+  # Bronze instead of the champagne default. The strip flanks the cone, so its
+  # light reads as an extension of it, and warm on petrol is near-complementary
+  # — a petrol strip on a petrol enclosure would disappear into the paint. That
+  # is the opposite call to zipp-mini-2 (petrol accent) and it is not a
+  # contradiction: there, gold was foreign to the object; here it is bolted to
+  # the baffle.
+  # glow (FFA548) and dim (38240F) are DERIVED by the firmware from this one
+  # value, so they stay unset — one source of truth. Text and alert keep the
+  # firmware defaults; rust alert still reads apart from bronze when it blinks.
+  accent_color: "E0913F"
+  # ── Brustfleck: SK6812-RGBW status strip on the DISPLAY ESP32 (GPIO18) ──
+  # Not on the Pi: display and strip both sit on the front (one harness instead
+  # of a lead across the pressure chamber), and the ESP32 already parses the
+  # ST:/SYS:/PAL: lines, so the status logic is free there.
+  # Pushed to the firmware as a LED: line on every (re)connect — the firmware
+  # ships identical for all speakers and drives no GPIO until it arrives.
+  status_led:
+    enabled: true
+    pin: 18                # ESP32-S3 GPIO on the 8-pin 2.54 header (17/21 also free)
+    count: 46
+    chip: sk6812-rgbw      # GRBW byte order, verified on hardware 03.09.2026
+    brightness: 40         # Betriebsmittel, not taste: ~1.3 A at 120 vs ~2.8 A
+                           # uncapped — must stay under the 5 V converter budget
+    # ── Farbkalibrierung des Streifens (gemessen 06.09.2026) ──
+    # white_point = das RGB-Tripel, das auf DIESEM Streifen neutralweiss ergibt.
+    # Ein 8-Bit-Wert ist ein Ansteuerwert, keine Helligkeit: die gruene Diode
+    # gibt bei gleichem Digit 2-3x so viel wahrgenommenes Licht ab wie die rote.
+    # Ohne diesen Abgleich driftet jede warme Farbe nach Gruen/Weiss - genau die
+    # Ursache hinter "arktisblau", "gelbgruen" und "Gruenstich auf Gelb".
+    # Gegen Neutralweiss eingestellt (a=FFFFFF, wmix=0, bri=100) und bestaetigt.
+    white_point: "FF8C64"
+    # Anteil des unbunten Teils einer Farbe, der auf die WARMWEISSE W-Diode geht.
+    # 0 = nie (blasse Toene werden kalt, weil drei schmalbandige Dioden kein
+    # neutrales Weiss mischen), 100 = ganz (warme Toene werden zu Warmweiss,
+    # weil die Phosphordiode pro Digit viel heller ist). Beides gemessen.
+    # Grundperiode eines Twinkle-Zyklus (jedes Pixel wuerfelt zwischen 1x und
+    # 2x davon). Duty und Periode MULTIPLIZIEREN sich: der Exponent bestimmt,
+    # wie VIELE Pixel gleichzeitig leuchten, Duty x Periode wie LANG ein
+    # einzelnes Glimmen dauert. 30 s => ~3-8 s Auf- und Abschwellen.
+    twinkle_period_s: 30
+    white_mix: 45
+    mapping: bloom         # zwei sichtbare Balken links/rechts vom Treiber.
+                           # Jeder Balken blüht aus SEINER EIGENEN Mitte auf
+                           # (LED 12 von 23, dann 11+13, 10+14 …) — nicht aus
+                           # der Kettenmitte wie bei `mirror`. Der Unterschied
+                           # ist sichtbar, nicht kosmetisch.
+    # ── Tageszeit: Ambiente nur abends, Rueckmeldung immer ──
+    # Im Leerlauf ist der Streifen Ambiente -> tagsueber aus, nachts schlafend
+    # mit dem Display. Waehrend der Wiedergabe ist er Rueckmeldung -> bleibt
+    # sichtbar, nachts nur leiser. Ein Wert pro Phase koennte das nicht.
+    # 0 = aus, ohne den Pin freizugeben: die Firmware rendert nur auf Null und
+    # ist sofort wieder da, ohne neuen LED:-Handshake.
+    auto_dim:
+      enabled: true
+      idle_day: 0
+      idle_evening: 40
+      idle_night: 0
+      active_day: 40
+      active_evening: 40
+      active_night: 12
+    chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
 
 wifi:
   ssid: "your-ssid"
   country: DE
-  use_usb_dongle: true
-  disable_onboard_radio: true
+  # Measured on the device 10.09.2026: wlan0 with a Raspberry Pi MAC and NO USB
+  # wireless adapter present. RobinPi runs on the ONBOARD radio.
+  # ⚠️ These two said true/false the other way round from the start, which made
+  # this profile describe hardware that is not there. Harmless at runtime — the
+  # values are only read by install/20-wifi.sh — but a reinstall would have
+  # disabled the only radio this speaker has and taken it off the network for
+  # good. A profile that lies about the hardware is a trap that springs later.
+  use_usb_dongle: false
+  disable_onboard_radio: false
   disable_bluetooth: true
 
 mqtt:

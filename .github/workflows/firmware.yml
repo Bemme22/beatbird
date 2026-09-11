@@ -89,13 +89,17 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Firmware version: $VERSION"
 
-      - name: Generate Departure Mono fonts
+      - name: Generate fonts (Departure Mono, Inter, weather icons)
         working-directory: firmware/amoled-1.43
         run: |
-          # Generated .c files are .gitignored — dev machines run this once
-          # locally, CI has to do it every run. Downloads the OTF + calls
-          # lv_font_conv via npx (hence the setup-node step above).
+          # Generated .c files are .gitignored — dev machines run these once
+          # locally, CI has to do it every run. Each downloads its source font
+          # + calls lv_font_conv via npx (hence the setup-node step above).
+          # All three are required: the UI links inter_* and weather_icons
+          # unconditionally, so skipping one fails at link time.
           python3 fonts/build.py
+          python3 fonts/build_inter.py
+          python3 fonts/build_weather.py
 
       - name: Build firmware (${{ matrix.env }})
         working-directory: firmware/amoled-1.43

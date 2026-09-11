@@ -817,7 +817,7 @@ void create() {
     lv_obj_set_style_text_font(lbl_time, Theme::font_sm(), 0);
     lv_obj_set_style_text_letter_space(lbl_time, 1, 0);
     lv_obj_set_style_text_align(lbl_time, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, 112);
+    lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, Theme::TIME_Y_OFFSET);
     lv_obj_add_flag(lbl_time, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_time, LV_OBJ_FLAG_CLICKABLE);
 

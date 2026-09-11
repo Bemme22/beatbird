@@ -84,6 +84,9 @@
     const wrap = document.getElementById('palette');
     wrap.innerHTML = '';
     const ovPal = current.overrides && current.overrides.palette || {};
+    // Slots the firmware works out for itself (glow/dim from the accent, the
+    // text/alert constants) — shown, but labelled as not coming from the YAML.
+    const derivedSet = new Set(current.derived || []);
     for (const k of SLOTS) {
       const eff = current.palette[k] || '#000000';
       const overridden = !!ovPal[k];
@@ -93,7 +96,7 @@
         <label>${k} <span style="color:var(--bb-text-3)">${SLOT_LABEL[k]}</span></label>
         <input type="color" data-slot="${k}" value="${eff}">
         <input type="text" data-slot-hex="${k}" value="${eff}" maxlength="7">
-        <span class="hint">${overridden ? 'override' : 'profil-default'}</span>`;
+        <span class="hint">${overridden ? 'override' : (derivedSet.has(k) ? 'abgeleitet' : 'profil-default')}</span>`;
       wrap.appendChild(row);
       const c = row.querySelector('input[type=color]');
       const tx = row.querySelector('input[type=text]');
@@ -104,36 +107,70 @@
 
   function readPalette() {
     const out = {};
+    const ovPal = current.overrides && current.overrides.palette || {};
     for (const k of SLOTS) {
       const tx = document.querySelector(`input[data-slot-hex="${k}"]`);
       const v = (tx && tx.value || '').trim().toLowerCase();
-      if (isHex6(v)) out[k] = v;
+      if (!isHex6(v)) continue;
+      // Send a slot only if it was actually changed — or is already an
+      // override, in which case it has to be re-sent because the server
+      // replaces the whole override set. The form is pre-filled with the
+      // DERIVED colours; posting those back unchanged would freeze today's
+      // derivation, and a later accent change would no longer reach g/d.
+      if (v === (current.palette[k] || '').toLowerCase() && !ovPal[k]) continue;
+      out[k] = v;
     }
     return out;
   }
 
-  function shade(hex, pct) {
+  // Brighten without washing out: same gain on all three channels until the
+  // largest hits 255 (HSV V -> 1, hue and saturation untouched). Mirrors
+  // Theme::brighten_saturating() in the firmware so this button predicts what
+  // the ESP32 derives on its own.
+  // ⚠️ Do NOT lerp glow towards white here: the LED strip renders the glow
+  // slot at ~full level during playback, and a pastel at full level is a
+  // white bar (RobinPi, 05.09.2026).
+  function brighten(hex) {
     const c = hex.startsWith('#') ? hex.slice(1) : hex;
-    let r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
-    if (pct >= 0) { r += (255 - r) * pct; g += (255 - g) * pct; b += (255 - b) * pct; }
-    else { r *= (1 + pct); g *= (1 + pct); b *= (1 + pct); }
-    const h = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-    return '#' + h(r) + h(g) + h(b);
+    const v = [c.slice(0, 2), c.slice(2, 4), c.slice(4, 6)].map(x => parseInt(x, 16));
+    const mx = Math.max(...v);
+    if (!mx) return '#' + c;
+    // Integer maths identical to the firmware's, so the preview and the panel
+    // never differ by a least-significant bit.
+    return '#' + v.map(x => Math.floor((x * 255 + Math.floor(mx / 2)) / mx)
+                            .toString(16).padStart(2, '0')).join('');
+  }
+
+  // ~25 % of the colour on black, as an exact mirror of the firmware's `>> 2`
+  // (truncating, not rounding — Math.round would differ by one on odd values).
+  function dim25(hex) {
+    const c = hex.startsWith('#') ? hex.slice(1) : hex;
+    const v = [c.slice(0, 2), c.slice(2, 4), c.slice(4, 6)].map(x => parseInt(x, 16));
+    return '#' + v.map(x => (x >> 2).toString(16).padStart(2, '0')).join('');
   }
 
   function deriveFromAccent() {
     const tx = document.querySelector('input[data-slot-hex="a"]');
     if (!tx || !isHex6(tx.value)) { alert('Accent (a) muss ein gültiger #rrggbb-Wert sein.'); return; }
     const a = tx.value.toLowerCase();
-    const derived = { a: a, g: shade(a, +0.35), d: shade(a, -0.55), p: '#f4efe0', s: '#a89e89', e: '#c73e2c' };
+    // Same maths as the firmware, so "derive" and "leave empty" agree to the
+    // last bit — the p/s/e constants mirror theme.h's *_DEFAULT.
+    const derived = { a: a, g: brighten(a), d: dim25(a), p: '#f4efe0', s: '#a89e89', e: '#c73e2c' };
     current.palette = derived;
     current.overrides.palette = derived;
     renderPalette();
   }
 
-  function clearPalette() {
-    current.overrides.palette = {};
-    load().then(() => { });
+  // POST {palette:{}} is the documented "drop the override" call, and the
+  // endpoint has PATCH semantics, so idle/name are untouched. Before this the
+  // button only reset local state and then reloaded it straight back from the
+  // server — it looked like it worked and changed nothing.
+  async function clearPalette() {
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ palette: {} })
+    });
+    await load();
   }
 
   async function load() {

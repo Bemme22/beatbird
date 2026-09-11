@@ -5,6 +5,7 @@ Protocol (Pi → ESP32):  one line per message, pipe-separated KV pairs.
   State:    ST:play|TI:…|AR:…|SO:…|VO:..|PO:..|DU:..|LV:..|TM:..|FX:[..,..]
   System:   SYS:cp=..|ht=ok|hs=ok|ds=1|sv=1|wi=-58
   Palette:  PAL:F0CB7B           ← sent once after each (re)connect
+  Strip:    LED:pin=18|n=46|rgbw=1|bri=120|map=area   ← status LED, same timing
   Boot:     BOOT:stage|progress
   Legacy:   VOL:45  SOURCE:spotify  STATE:PLAY
 
@@ -67,6 +68,7 @@ class AmoledDisplay(DisplayInterface):
         text_primary: str | None = None,
         text_secondary: str | None = None,
         accent_alert: str | None = None,
+        status_led: dict | None = None,
     ):
         self.serial_device_hint = serial_device
         self.baud = baud
@@ -84,6 +86,9 @@ class AmoledDisplay(DisplayInterface):
             "s": _norm(text_secondary),
             "e": _norm(accent_alert),
         }
+        # Day-phase strip brightness, set by the bridge at runtime. None =
+        # use the profile's ceiling.
+        self._strip_bri_override: int | None = None
         self.ser: serial.Serial | None = None
         self.on_command: CommandCallback | None = None
         self.on_volume: VolumeCallback | None = None
@@ -91,11 +96,15 @@ class AmoledDisplay(DisplayInterface):
         self._reconnect_delay = 5.0
         # Re-send palette on every reconnect — the ESP32 may have rebooted
         self._palette_sent = False
+        # Status strip on the ESP32 (RobinPi Brustfleck). Raw profile values;
+        # rendered into the LED: line below. None = profile has no such block.
+        self.status_led = dict(status_led) if status_led else None
         # Signature of the last palette we *logged*. Legitimate re-sends
         # (startup init + override-apply, plus the [boot] re-push after an
         # ESP32 reboot) otherwise spam identical "palette sent" lines; the
         # send still happens every time, only the log line dedups on content.
         self._last_logged_palette: str | None = None
+        self._last_logged_led: str | None = None
         # QR URL is similarly volatile across firmware reboots. The bridge
         # pushes it once at start; on a mid-session ESP32 boot we re-send
         # via the [boot] handler so the standby screen has it ready
@@ -151,7 +160,7 @@ class AmoledDisplay(DisplayInterface):
             log.info("connected to %s", port)
             self._palette_sent = False
             self._last_hb_received = time.monotonic()
-            self._send_palette()
+            self._push_profile_config()
             return True
         except serial.SerialException as e:
             log.error("serial open failed: %s", e)
@@ -173,11 +182,19 @@ class AmoledDisplay(DisplayInterface):
         if "a" in slots and slots["a"]:
             self.accent_color = _norm(slots["a"])
         for k in ("g", "d", "p", "s", "e"):
-            if k in slots and slots[k]:
+            # `k in slots` decides, NOT the truthiness of its value: an empty
+            # slot has to CLEAR the entry so the firmware derives it again.
+            # Testing the value instead made a slot one-way - once set it could
+            # never be released, so removing g/d from the override left a stale
+            # colour (or, from the settings page, a literal 000000) in place
+            # until the bridge restarted. RobinPi went dark that way on
+            # 06.09.2026: glow stuck at black, and glow is what the strip
+            # blooms in.
+            if k in slots:
                 self.palette[k] = _norm(slots[k])
         # Force re-send next poll cycle.
         self._palette_sent = False
-        self._send_palette()
+        self._push_profile_config()
 
     def _send_palette(self) -> None:
         """Push the speaker palette to the ESP32 once per (re)connect. If any
@@ -200,11 +217,70 @@ class AmoledDisplay(DisplayInterface):
             self._last_logged_palette = sig
             log.info("palette sent: %s", sig)
 
+    def _push_profile_config(self) -> None:
+        """One-shot push of everything the firmware needs out of the speaker
+        profile: accent palette, then status-strip wiring. Called on connect
+        and again whenever the ESP32 announces a reboot — both lines describe
+        per-speaker facts the firmware has no other way to learn."""
+        self._send_palette()
+        self._send_led_config()
+
+    def _send_led_config(self) -> None:
+        """Push the status-strip wiring (LED:) to the ESP32.
+
+        Pin, count and chip type live in the profile YAML, not in a firmware
+        build flag: one image serves every speaker, and the strip is a fact
+        about one enclosure — the same argument that puts the palette on the
+        wire. The firmware drives no GPIO until this line arrives, which also
+        rules out a dangerous default: GPIO18 is the strip pin on RobinPi but
+        MAIN_I2C_SDA on the 1.43 board.
+
+        Unconditional and cheap (one short line per connect). The firmware
+        treats an identical config as a no-op, so re-sends do not blink the
+        strip; no idempotency flag to drift out of sync with the palette one.
+        """
+        if self.status_led is None:
+            return
+        led = self.status_led
+        count = int(led.get("count", 0) or 0) if led.get("enabled") else 0
+        rgbw = 0 if led.get("chip") == "ws2812-rgb" else 1
+        pin = int(led.get("pin", 18))
+        bri = int(led.get("brightness", 120))
+        if self._strip_bri_override is not None:
+            bri = self._strip_bri_override
+        mapping = led.get("mapping") or "area"
+        join = led.get("chain_join") or "inner"
+        wmix = int(led.get("white_mix", 45))
+        wp = str(led.get("white_point", "FFFFFF")).lstrip("#").upper()
+        twk = int(led.get("twinkle_period_s", 30))
+        body = (f"pin={pin}|n={count}|rgbw={rgbw}|bri={bri}|wmix={wmix}|wp={wp}|twk={twk}"
+                f"|map={mapping}|join={join}")
+        self._send("LED:" + body)
+        if body != self._last_logged_led:
+            self._last_logged_led = body
+            log.info("led config sent: %s", body)
+
+    def set_strip_brightness(self, bri: int) -> None:
+        """Set the strip's day-phase brightness and re-push LED: on a change.
+
+        Cheap by design: the firmware compares pin/count/chip and rebuilds the
+        SPI bus only on a REAL change, so a re-sent line with a new `bri` just
+        re-caps the level — no flicker, no bus teardown. Idempotent, so the
+        bridge may call it on every tick."""
+        bri = max(0, min(255, int(bri)))
+        if bri == self._strip_bri_override:
+            return
+        self._strip_bri_override = bri
+        try:
+            self._send_led_config()
+        except Exception as e:
+            log.debug("strip brightness push failed: %s", e)
+
     def set_accent_color(self, hex_color: str) -> None:
         """Update the accent colour at runtime (e.g. after a profile reload)."""
         self.accent_color = hex_color.lstrip("#").upper()
         self._palette_sent = False
-        self._send_palette()
+        self._push_profile_config()
 
     # ─── Sending ────────────────────────────────────────────────────────────
 
@@ -453,7 +529,7 @@ class AmoledDisplay(DisplayInterface):
             # plain _send_palette() would no-op. Reset it.
             log.info("ESP32 boot marker received, re-sending palette")
             self._palette_sent = False
-            self._send_palette()
+            self._push_profile_config()
             # Same logic for the QR URL — firmware-side cache is gone after
             # the boot, so push it again so the standby screen has it
             # ready for the next bt_pairing transition.

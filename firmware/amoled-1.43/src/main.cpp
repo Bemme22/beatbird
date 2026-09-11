@@ -54,6 +54,17 @@ struct _lv_hit_test_info_t {
 #include "sh8601/esp_lcd_sh8601.h"
 #include "esp_heap_caps.h"
 
+#if defined(BOARD_AMOLED_175)
+// Waveshare 1.75 gates the AMOLED rail behind the AXP2101 PMIC — bring it up
+// over I2C before touching the panel.
+#define XPOWERS_CHIP_AXP2101
+#include "XPowersLib.h"
+static XPowersPMU PMU;
+// CST9217 touch (command+ACK protocol) via SensorLib.
+#include "TouchDrvCSTXXX.hpp"
+static TouchDrvCST92xx cst_touch;
+#endif
+
 // ─── Hardware handles ───────────────────────────────────────────────────────
 static esp_lcd_panel_handle_t    panel_handle     = NULL;
 static esp_lcd_panel_io_handle_t io_handle_global = NULL;
@@ -100,6 +111,26 @@ static uint8_t                   disp_brightness  = 255;
   #endif
 #endif
 
+#if defined(BOARD_AMOLED_175)
+// CO5300 (Waveshare 1.75). Near-identical QSPI-AMOLED register map to the
+// SH8601, so it reuses the same esp_lcd driver + init-cmd struct. Sequence
+// ported from Waveshare's Arduino_CO5300 (co5300_init_operations).
+static const sh8601_lcd_init_cmd_t co5300_init_cmds[] = {
+    {0x11, (uint8_t[]){0x00}, 0, 120}, // Sleep Out + 120 ms
+    {0xFE, (uint8_t[]){0x00}, 1,  0},  // page/command-set select (unlock)
+#ifndef DISPLAY_ROTATE_NATIVE
+    {0x36, (uint8_t[]){BB_MADCTL}, 1, 0}, // MADCTL (rotation, standard MIPI bits)
+#endif
+    {0xC4, (uint8_t[]){0x80}, 1,  0},  // SPI mode control (QSPI)
+    {0x3A, (uint8_t[]){0x55}, 1,  0},  // Interface Pixel Format 16 bpp
+    {0x53, (uint8_t[]){0x20}, 1,  0},  // Write CTRL Display1 (brightness ctrl on)
+    {0x63, (uint8_t[]){0xFF}, 1,  0},  // HBM brightness
+    {0x51, (uint8_t[]){0xFF}, 1,  0},  // Normal-mode brightness (max)
+    {0x58, (uint8_t[]){0x00}, 1,  0},  // Colour Enhancement off
+    // 0x29 (Display On) sent after first LVGL frame to avoid green flash on boot
+};
+#define PANEL_INIT_CMDS co5300_init_cmds
+#else
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 80},
 #ifndef DISPLAY_ROTATE_NATIVE
@@ -111,6 +142,9 @@ static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
     {0x51, (uint8_t[]){0xFF}, 1,  1},
     // 0x29 (Display On) sent after first LVGL frame to avoid green flash on boot
 };
+#define PANEL_INIT_CMDS sh8601_init_cmds
+#endif
+#define PANEL_INIT_CMDS_SIZE (sizeof(PANEL_INIT_CMDS) / sizeof(PANEL_INIT_CMDS[0]))
 
 // =============================================================================
 // LVGL flush callbacks
@@ -216,8 +250,17 @@ static void touch_poll_task(void * /*arg*/)
             continue;
         }
 
-        uint8_t buf[5] = {0};
         bool touch_present = false;
+#if defined(BOARD_AMOLED_175)
+        // CST9217: SensorLib returns the number of active points + raw coords.
+        int16_t cx[1] = {0}, cy[1] = {0};
+        if (cst_touch.getPoint(cx, cy, 1) >= 1) {
+            touch_present = true;
+            lx = (uint16_t)cx[0];
+            ly = (uint16_t)cy[0];
+        }
+#else
+        uint8_t buf[5] = {0};
         Wire.beginTransmission(TOUCH_I2C_ADDR);
         Wire.write(0x02);
         if (Wire.endTransmission(false) == 0 &&
@@ -228,12 +271,15 @@ static void touch_poll_task(void * /*arg*/)
             // bare `!= 0` test and inject a phantom press. The panel is
             // single-touch, so 1 (occasionally 2) is the only plausible count.
             uint8_t npoints = buf[0] & 0x0F;
-            touch_present = (npoints >= 1 && npoints <= 2);
+            if (npoints >= 1 && npoints <= 2) {
+                touch_present = true;
+                lx = (((uint16_t)buf[1] & 0x0F) << 8) | buf[2];
+                ly = (((uint16_t)buf[3] & 0x0F) << 8) | buf[4];
+            }
         }
+#endif
 
         if (touch_present) {
-            lx = (((uint16_t)buf[1] & 0x0F) << 8) | buf[2];
-            ly = (((uint16_t)buf[3] & 0x0F) << 8) | buf[4];
             release_streak = 0;
             if (press_streak < PRESS_STREAK_THRESHOLD) press_streak++;
             if (press_streak >= PRESS_STREAK_THRESHOLD) was_pressed = true;
@@ -367,11 +413,28 @@ void setup()
 
     flush_done_sem = xSemaphoreCreateBinary();
 
-    // Touch I2C
+    // Touch I2C (on the 1.75 this same bus also carries the AXP2101 PMIC)
     Wire.begin(TOUCH_I2C_SDA, TOUCH_I2C_SCL, 300000);
+#if defined(BOARD_AMOLED_175)
+    // AXP2101 must come up before the CO5300 panel — it gates the AMOLED rail.
+    // begin() detects/initialises the PMU but does NOT force rail voltages here
+    // (that risks over-volting a mis-identified net). If the panel stays dark on
+    // first bring-up, read the schematic for the exact AMOLED rail and enable
+    // just that one at its correct voltage.
+    Serial.printf("AXP2101: %s\n",
+        PMU.begin(Wire, PMU_I2C_ADDR, TOUCH_I2C_SDA, TOUCH_I2C_SCL) ? "OK" : "NOT FOUND");
+#endif
+#if defined(BOARD_AMOLED_175)
+    // CST9217 speaks a command+ACK read protocol (not FT6x36 registers) — drive
+    // it via SensorLib. begin() also does the reset pulse on TOUCH_RST.
+    cst_touch.setPins(TOUCH_RST, TOUCH_INT);
+    touch_dev = cst_touch.begin(Wire, TOUCH_I2C_ADDR, TOUCH_I2C_SDA, TOUCH_I2C_SCL);
+    Serial.printf("Touch(CST9217): %s\n", touch_dev ? "OK" : "NOT FOUND");
+#else
     Wire.beginTransmission(TOUCH_I2C_ADDR);
     touch_dev = (Wire.endTransmission() == 0);
     Serial.printf("Touch: %s\n", touch_dev ? "OK" : "NOT FOUND");
+#endif
     // 250 Hz dedicated touch poller — see touch_poll_task above.
     // 4 KB stack is generous for the loop's small locals + Wire calls.
     xTaskCreatePinnedToCore(touch_poll_task, "touch_poll", 4096, NULL,
@@ -408,8 +471,8 @@ void setup()
     // SH8601 panel
     sh8601_vendor_config_t vendor_config = {};
     vendor_config.flags.use_qspi_interface = 1;
-    vendor_config.init_cmds      = sh8601_init_cmds;
-    vendor_config.init_cmds_size = sizeof(sh8601_init_cmds) / sizeof(sh8601_init_cmds[0]);
+    vendor_config.init_cmds      = PANEL_INIT_CMDS;
+    vendor_config.init_cmds_size = PANEL_INIT_CMDS_SIZE;
 
     esp_lcd_panel_dev_config_t panel_config = {};
     panel_config.reset_gpio_num = LCD_RST;
@@ -423,6 +486,56 @@ void setup()
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+
+    // ── Wipe the controller's frame RAM before anything is shown ────────────
+    // The CO5300 comes out of reset with GREEN in its frame memory. That was
+    // known - the init table below ends with a note that Display On (0x29) is
+    // held back until after the first LVGL frame "to avoid green flash on
+    // boot". But that hides the flash, it does not clear the memory: every
+    // pixel the first frame does not paint keeps the green permanently.
+    //
+    // RobinPi showed exactly that as two small green crescents (09.09.2026).
+    // They survived a forced whole-screen LVGL repaint, never appeared in the
+    // draw buffer (scanned before AND after the byte swap), and were absent on
+    // Beat/Zipp - which run the same UI at the same 466x466 on the SH8601.
+    // Board-specific, not UI.
+    //
+    // Cleared with gap 0 ON PURPOSE and over 480x480, not 466x466: the visible
+    // window sits at a 6-column offset, so those six columns lie OUTSIDE the
+    // coordinate space LVGL can ever address. They are unreachable for the
+    // normal flush path and can only be cleared here.
+#if defined(BOARD_AMOLED_175)
+    // Guarded to the CO5300 board on purpose. The green-on-reset frame memory
+    // is a property of THIS controller: Beat and Zipp run the SH8601 with the
+    // same UI at the same 466x466 and have never shown it. A wipe there would
+    // be a behaviour change on speakers in daily use, verified on none of them,
+    // to fix a problem they do not have. If an SH8601 ever turns out to need it
+    // too, that is a measurement, not an assumption.
+    {
+        // 512, not 480: at 480 the LEFT crescent cleared and the BOTTOM one
+        // survived (09.09.2026), so the controller's RAM reaches past 480 in
+        // at least one axis. With MADCTL=270 rows and columns are exchanged,
+        // so the visible BOTTOM edge is a native COLUMN - which is exactly the
+        // direction that was still short. Sized to cover the RAM, not the
+        // panel; addresses past the real array are clipped by the controller.
+        constexpr int CLR_W = 512, CLR_H = 512, BAND = 10;
+        uint16_t *zeros = (uint16_t *)heap_caps_calloc(
+            CLR_W * BAND, sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (zeros) {
+            for (int y = 0; y < CLR_H; y += BAND) {
+                const int h = (y + BAND <= CLR_H) ? BAND : (CLR_H - y);
+                // Not ESP_ERROR_CHECK: addressing past the panel's real RAM is
+                // harmless here but must never abort the boot.
+                esp_lcd_panel_draw_bitmap(panel_handle, 0, y, CLR_W, y + h, zeros);
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));   // let the last DMA finish reading
+            heap_caps_free(zeros);
+            Serial.println("Display: frame RAM cleared");
+        } else {
+            Serial.println("Display: frame RAM clear skipped (no DMA memory)");
+        }
+    }
+#endif  // BOARD_AMOLED_175
     // SH8601 has a 6-pixel column offset between its raw addressing and the
     // visible 466×466 active area. Without compensating, the last 6 columns
     // wrap to the opposite edge of the display as visible "stripes".
@@ -430,7 +543,15 @@ void setup()
     //   - 90° (MADCTL=0xA0 = MV+MX): MX reverses column order, so the gap
     //     swaps into the y direction; we need y_gap=6, x_gap=0.
     // Other rotations follow the same logic.
-#if defined(DISPLAY_ROTATE_NATIVE) || (defined(DISPLAY_ROTATE_DEG) && DISPLAY_ROTATE_DEG == 0)
+    // Both panels have a ~6-pixel column offset vs the visible 466×466 area.
+    // At 90°/270° MADCTL the column offset swaps into y.
+#if defined(BOARD_AMOLED_175)
+    // CO5300: the visible 466 window sits at a fixed 6-px column offset in the
+    // controller's native (pre-MADCTL) frame, so the gap is on X regardless of
+    // rotation (the leftover green edge line at 270° confirmed it's a column,
+    // not a row).
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));
+#elif defined(DISPLAY_ROTATE_NATIVE) || (defined(DISPLAY_ROTATE_DEG) && DISPLAY_ROTATE_DEG == 0)
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));
 #elif defined(DISPLAY_ROTATE_DEG) && DISPLAY_ROTATE_DEG == 180
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0x06, 0x00));

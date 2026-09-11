@@ -1,5 +1,5 @@
 ---
-# CamillaDSP — RobinPi (Rotkehlchen) — STARTER, pre-measurement.
+# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v1, gemessen 06.09.2026.
 # Single fullrange Mark Audio Pluvia 11, PR-loaded (Dayton DS175-PR), MONO.
 #
 # Amp: Louder Hat Plus 1X (TAS5825M @ 0x4c) in PBTL. The overlay sets
@@ -8,8 +8,11 @@
 # mono mixer (that would double-sum) — it voices both channels identically and
 # the amp collapses them to the one bridged output.
 #
-# Baseline is flat (gain 0) except the subsonic protect + soft limiter. Replace
-# the EQ once the Pluvia 11 is measured in the enclosure with REW/UMIK-1.
+# ── Messgrundlage (alles am 06.09.2026, Doku: Vault "Einmessung - BauLog") ──
+#   Nahfeld    : f_b = 44,53 Hz (Sweep) / 44,61 Hz (RTA, 05.09.) — zwei Wege, 0,2 %
+#   Anechoisch : 1 m on-axis, Gate 1,9 ms → 526 Hz–3 kHz flach ±1 dB
+#   Hörplatz   : Küche, 4 Positionen energetisch gemittelt
+#   A/B belegt : +3 dB @ 130 Hz kommen im Raummittel als +3,1…+4,0 dB an
 devices:
   samplerate: 48000
   chunksize: 1024
@@ -28,32 +31,76 @@ devices:
     format: S32_LE
 
 filters:
-  # ── Subsonic: PR-loaded box, protect the driver below the ~45 Hz tuning.
-  #    Set final corner after Fb is measured (added-mass, REW/DATS).
+  # ── Headroom für die Anhebungen dahinter. room_130 hebt immer an (+3,5 dB),
+  #    die Loudness kommt bei leiser Wiedergabe mit bis zu 4,5 dB dazu. Ohne
+  #    Vorabsenkung stapelt sich das vor dem Limiter — und der arbeitet mit
+  #    soft_clip, dessen Oberwellen im MITTELTON landen, während die Ursache im
+  #    Bass sitzt. Genau diese Verwechslung hat beim KestrelPi eine Session
+  #    gekostet. 2 dB reichen, weil die Loudness nur greift, wo ohnehin wenig
+  #    Pegel anliegt.
+  headroom:
+    type: Gain
+    parameters: {gain: -2.0, inverted: false}
+
+  # ── Subsonic: schützt den Treiber unterhalb der gemessenen Abstimmung.
+  #    f_b = 44,5 Hz gemessen ⇒ 32 Hz liegt bei 0,72·f_b, also genau dort, wo
+  #    der PR entkoppelt und der Treiberhub steil steigt. Bestätigt, unverändert.
   sub_protect:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 32, order: 4}
-  # ── Baffle-step: 24 cm baffle → step ≈ 480 Hz. Placeholder shelf, gain 0
-  #    until measured (expect a gentle low-shelf lift / high-shelf cut).
+
+  # ── Raumkorrektur Küche: breites Tal 90–200 Hz im Raummittel (−4…−8 dB).
+  #    ⭐ Per A/B-Sweep belegt, dass es EQ-bar ist und keine Auslöschung: +3 dB
+  #    kamen an einer Position als +2,83 dB an, im Mittel über vier Positionen
+  #    als +3,1…+4,0 dB. Wäre es eine Auslöschung, hätte sich nichts bewegt.
+  #    ⚠️ Bewusst NICHT flach gezogen — nach der Korrektur bleiben ~3 dB Senke
+  #    stehen. Eine Raumkurve gehört nicht auf Linie gebügelt.
+  room_130:
+    type: Biquad
+    parameters: {type: Peaking, freq: 130, gain: 3.5, q: 1.2}
+
+  # ── Baffle-step: 24-cm-Schallwand ⇒ Step bei ~460 Hz, im Freifeld −6 dB.
+  #    ⚠️ BLEIBT AUF 0, und das ist ein Messergebnis: am Hörplatz ist davon
+  #    nichts zu sehen (315 Hz +2,4 dB · 500 Hz −2,0 · 1–2 kHz +1,1). Die
+  #    wandnahe Aufstellung gibt zurück, was die schmale Front verliert.
+  #    Bei freier Aufstellung im Raum neu bewerten.
   baffle_step:
     type: Biquad
     parameters: {type: Highshelf, freq: 480, gain: 0, q: 0.7}
+
+  # ── Präsenz: am Hörplatz liegt 4 kHz um 8,7 dB unter dem Mittelton,
+  #    anechoisch dagegen bei 0. Das ist BÜNDELUNG, kein Fehler des Wandlers.
+  #    ⚠️ Deshalb Platzhalter auf 0: eine Anhebung würde den Direktschall
+  #    on-axis überhöhen, um das Diffusfeld zu füllen. Wer es probieren will,
+  #    nimmt +1,5…2 dB — aber nach Gehör, nicht nach dieser Kurve.
+  presence:
+    type: Biquad
+    parameters: {type: Peaking, freq: 4000, gain: 0, q: 0.7}
+
   # ── Loudness targets (the bridge boosts these at low volume) — flat base.
   #    Names MUST match audio.loudness.filters in profiles/robinpi.yml.
+  #    ⚠️ NICHT für Raumkorrektur zweckentfremden: die Bridge überschreibt den
+  #    gain dieser beiden Filter laufend. Feste Entzerrung gehört in room_130.
   bass_shelf:
     type: Biquad
     parameters: {type: Lowshelf, freq: 120, gain: 0, q: 0.7}
   timpani_body:
     type: Biquad
     parameters: {type: Peaking, freq: 70, gain: 0, q: 1.0}
+
   # ── Soft clip: loudness adds bass boost at low vol; cap peaks at high vol so
   #    a hot track distorts gracefully instead of hard-clipping.
+  #    ⚠️ GetClippedSamples ist bei soft_clip: true blind — im Zweifel
+  #    GetSignalLevels lesen, nicht den Clipping-Zähler.
   fullrange_limiter:
     type: Limiter
     parameters: {clip_limit: -1.0, soft_clip: true}
 
 pipeline:
   # Same chain on both channels — the amp sums them (mixer_mode=1) to mono.
+  # Reihenfolge: erst Headroom, dann Schutz, dann feste Entzerrung, dann die
+  # variablen Loudness-Ziele, Limiter zuletzt.
   - type: Filter
     channels: [0, 1]
-    names: [sub_protect, baffle_step, bass_shelf, timpani_body, fullrange_limiter]
+    names: [headroom, sub_protect, room_130, baffle_step, presence,
+            bass_shelf, timpani_body, fullrange_limiter]

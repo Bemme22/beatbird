@@ -47,14 +47,39 @@ static bool parse_hex6(const char *hex6, uint8_t &r, uint8_t &g, uint8_t &b)
     return true;
 }
 
+// Brighten a colour WITHOUT washing it out: scale all three channels by the
+// same gain until the largest one reaches 255. In HSV terms that is V -> 1
+// with hue and saturation untouched, because the hue lives in the channel
+// RATIO, not in the individual values.
+//
+// ⚠️⚠️ DURABLE — for a LIGHT SOURCE, "brighter" means more saturated, not
+// more white. The obvious lerp towards white produces a pastel, and
+// led_status.cpp renders accent_glow in the PLAY state at ~full level:
+// pale colour × full level = white light. RobinPi's VU meter ran white
+// while every other state was gold, because glow was never derived at all
+// and sat on its compile-time default (observed 05.09.2026). The brightness
+// is already there — only saturation can still carry the colour.
+static lv_color_t brighten_saturating(uint8_t r, uint8_t g, uint8_t b)
+{
+    uint8_t mx = r;
+    if (g > mx) mx = g;
+    if (b > mx) mx = b;
+    if (mx == 0) return LV_COLOR_MAKE(r, g, b);   // black: no hue to preserve
+    return LV_COLOR_MAKE((uint8_t)((r * 255 + mx / 2) / mx),
+                         (uint8_t)((g * 255 + mx / 2) / mx),
+                         (uint8_t)((b * 255 + mx / 2) / mx));
+}
+
 void set_accent(uint8_t r, uint8_t g, uint8_t b)
 {
-    accent     = LV_COLOR_MAKE(r, g, b);
-    // Derive a ~25 % shade for unfilled segments unless the bridge has
-    // pushed an explicit accent_dim via the extended PAL: command. We can't
-    // tell here whether it has, so we always recompute — pushing accent_dim
-    // afterwards in the same PAL: line overwrites this derivation.
-    accent_dim = LV_COLOR_MAKE(r >> 2, g >> 2, b >> 2);
+    accent = LV_COLOR_MAKE(r, g, b);
+    // Both shades that hang off the accent are derived here, unless the
+    // bridge pushes explicit slots via the extended PAL: command. We can't
+    // tell at this point whether it will, so we always recompute — the
+    // parser walks the slots in the fixed order "agdpse", so an explicit
+    // g=/d= later in the SAME line overwrites the derivation.
+    accent_dim  = LV_COLOR_MAKE(r >> 2, g >> 2, b >> 2);   // ~25 % on black
+    accent_glow = brighten_saturating(r, g, b);
     State::mark_dirty(State::Dirty::ACCENT | State::Dirty::ALL);
 }
 

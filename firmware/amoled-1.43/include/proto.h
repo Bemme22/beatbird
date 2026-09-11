@@ -11,6 +11,7 @@
 //     ST:play|TI:…|AR:…|SO:…|VO:..|PO:..|DU:..|LV:..|TM:..|FX:..,..
 //     SYS:cp=..|ht=ok|hs=ok|ds=1|sv=1|wi=-58
 //     PAL:F0CB7B                        ← accent colour from profile
+//     LED:pin=18|n=46|rgbw=1|bri=120|map=area   status strip from profile
 //     BOOT:stage|progress
 //     SOURCE:spotify | STATE:PLAY | VOL:45     (single-shot legacy)
 //
@@ -54,6 +55,7 @@ void handle_line(const char *line);
 void handle_state_line(const char *line);         // ST:...
 void handle_system_line(const char *line);        // SYS:...
 void handle_palette_line(const char *line);       // PAL:rrggbb
+void handle_led_line(const char *body);           // LED:pin=..|n=..|rgbw=..
 void handle_boot_line(const char *line);          // BOOT:stage|progress
 void handle_weather_line(const char *line);       // WX:t=...|c=...|h=...|l=...
 void handle_cover_line(const char *body);         // IMG:start / IMG:N:base64 / IMG:end

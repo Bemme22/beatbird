@@ -181,6 +181,91 @@ class AutoDim(BaseModel):
     night_start_hour: int = 22        # night begins (minimal dim clock)
 
 
+class StatusLedDim(BaseModel):
+    """Day-phase brightness for the status strip, alongside the display's
+    AutoDim (which this deliberately does NOT reuse — the strip wants a
+    different curve, not a scaled copy of the panel's).
+
+    The split into idle/active is the whole point: idle the strip is AMBIENCE,
+    and ambience is only wanted in the evening — dark through the day, asleep
+    at night with the display. While playing it is FEEDBACK, so it stays
+    visible whatever the hour, just quieter at night. One number per phase
+    could not express both.
+
+    0 = off. That costs nothing and releases nothing: the firmware still holds
+    the pin and the config, it just renders at zero, so the strip comes back
+    instantly without re-running the LED: handshake.
+    Morning folds into `day` — the strip has no use for a fourth bucket."""
+    enabled: bool = True
+    idle_day: int = Field(0, ge=0, le=255)
+    idle_evening: int = Field(40, ge=0, le=255)
+    idle_night: int = Field(0, ge=0, le=255)
+    active_day: int = Field(40, ge=0, le=255)
+    active_evening: int = Field(40, ge=0, le=255)
+    active_night: int = Field(12, ge=0, le=255)
+
+
+class StatusLed(BaseModel):
+    """Addressable status strip wired to the display ESP32 (RobinPi Brustfleck).
+
+    Lives in the profile rather than in the firmware build because pin, count
+    and chip type are facts about ONE enclosure, while the repo ships a single
+    firmware image for every speaker (same rule as the accent palette). The
+    bridge pushes them as a LED: line on each ESP32 (re)connect; the firmware
+    drives no GPIO until that line arrives.
+
+    brightness is a Betriebsmittel, not a taste setting: 46 SK6812-RGBW at full
+    white draw ~2.8 A, at 120 about 1.3 A — the cap has to match the 5 V
+    converter feeding the strip.
+
+    mapping picks how state becomes pixels:
+      area   — one field of light; position carries nothing (diffused cluster)
+      mirror — two bars filled from the CHAIN's middle (inner ends) outwards
+      bloom  — two bars, each swelling from ITS OWN midpoint to both ends
+    """
+
+    enabled: bool = False
+    pin: int = Field(default=18, ge=0, le=48)      # ESP32-S3 GPIO, not Pi BCM
+    count: int = Field(default=0, ge=0, le=300)
+    chip: Literal["sk6812-rgbw", "ws2812-rgb"] = "sk6812-rgbw"
+    brightness: int = Field(default=120, ge=0, le=255)
+    # area   = whole cluster is one field, level drives brightness. Correct
+    #          behind a diffuser, where pixel position is lost anyway.
+    # mirror = symmetric centre-to-outside meter (two visible side strips).
+    mapping: Literal["area", "mirror", "bloom"] = "area"
+    # Percent of a colour's achromatic part rendered on the RGBW strip's WHITE
+    # die instead of mixed from R+G+B. 0 = never use W (pale colours then get a
+    # cold cast, because a mix of three narrow-band dies is not neutral);
+    # 100 = full substitution, which washes a warm accent out to plain white
+    # because the phosphor W die is far brighter per digit. Both extremes were
+    # observed on RobinPi 06.09.2026. Per-strip hardware fact, hence profile.
+    white_mix: int = Field(45, ge=0, le=100)
+    # The RGB triple that renders as NEUTRAL WHITE on this strip; each channel
+    # is scaled by wp/255 before rendering. "FFFFFF" = no correction.
+    # An 8-bit value is a drive level, not a brightness: a green die puts out
+    # 2-3x the perceived light of a red one at the same digit, so uncorrected
+    # sRGB drifts green (RobinPi: FFDD00 rendered green, 06.09.2026).
+    # Calibrate against the W die, which is a real broadband white: send
+    # a=FFFFFF and compare wmix=0 (RGB white) with wmix=100 (W-die white),
+    # then trim until they match. Per-strip, hence profile.
+    white_point: str = "FFFFFF"
+    # Base period of one standby-twinkle cycle in seconds; each pixel picks its
+    # own between this and twice it. Duty (the sine exponent, fixed in the
+    # firmware) decides HOW MANY pixels glow at once; duty x this decides how
+    # LONG a single glimmer takes. They multiply, so the period has to carry
+    # the "calm" axis on its own: bigger = slower swell, same star count.
+    twinkle_period_s: int = Field(30, ge=2, le=600)
+    # Day-phase dimming. `brightness` above stays the CEILING (the current
+    # budget), this picks what is actually used at a given hour.
+    auto_dim: StatusLedDim = Field(default_factory=StatusLedDim)
+    # Where the two bars of a mirror strip are joined — a WIRING fact, so it
+    # belongs here and not in the code. inner: the jumper hides behind the
+    # driver, chain runs outer-left -> centre -> outer-right. outer: the bars
+    # are joined at their far ends. Wrong value = the meter fills from the
+    # outside in; flip it here, no reflash.
+    chain_join: Literal["inner", "outer"] = "inner"
+
+
 class Display(BaseModel):
     type: Literal["amoled", "led-button", "none"] = "none"
     variant: Optional[str] = None
@@ -188,20 +273,28 @@ class Display(BaseModel):
     spectrum_bands: int = 16
     cover_background: CoverBackground = Field(default_factory=CoverBackground)
     auto_dim: AutoDim = Field(default_factory=AutoDim)
+    # Status strip on the display ESP32 — distinct from the led_pin/led_count
+    # fields further down, which are the Pi-side "led-button" display type.
+    status_led: StatusLed = Field(default_factory=StatusLed)
 
     # ── Single accent colour (current PAL: protocol) ──
-    # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; firmware derives
-    # accent_dim from it. Default: champagne gold — sits well on the Zipp
-    # Mini 2 turquoise/cream enclosure.
+    # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; the firmware
+    # derives accent_dim (~25 %) and accent_glow (full chroma) from it.
+    # Default: champagne gold — sits well on the Zipp Mini 2 turquoise/cream
+    # enclosure.
     # Format: 6-char hex string, with or without leading "#".
     accent_color: str = "F0CB7B"
 
-    # ── Extended palette (stored, not yet transmitted) ──
-    # Multi-colour theme for future protocol/firmware support — currently
-    # only `accent_color` is sent. When the palette feature ships, these
-    # five drive secondary highlights, body/label text, and alert states.
+    # ── Extended palette ──
+    # Sent as `PAL:a=..|g=..|..` as soon as ANY of these is set; with all of
+    # them unset the bridge falls back to the legacy `PAL:<hex>` form and the
+    # firmware derives glow + dim from the accent itself. Leaving them unset is
+    # therefore the normal case, not an omission.
     # All optional, hex format (with or without "#").
-    accent_glow:    Optional[str] = None   # bright variant for emphasis
+    accent_glow:    Optional[str] = None   # accent at full chroma (else derived).
+                                           # ⚠️ The LED strip renders this at ~full
+                                           # level while playing — set it SATURATED,
+                                           # never pastel, or the bar goes white.
     accent_dim:     Optional[str] = None   # explicit dim shade (else derived)
     text_primary:   Optional[str] = None   # body text (else firmware default)
     text_secondary: Optional[str] = None   # labels, source line
@@ -470,7 +563,7 @@ def load_profile(path: Optional[str | Path] = None) -> Profile:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Profile not found: {path}")
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     prof = Profile.model_validate(raw)
 

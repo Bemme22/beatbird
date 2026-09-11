@@ -54,6 +54,18 @@ display:
   # For AMOLED (serial-attached ESP32):
   serial_device: auto                    # auto | /dev/ttyACM0 | vid:pid 303A:*
   spectrum_bands: 0                      # 0 = use LV: energy ring (default). FFT spectrum is currently blocked by ALSA Loopback sub contention with CamillaDSP — re-enable only after asound.conf dsnoop setup.
+  # Addressable status strip on the display ESP32 (RobinPi "Brustfleck").
+  # Pushed as a LED: line on every (re)connect; the firmware is identical for
+  # all speakers and drives no GPIO until it arrives. Omit the block or leave
+  # enabled: false when the speaker has no strip.
+  # status_led:
+  #   enabled: false
+  #   pin: 18                # ESP32-S3 GPIO (NOT a Pi BCM pin)
+  #   count: 46
+  #   chip: sk6812-rgbw      # sk6812-rgbw | ws2812-rgb
+  #   brightness: 120        # 0..255 — cap it to the 5 V converter budget
+  #   mapping: area          # area (one diffused cluster) | mirror (two strips)
+  #   chain_join: inner      # mirror only: where the two bars are joined (inner | outer)
   # For led-button (to be implemented):
   # led_pin: 18                          # GPIO pin (BCM numbering)
   # led_count: 12
