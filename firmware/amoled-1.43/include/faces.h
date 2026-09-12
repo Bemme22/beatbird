@@ -38,11 +38,12 @@ namespace Faces {
 
 // Field budgets mirror the Pi side (src/beatbird/ha/faces.py), which already
 // folds text to ASCII, sorts by priority, caps the count and strips the
-// protocol's own delimiters — the firmware never has to unescape anything, and
-// it keeps neither `id` nor `prio`: it addresses faces by index and renders
-// them in the order received, so storing either would cost 216 bytes of DRAM
-// to hold data nothing reads.
-// MEASURED, not chosen for looks: at 6 the link leaves 80 bytes of
+// protocol's own delimiters — the firmware never has to unescape anything. It
+// keeps no `id` at all and only one BIT of `prio`: faces are addressed by index
+// and rendered in the order received, so the ranking is already in the order,
+// and the only consequence priority has here is the status strip's colour.
+//
+// MAX_FACES is MEASURED, not chosen for looks: at 6 the link leaves 80 bytes of
 // dram0_0_seg, at 7 it is 56 bytes short. 4 is what the profiles actually
 // configure (and what the concept calls a rotation rather than wallpaper), and
 // it buys back 272 bytes — capacity nobody uses is not free here.
@@ -72,12 +73,19 @@ enum IconId : uint8_t {
     ICON_ALERT,     // generic "look at this"
 };
 
+// Above this priority a face is treated as an exception rather than a note:
+// the status strip renders it in accent_alert instead of the accent. The
+// THRESHOLD lives here and the raw 0..100 value does not, because nothing on
+// this side needs the number — only the answer to "is this urgent".
+constexpr int PRIO_URGENT = 80;
+
 struct Face {
     char    big [LEN_BIG];    // digits — never a word (the font has no letters)
     char    unit[LEN_UNIT];
     char    top [LEN_TOP];
     char    bot [LEN_BOT];
     IconId  icon;             // when set, it replaces `big` in the hero slot
+    bool    urgent;           // prio >= PRIO_URGENT — drives the strip's colour
 };
 
 /** Map a wire name ("wash") to its id. ICON_NONE for unknown — an unknown
@@ -97,6 +105,10 @@ int count();
 
 /** Live face by index, highest priority first; nullptr if out of range. */
 const Face *at(int index);
+
+/** True while any live face is urgent. The status strip asks this rather than
+ *  walking the set — it renders from its own task at frame rate. */
+bool any_urgent();
 
 /** Seconds per face in the standby rotation, as configured in the profile.
  *  Arrives on the batch terminator, so it is never out of step with the set. */

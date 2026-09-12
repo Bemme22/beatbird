@@ -65,10 +65,13 @@ static void add_staged(const char *body)
 
     // The id is required on the wire (it is what makes a face addressable for
     // the publisher) but nothing here renders it, so it is validated on the
-    // stack and dropped rather than carried in the set. Same for prio: the Pi
-    // has already sorted the batch, so the order of arrival IS the priority.
+    // stack and dropped rather than carried in the set. prio is kept only as
+    // the one bit that has a consequence here — the Pi has already sorted the
+    // batch, so the order of arrival carries the ranking itself.
     char scratch[8];
     if (!field(body, "id", scratch, sizeof(scratch)) || !scratch[0]) return;
+    f.urgent = field(body, "prio", scratch, sizeof(scratch))
+               && atoi(scratch) >= PRIO_URGENT;
 
     // An icon MAY stand in for the number — some things ("washing machine
     // done") are events, and the duration that produced them is history, not a
@@ -113,6 +116,12 @@ void handle_line(const char *body)
 }
 
 int count() { return s_live_count; }
+
+bool any_urgent()
+{
+    for (int i = 0; i < s_live_count; i++) if (s_live[i].urgent) return true;
+    return false;
+}
 
 const Face *at(int index)
 {
