@@ -891,6 +891,14 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
+
+        # FACE_ACK is handled BEFORE the standby exit below: acknowledging a
+        # hint is not a request to start playing. Dismissing a notice should
+        # leave the speaker exactly as quiet as it was.
+        if cmd.startswith("FACE_ACK:"):
+            self._acknowledge_face(cmd[len("FACE_ACK:"):])
+            return
+
         if self.in_standby:
             self._exit_standby("user command")
 
@@ -1028,6 +1036,37 @@ class BeatBirdBridge:
         """
         if self.faces.update(face_id, payload):
             self._faces_dirty = True
+
+    def _acknowledge_face(self, index_str: str) -> None:
+        """User tapped a face on the standby screen: take it away for good.
+
+        The firmware sends the POSITION rather than the id (it stores no ids),
+        so the set it was last sent has to be the set we resolve against —
+        hence `id_at`, which orders identically to what `lines()` produced.
+
+        Clearing the retained topic is what makes this stick: without it the
+        broker would replay the hint to this speaker on the next reconnect, and
+        every other speaker would still be showing it. Dropping it locally as
+        well is only so the screen reacts immediately.
+        """
+        try:
+            index = int(index_str)
+        except ValueError:
+            log.warning("FACE_ACK with a non-numeric index: %r", index_str)
+            return
+
+        face_id = self.faces.id_at(index)
+        if face_id is None:
+            # The set changed between the push and the tap — rare, and there is
+            # nothing sensible to guess here.
+            log.info("FACE_ACK:%d — no face at that position any more", index)
+            return
+
+        cleared = self.mqtt.clear_face(face_id) if self.mqtt else False
+        self.faces.drop(face_id)
+        self._faces_dirty = True
+        log.info("face acknowledged: %s (retained topic cleared: %s)",
+                 face_id, cleared)
 
     def _push_faces(self) -> None:
         """Main loop: send the current set if it changed, or when a face aged

@@ -169,6 +169,25 @@ class MqttBridge:
         "amp_sleep", "amp_wake",
     ]
 
+    def clear_face(self, face_id: str) -> bool:
+        """Delete a retained hint by publishing an empty payload to its topic.
+
+        That empty-retained idiom is how the whole hint mechanism already
+        expresses "this no longer applies" (HA uses it when a wash cycle
+        starts), so acknowledging on the speaker removes the hint EVERYWHERE —
+        other speakers and HA included — rather than only on the glass that was
+        tapped. A local-only dismissal would leave the others showing it.
+        """
+        if not self.client:
+            return False
+        topic = f"{self.profile.display.faces.topic.rstrip('/')}/{face_id}"
+        try:
+            self.client.publish(topic, "", qos=1, retain=True)
+            return True
+        except Exception as e:                       # noqa: BLE001 — best effort
+            log.warning("clear_face %s: %s", face_id, e)
+            return False
+
     def publish_event(self, kind: str, message: str = "", **fields) -> None:
         if not (self.client and self.available):
             return

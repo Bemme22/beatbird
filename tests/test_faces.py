@@ -291,3 +291,37 @@ def test_icon_vocabulary_matches_the_firmware():
         "firmware/amoled-1.43/src/app/faces.cpp")
     fw = set(re.findall(r'strcmp\(name, "(\w+)"\)', src.read_text()))
     assert fw == set(ICONS)
+
+
+# ─── Acknowledging ──────────────────────────────────────────────────────────
+# The firmware reports a POSITION, not an id — it stores no ids. So the order
+# the store hands out has to be the order it last rendered, or a tap clears the
+# wrong hint.
+
+def test_ack_index_resolves_against_the_order_that_was_sent():
+    s = FaceStore()
+    s.update("luften", payload(prio=40, big="3.4"))
+    s.update("waschmaschine", payload(prio=70, big="", icon="wash"))
+    s.update("tuer", payload(prio=90, big="", icon="alert"))
+
+    lines = s.lines(now=0)
+    sent = [ln.split("id=")[1].split("|")[0] for ln in lines if ln != lines[-1]]
+    resolved = [s.id_at(i, now=0) for i in range(len(sent))]
+    assert resolved == sent          # position i means the i-th line sent
+
+
+def test_ack_index_out_of_range_is_none_not_an_exception():
+    # The set can change between the push and the finger landing.
+    s = FaceStore()
+    s.update("x", payload(big="1"))
+    assert s.id_at(5) is None
+    assert s.id_at(-1) is None
+
+
+def test_dropping_a_face_removes_it_from_the_next_push():
+    s = FaceStore()
+    s.update("x", payload(big="1"))
+    s.update("y", payload(big="2"))
+    assert s.drop("x") is True
+    assert [f.id for f in s.active(now=0)] == ["y"]
+    assert s.drop("x") is False      # already gone

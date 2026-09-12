@@ -264,6 +264,26 @@ class FaceStore:
         anything it still holds."""
         return [f.line() for f in self.active(now)] + [f"FACE:end|dwell={self._dwell_s}"]
 
+    def id_at(self, index: int, now: float | None = None) -> str | None:
+        """Which face the firmware means by `FACE_ACK:<index>`.
+
+        The ESP32 stores no id — it was 216 bytes of DRAM holding data nothing
+        on that side reads — so it reports the position in the set it was last
+        sent. That set is this one, in this order, which is why `active()`
+        sorts deterministically rather than by dict order.
+        """
+        faces = self.active(now)
+        return faces[index].id if 0 <= index < len(faces) else None
+
+    def drop(self, face_id: str) -> bool:
+        """Forget a face locally. Returns True if it was there.
+
+        Used by the acknowledge path so the display clears at once instead of
+        waiting for the broker to echo the deletion back — the tap has to feel
+        like it did something.
+        """
+        return self._drop(face_id)
+
     def __len__(self) -> int:
         return len(self._faces)
 

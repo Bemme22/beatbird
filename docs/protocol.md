@@ -187,6 +187,15 @@ vocabulary is closed on both sides and a test pins the two lists together. A
 face carrying both is rendered as the icon — two things competing for the one
 far-readable slot is what the concept forbids.
 
+**Acknowledging.** Tapping a face sends `CMD:FACE_ACK:<index>`; tapping the
+clock still sends `CMD:WAKE`. The bridge resolves the index against the set it
+last pushed and clears the retained topic (empty payload), so the hint is gone
+for HA and for every other speaker — not just on the glass that was tapped.
+Without this a notice could only expire (2 h for a finished wash) or wait for
+the next cycle, i.e. keep telling you about laundry you already took out, which
+is how a notice becomes wallpaper. Acknowledging deliberately does NOT leave
+standby: dismissing a notice is not a request to start playing.
+
 **Faces wear a rim arc.** A thin accent ring just inside the bezel marks every
 face, and the clock never draws one. Without it a face was mistaken for the
 clock screen at a glance, which defeats the point of showing it at all.
@@ -284,6 +293,8 @@ CMD:PREV
 CMD:STOP
 CMD:SOURCE:bluetooth    source picker selected (Phase 2)
 CMD:BT_PAIR         long press on single-button builds
+CMD:FACE_ACK:0      tap on a standby face — "noted, take it away" (index into
+                    the set last sent; the ESP32 stores no face ids)
 TEMP:22.5           QMI8658 head temperature (logged, unused)
 [hb] t=12345 ...    heartbeat line, ignored by bridge
 ```

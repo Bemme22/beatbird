@@ -77,6 +77,7 @@ static lv_obj_t *lbl_face_top  = nullptr;
 static lv_obj_t *lbl_face_bot  = nullptr;
 static lv_obj_t *face_icon_obj = nullptr;   // hero slot when a number says nothing
 static lv_obj_t *face_ring     = nullptr;   // rim arc: "this is not the clock"
+static void      face_switch_to(int index);   // defined with the rotation below
 // Rotation: -1 = the clock itself, >= 0 = index into the live face set. The
 // clock is always part of the cycle, so a speaker with faces still tells the
 // time and "calm by default" holds.
@@ -477,6 +478,23 @@ void create()
     // settings removed — pairing/settings live on the web UI, so there are no
     // hidden gestures to discover and a tap can't be misread as a swipe.
     lv_obj_add_event_cb(scr, [](lv_event_t * /*e*/) {
+        // A face on screen makes the tap mean "noted, take it away" instead of
+        // "wake up". Without this a notice can only expire (2 h for the
+        // washing machine) or be cleared by the next wash — so you empty the
+        // drum and the speaker keeps telling you about it, which is how a
+        // notice turns into wallpaper. Tapping the CLOCK still wakes, and the
+        // clock is what is showing most of the time, so nothing is lost.
+        if (face_showing && face_index >= 0) {
+            char cmd[20];
+            snprintf(cmd, sizeof(cmd), "FACE_ACK:%d", face_index);
+            Proto::send_command(cmd);
+            // Return to the clock immediately rather than waiting for the
+            // bridge's next batch: the animation is here to CONFIRM the tap,
+            // and a notice that lingers for a round-trip feels unacknowledged.
+            face_index = -1;
+            face_switch_to(-1);
+            return;
+        }
         Proto::send_command("WAKE");
     }, LV_EVENT_RELEASED, NULL);
 
