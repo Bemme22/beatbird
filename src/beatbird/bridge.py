@@ -37,6 +37,7 @@ from beatbird.logging_setup import configure_logging
 from beatbird.display.base import (
     DisplayInterface, DisplayState, DisplaySystemStatus,
 )
+from beatbird.ha.faces import FaceStore
 from beatbird.ha.mqtt import MqttBridge
 from beatbird.hardware.base import HardwareInterface
 from beatbird.sources.snapcast import SnapcastClient, get_local_wlan_mac
@@ -296,6 +297,20 @@ class BeatBirdBridge:
         if profile.display.type == "amoled" and profile.display.spectrum_bands > 0:
             self.spectrum = SpectrumAnalyzer(bands=profile.display.spectrum_bands)
 
+        # Standby faces (HA decisions → panel). The store is written from paho's
+        # callback thread and read from the main loop, so the callback only sets
+        # a flag: serial writes stay on one thread. _send() holds no lock, and a
+        # face batch is several lines — interleaving with a ST: push would
+        # corrupt both.
+        self.faces = FaceStore(
+            max_faces=profile.display.faces.max_faces,
+            dwell_s=profile.display.faces.dwell_s,
+        )
+        self._faces_dirty = False
+        # -1, not 0: forces one push after connect even with no faces at all,
+        # so a firmware that rebooted holding a stale set gets cleared.
+        self._faces_last_count = -1
+
         # MQTT
         mqtt_password = os.environ.get("MQTT_PASS", "")
         self.mqtt = MqttBridge(
@@ -303,6 +318,7 @@ class BeatBirdBridge:
             mqtt_password=mqtt_password,
             on_set_volume=self.set_volume,
             on_set_playback=self._handle_mqtt_playback,
+            on_face=self._handle_face,
         )
 
         # ── Live state ──
@@ -875,6 +891,14 @@ class BeatBirdBridge:
         log.info("display → CMD:%s", cmd)
         if self._shutdown_warn_active:
             return  # user holding power button — don't accept display input
+
+        # FACE_ACK is handled BEFORE the standby exit below: acknowledging a
+        # hint is not a request to start playing. Dismissing a notice should
+        # leave the speaker exactly as quiet as it was.
+        if cmd.startswith("FACE_ACK:"):
+            self._acknowledge_face(cmd[len("FACE_ACK:"):])
+            return
+
         if self.in_standby:
             self._exit_standby("user command")
 
@@ -1000,6 +1024,66 @@ class BeatBirdBridge:
             self.spotify.pause()
         elif value == "Stopped":
             self.spotify.close_session()
+
+    # ─── Standby faces ──────────────────────────────────────────────────────
+
+    def _handle_face(self, face_id: str, payload: str) -> None:
+        """MQTT callback thread: cache only, never touch the serial port here.
+
+        HA re-sends every retained face on each reconnect, so the store reports
+        whether anything a viewer would notice actually changed — otherwise a
+        broker blip would restart the rotation on screen.
+        """
+        if self.faces.update(face_id, payload):
+            self._faces_dirty = True
+
+    def _acknowledge_face(self, index_str: str) -> None:
+        """User tapped a face on the standby screen: take it away for good.
+
+        The firmware sends the POSITION rather than the id (it stores no ids),
+        so the set it was last sent has to be the set we resolve against —
+        hence `id_at`, which orders identically to what `lines()` produced.
+
+        Clearing the retained topic is what makes this stick: without it the
+        broker would replay the hint to this speaker on the next reconnect, and
+        every other speaker would still be showing it. Dropping it locally as
+        well is only so the screen reacts immediately.
+        """
+        try:
+            index = int(index_str)
+        except ValueError:
+            log.warning("FACE_ACK with a non-numeric index: %r", index_str)
+            return
+
+        face_id = self.faces.id_at(index)
+        if face_id is None:
+            # The set changed between the push and the tap — rare, and there is
+            # nothing sensible to guess here.
+            log.info("FACE_ACK:%d — no face at that position any more", index)
+            return
+
+        cleared = self.mqtt.clear_face(face_id) if self.mqtt else False
+        self.faces.drop(face_id)
+        self._faces_dirty = True
+        log.info("face acknowledged: %s (retained topic cleared: %s)",
+                 face_id, cleared)
+
+    def _push_faces(self) -> None:
+        """Main loop: send the current set if it changed, or when a face aged
+        out on its own (expiry has no MQTT message to ride on)."""
+        if not self.display or not self.profile.display.faces.enabled:
+            self._faces_dirty = False
+            return
+        active = self.faces.active()
+        if not self._faces_dirty and len(active) == self._faces_last_count:
+            return
+        self._faces_dirty = False
+        self._faces_last_count = len(active)
+        try:
+            self.display.push_faces(self.faces.lines())
+            log.info("faces sent: %s", [f.id for f in active] or "none")
+        except Exception as e:
+            log.error("face push: %s", e)
 
     # ─── Polling ────────────────────────────────────────────────────────────
 
@@ -2146,6 +2230,11 @@ class BeatBirdBridge:
 
                 if self.display:
                     self.display.poll()
+                    # Cheap: compares a flag and a count, sends only on change.
+                    try:
+                        self._push_faces()
+                    except Exception as e:
+                        log.error("faces: %s", e)
 
                 # System stats (every 5s)
                 if now - self.t_last_status >= self._status_interval:

@@ -33,6 +33,8 @@
 // =============================================================================
 #include "led_status.h"
 
+#include "faces.h"
+
 #ifdef ARDUINO
 
 #include <Arduino.h>
@@ -370,7 +372,7 @@ static inline uint32_t hash32(uint32_t x)
     return x;
 }
 
-static void render_twinkle(uint32_t now, RGB accent)
+static void render_twinkle(uint32_t now, RGB accent, float scale)
 {
     for (int i = 0; i < cfg_count; i++) {
         const uint32_t h = hash32((uint32_t)i * 2654435761u);
@@ -398,10 +400,75 @@ static void render_twinkle(uint32_t now, RGB accent)
         // there is enough level to carry a hue, everything fainter rides the
         // white die, which stays true to the last digit. Same rule as the
         // meter's resting glow, for the same reason.
-        if (lv > 0.45f) put(i, accent, lit(accent, lv));
-        else            put_white(i, lv * 0.7f);
+        const float lvs = lv * scale;
+        if (lvs > 0.45f) put(i, accent, lit(accent, lvs));
+        else             put_white(i, lvs * 0.7f);
     }
     flush();
+}
+
+
+// --- Standby: notification wave ---------------------------------------------
+// A face is waiting. The DISPLAY only shows it every few seconds (it rotates
+// with the clock), so the strip is the channel that can say "there is
+// something" continuously — that is the whole reason to use it, and why this
+// runs off Faces::count() rather than off what the screen happens to show.
+//
+// Shape: one soft hump travelling along each strip, both sides in step. The
+// strips are long and vertical, so a travelling light uses their form; a
+// uniform breathe would not. Slow on purpose — a hair under one pass per five
+// seconds is well below a resting pulse, which is what makes it read as calm
+// rather than as an alarm. Gaussian, so it has no edges anywhere.
+//
+// Direction: the hump always RISES. Which chain end that is, is a wiring fact
+// — MEASURED on RobinPi 12.09.2026 by watching the strip: p=0 (the joint
+// behind the driver) is at the TOP, so rising means counting down from the
+// outer end. Stated as the wiring fact rather than as a "flip me" flag,
+// because the next enclosure can answer the same question by looking, and
+// then the intent ("rises") needs no re-reading.
+static constexpr float WAVE_PERIOD_MS   = 5000.0f;
+static constexpr float WAVE_SIGMA       = 2.6f;  // pixels; hump half-width
+static constexpr bool  CHAIN_INNER_IS_TOP = true;
+
+static void render_wave(uint32_t now, RGB c, float scale)
+{
+    const int half = cfg_count / 2;
+    if (half <= 0) { flush(); return; }
+
+    const float phase = (float)(now % (uint32_t)WAVE_PERIOD_MS) / WAVE_PERIOD_MS;
+    // Travel a little past both ends so the hump enters and leaves instead of
+    // being born and dying inside the strip.
+    float pos = phase * ((float)half + 2.0f * WAVE_SIGMA) - WAVE_SIGMA;
+    if (CHAIN_INNER_IS_TOP) pos = (float)(half - 1) - pos;
+
+    for (int p = 0; p < half; p++) {
+        const float d  = ((float)p - pos) / WAVE_SIGMA;
+        const float lv = expf(-0.5f * d * d) * scale;
+        int l, r; mirror_pair(p, half, l, r);
+        if (lv > 0.45f) { put(l, c, lit(c, lv));   put(r, c, lit(c, lv)); }
+        else            { put_white(l, lv * 0.7f); put_white(r, lv * 0.7f); }
+    }
+    flush();
+}
+
+// Starfield and wave never run together: two motions at once on the same
+// pixels is busy, and the point of the wave is that it is the calm one. They
+// hand over sequentially instead — stars down, then wave up — which is the
+// same choice the standby screen makes between clock and face, for the same
+// reason. Time-based so the ramp does not depend on the render task's rate.
+static constexpr float NOTIFY_FADE_MS = 1600.0f;
+
+static float    notify_mix     = 0.0f;   // 0 = starfield, 1 = wave
+static uint32_t notify_last_ms = 0;
+
+static void advance_notify_mix(uint32_t now, bool want)
+{
+    const uint32_t dt = notify_last_ms ? (now - notify_last_ms) : 0;
+    notify_last_ms = now;
+    const float step = (float)dt / NOTIFY_FADE_MS;
+    notify_mix += want ? step : -step;
+    if (notify_mix < 0.0f) notify_mix = 0.0f;
+    if (notify_mix > 1.0f) notify_mix = 1.0f;
 }
 
 static void render()
@@ -440,7 +507,14 @@ static void render()
     // a starfield rather than a uniform breathe. A volume change still wins,
     // because that one IS feedback and has to be readable.
     if (ps == State::PLAY_STANDBY && !vol_overlay) {
-        render_twinkle(now, accent);
+        advance_notify_mix(now, Faces::count() > 0);
+        // Urgent faces ride accent_alert; everything else stays in the speaker's
+        // own colour, so a notice looks like part of the speaker and only a
+        // genuine exception looks different.
+        const RGB wave_c = Faces::any_urgent() ? alert : accent;
+        if (notify_mix <= 0.0f)      render_twinkle(now, accent, 1.0f);
+        else if (notify_mix < 0.5f)  render_twinkle(now, accent, 1.0f - 2.0f * notify_mix);
+        else                         render_wave(now, wave_c, 2.0f * notify_mix - 1.0f);
         return;
     }
 

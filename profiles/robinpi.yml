@@ -99,6 +99,16 @@ display:
       active_evening: 40
       active_night: 12
     chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
+  # ── Standby-Faces: HA-Entscheidungen neben der Uhr ──────────────────────
+  # RobinPi steht in der Küche, Ableseabstand ~3 m ⇒ eine Ansicht trägt genau
+  # EINEN fernlesbaren Wert. Kurze Rotation, sonst wird das Display Tapete.
+  # HA liefert unter beatbird/hints/<id>: Lüften (Dauerzustand) und
+  # Waschmaschine (Ereignis mit Timeout).
+  faces:
+    enabled: true
+    topic: beatbird/hints
+    max_faces: 4
+    dwell_s: 8
 
 wifi:
   ssid: "your-ssid"
@@ -131,6 +141,15 @@ sources:
   bluetooth: {enabled: false, a2dp: true}
   toslink:   {enabled: false}
   snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
+
+# Weather — coords live in secrets/location.coords (gitignored).
+# ⚠️ This block was missing since the profile was written, and the default is
+# `enabled: false`, so RobinPi never showed weather at all — the coordinates
+# and BEATBIRD_WEATHER_LAT/LON were in place the whole time, only the opt-in
+# was absent. Worth knowing when a speaker "lost" something it never had.
+weather:
+  enabled: true
+  interval_minutes: 30
 
 web:
   enabled: true
