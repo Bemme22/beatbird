@@ -60,6 +60,22 @@ def test_malformed_payload_is_ignored_not_raised(bad):
     assert len(s) == 1                            # previous value survives
 
 
+@pytest.mark.parametrize("bad_big", [":washer:", "ON", "12x", "n/a"])
+def test_unrenderable_big_value_is_rejected(bad_big):
+    # inter_clock is a digits+colon SUBSET font: letters have no glyph and LVGL
+    # draws hollow boxes, which reads as a broken panel. Catch it on the Pi,
+    # where it is a log line instead of an undebuggable display.
+    s = FaceStore()
+    assert s.update("x", payload(big=bad_big), now=0) is False
+    assert len(s) == 0
+
+
+@pytest.mark.parametrize("good_big", ["-3.9", "+12", "2:14", "21.5", "180"])
+def test_renderable_big_values_pass(good_big):
+    s = FaceStore()
+    assert s.update("x", payload(big=good_big), now=0) is True
+
+
 def test_face_without_big_value_is_rejected():
     # The whole concept is "one far-readable value per face" — a face without
     # one is a publisher bug, not a display state.

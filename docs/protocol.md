@@ -150,8 +150,8 @@ does not blink the strip.
 ### `FACE` — standby faces (a batch, on change)
 
 ```
-FACE:id=luften|prio=40|big=3.4|unit=K|top=LUEFTEN|bot=Taupunkt aussen 9.8 - innen 13.2
-FACE:id=waschmaschine|prio=70|big=:washer:|top=WAESCHE FERTIG|bot=2:14 h - 0.62 kWh
+FACE:id=luften|prio=40|big=-3.9|unit=K|top=LUEFTEN|bot=Taupunkt aussen 10.5 - innen 6.6
+FACE:id=waschmaschine|prio=70|big=2:14|unit=h|top=WAESCHE FERTIG|bot=0.62 kWh
 FACE:end|dwell=8
 ```
 
@@ -163,7 +163,7 @@ small detail below (`bot`).
 |-----|---------|-------|
 | `id` | stable identifier; one face per id | 16 chars |
 | `prio` | 0–100, higher first — decides rotation **order**, not exclusivity | |
-| `big` | the far-readable value: digits, or a `:symbol:` token | 10 chars |
+| `big` | the far-readable value — **digits only**, see below | 10 chars |
 | `unit` | rendered small beside the value | 4 chars |
 | `top` | label above | 20 chars |
 | `bot` | detail line below, for arm's length | 48 chars |
@@ -176,12 +176,22 @@ the two. An empty batch (`FACE:end` alone) clears the rotation. The bridge
 replays the last batch after an ESP32 reboot — unlike the palette, a face is not
 re-derivable, and a standing condition may not change for hours.
 
-**⚠️ The big value must be a number or a symbol, never a word.** The panel is
-0.095 mm/px, so `inter_clock` at 140 px subtends ~11 arcmin at 3 m while the 40
-px player title manages ~3.2 — below the ~5 arcmin that 20/20 vision resolves.
-Digits survive that because they are ten known shapes read as patterns;
-arbitrary text does not. `WASCHMASCHINE FERTIG` fails twice — on width and on
-the eye — which is why it belongs in `top`, not `big`.
+**⚠️ The big value must be a number, never a word** — and that is enforced twice
+over. By eye: the panel is 0.095 mm/px, so `inter_clock` subtends ~11 arcmin at
+3 m while the 40 px player title manages ~3.2, below the ~5 arcmin that 20/20
+vision resolves; digits survive because they are ten known shapes read as
+patterns, arbitrary text does not. And by font: **`inter_clock` is a subset**
+(`0123456789:. °-+`, see `fonts/build_inter.py`), so a letter has no glyph at
+all and LVGL draws a hollow box — which on glass reads as a broken panel rather
+than a bad payload. The bridge therefore rejects an unrenderable `big` with a
+log line instead of forwarding it. `WASCHMASCHINE FERTIG` belongs in `top`.
+
+> **Symbols are not implemented.** The display concept allows "a number *or* a
+> symbol", but there is no symbol font in the big slot and a `:token:` would
+> render as boxes. Where a face has no natural number, prefer one that is real
+> information — a finished wash shows its duration, which beats a washer glyph
+> that only repeats the label. A geometric symbol renderer (like the player's
+> action icons) is the way in if a genuinely number-less face turns up.
 
 **Why the Pi sends decisions, not sensor values.** Every case that is actually
 wanted is a derived condition: a rate of change, a comparison of two sensors, a

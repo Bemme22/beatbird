@@ -920,9 +920,13 @@ static void face_render(int index)
         // second big number beside it would defeat the whole point.
         HIDE(lbl_clock); HIDE(lbl_date);
         HIDE(lbl_wxicon); HIDE(lbl_temp); HIDE(lbl_highlow); HIDE(lbl_condition);
+        // The idle line sits 14 px under the detail line, at the same font
+        // size — left up they read as one cramped block, and it says nothing
+        // the face does not. (Seen in the simulator, 12.09.)
+        HIDE(lbl_flap);
     } else {
         HIDE(face_row); HIDE(lbl_face_top); HIDE(lbl_face_bot); HIDE(lbl_face_unit);
-        SHOW(lbl_clock); SHOW(lbl_date);
+        SHOW(lbl_clock); SHOW(lbl_date); SHOW(lbl_flap);
         if (!s_night) {
             SHOW(lbl_wxicon); SHOW(lbl_temp); SHOW(lbl_highlow); SHOW(lbl_condition);
         }

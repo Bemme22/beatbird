@@ -43,6 +43,18 @@ MAX_UNIT = 4
 MAX_TOP = 20
 MAX_BOT = 48
 
+# What the big slot can actually render. `inter_clock` is a SUBSET font —
+# digits, colon, period, space, degree, plus/minus (see fonts/build_inter.py,
+# CLOCK_SYMBOLS). Anything else has no glyph and LVGL draws a hollow box, which
+# looks like a hardware fault rather than a bad payload.
+#
+# ⚠️ This is why the big value is a NUMBER and not a word — not only because
+# digits stay legible at 11 arcmin, but because letters are literally not in the
+# font. Enforced here, on the Pi, where a publisher mistake is a log line; two
+# hops later it is a row of empty rectangles on glass that nobody can debug from
+# the kitchen.
+BIG_CHARSET = set("0123456789:. °-+")
+
 # Cap on how many faces we keep. Well above the "a short rotation of quiet
 # faces" the concept calls for; a speaker showing 12 things is already wrong.
 MAX_FACES = 8
@@ -178,6 +190,14 @@ class FaceStore:
             # A face with nothing far-readable on it is the one thing the whole
             # concept rules out, so it is a publisher bug, not a display state.
             log.warning("face %s: no 'big' value, ignored", face_id)
+            return False
+        unrenderable = sorted(set(face.big) - BIG_CHARSET)
+        if unrenderable:
+            log.warning(
+                "face %s: 'big' value %r cannot be rendered (%s not in the clock "
+                "font) — use digits; put words in 'top'",
+                face_id, face.big, "".join(unrenderable),
+            )
             return False
 
         previous = self._faces.get(face_id)
