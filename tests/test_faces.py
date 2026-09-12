@@ -245,3 +245,49 @@ def test_the_face_set_fits_the_dram_budget():
     fw = _firmware_constants()
     per_face = fw["LEN_BIG"] + fw["LEN_UNIT"] + fw["LEN_TOP"] + fw["LEN_BOT"]
     assert 2 * fw["MAX_FACES"] * per_face <= 560
+
+
+# ─── Icons ──────────────────────────────────────────────────────────────────
+# An icon may replace the number when the event itself is the message. The
+# firmware draws them as geometry, so the vocabulary is closed on both sides.
+
+def test_icon_alone_is_enough():
+    s = FaceStore()
+    assert s.update("waschmaschine", payload(big="", icon="wash", top="WAESCHE"))
+    line = s.lines(now=0)[0]
+    assert "icon=wash" in line
+    assert "big=" not in line       # nothing to decode in the hero slot
+
+
+def test_icon_and_number_can_coexist_on_the_wire():
+    # The firmware prefers the icon; the number stays available for the detail
+    # line's sake and for a future layout, so the Pi does not drop it.
+    s = FaceStore()
+    assert s.update("x", payload(big="21", icon="bolt", unit="kWh"))
+    line = s.lines(now=0)[0]
+    assert "icon=bolt" in line and "big=21" in line
+
+
+def test_unknown_icon_is_refused_not_silently_dropped():
+    # Two hops away an unknown name is an empty hero slot nobody can explain.
+    s = FaceStore()
+    assert not s.update("x", payload(big="", icon="teapot"))
+
+
+def test_a_face_with_neither_number_nor_icon_is_refused():
+    s = FaceStore()
+    assert not s.update("x", payload(big=""))
+
+
+def test_icon_vocabulary_matches_the_firmware():
+    # The firmware maps names in icon_from_name(); a name the Pi allows but the
+    # firmware cannot draw would render as an empty slot.
+    from pathlib import Path
+    import re
+
+    from beatbird.ha.faces import ICONS
+
+    src = Path(__file__).resolve().parents[1] / (
+        "firmware/amoled-1.43/src/app/faces.cpp")
+    fw = set(re.findall(r'strcmp\(name, "(\w+)"\)', src.read_text()))
+    assert fw == set(ICONS)

@@ -14,6 +14,7 @@
 #include "screens/screen_standby.h"
 #include "screens/split_flap.h"
 #include "faces.h"
+#include "face_icon.h"
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
@@ -74,6 +75,8 @@ static lv_obj_t *lbl_face_big  = nullptr;
 static lv_obj_t *lbl_face_unit = nullptr;
 static lv_obj_t *lbl_face_top  = nullptr;
 static lv_obj_t *lbl_face_bot  = nullptr;
+static lv_obj_t *face_icon_obj = nullptr;   // hero slot when a number says nothing
+static lv_obj_t *face_ring     = nullptr;   // rim arc: "this is not the clock"
 // Rotation: -1 = the clock itself, >= 0 = index into the live face set. The
 // clock is always part of the cycle, so a speaker with faces still tells the
 // time and "calm by default" holds.
@@ -191,6 +194,21 @@ static void scint_draw_cb(lv_event_t *e) {
         draw_dot(layer, scint[i].x, scint[i].y, scint[i].r,
                  Theme::accent, opa);
     }
+}
+
+// ─── Face hero icon ─────────────────────────────────────────────────────────
+// Redraw is driven by the rotation (face_render sets the icon, then
+// invalidates), so this reads the current face rather than caching state.
+
+static Faces::IconId face_icon_current = Faces::ICON_NONE;
+
+static void face_icon_draw_cb(lv_event_t *e)
+{
+    if (face_icon_current == Faces::ICON_NONE) return;
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_obj_t   *obj   = (lv_obj_t *)lv_event_get_target(e);
+    lv_area_t   coords; lv_obj_get_coords(obj, &coords);
+    FaceIcon::draw(layer, coords, face_icon_current, Theme::text_primary);
 }
 
 // ─── Cloud helper (5 puffs + flat base) ─────────────────────────────────────
@@ -648,6 +666,41 @@ void create()
     // Lift the unit clear of the digits' baseline so it reads as a suffix.
     lv_obj_set_style_pad_bottom(lbl_face_unit, 18, 0);
 
+    // Hero icon, occupying the same slot as the big value. Drawn rather than
+    // typed — see face_icon.cpp. It is its own object so the flex row keeps
+    // laying out digits normally when there is no icon.
+    face_icon_obj = lv_obj_create(scr);
+    lv_obj_remove_style_all(face_icon_obj);
+    lv_obj_set_size(face_icon_obj, 132, 132);
+    lv_obj_align(face_icon_obj, LV_ALIGN_TOP_MID, 0, 186);
+    lv_obj_clear_flag(face_icon_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(face_icon_obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(face_icon_obj, face_icon_draw_cb, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_flag(face_icon_obj, LV_OBJ_FLAG_HIDDEN);
+
+    // ── Rim arc ────────────────────────────────────────────────────────────
+    // The complaint this answers: a face looked like the clock screen, so you
+    // could not tell at a glance that the display was saying something else.
+    // A thin accent arc just inside the bezel is the cheapest signal that
+    // cannot be confused with content — the clock never draws one, and on a
+    // ROUND panel the rim is the one place nothing else competes for.
+    face_ring = lv_arc_create(scr);
+    lv_obj_set_size(face_ring, 452, 452);
+    lv_obj_center(face_ring);
+    lv_arc_set_rotation(face_ring, 270);        // 0° at 12 o'clock
+    lv_arc_set_bg_angles(face_ring, 0, 360);
+    lv_arc_set_value(face_ring, 0);
+    lv_obj_set_style_arc_color(face_ring, Theme::accent, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa  (face_ring, (lv_opa_t)90,  LV_PART_MAIN);
+    lv_obj_set_style_arc_width(face_ring, 4,             LV_PART_MAIN);
+    lv_obj_set_style_arc_width(face_ring, 0,             LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa  (face_ring, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa   (face_ring, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all  (face_ring, 0,             LV_PART_KNOB);
+    lv_obj_clear_flag(face_ring, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(face_ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(face_ring, LV_OBJ_FLAG_HIDDEN);
+
     lbl_face_bot = lv_label_create(scr);
     lv_label_set_text(lbl_face_bot, "");
     lv_obj_set_style_text_color       (lbl_face_bot, Theme::text_secondary, 0);
@@ -913,9 +966,23 @@ static void face_render(int index)
         lv_label_set_text(lbl_face_unit, f->unit);
         lv_label_set_text(lbl_face_top,  f->top);
         lv_label_set_text(lbl_face_bot,  f->bot);
-        // An empty unit would otherwise leave the flex row padded off-centre.
-        if (f->unit[0]) SHOW(lbl_face_unit); else HIDE(lbl_face_unit);
-        SHOW(face_row); SHOW(lbl_face_top); SHOW(lbl_face_bot);
+
+        // Icon and number are alternatives, never both: two things competing
+        // for the one far-readable slot is exactly what the concept forbids.
+        const bool use_icon = (f->icon != Faces::ICON_NONE);
+        face_icon_current = f->icon;
+        if (use_icon) {
+            SHOW(face_icon_obj);
+            lv_obj_invalidate(face_icon_obj);   // shape changed, force a redraw
+            HIDE(face_row);
+        } else {
+            HIDE(face_icon_obj);
+            // An empty unit would otherwise leave the flex row padded off-centre.
+            if (f->unit[0]) SHOW(lbl_face_unit); else HIDE(lbl_face_unit);
+            SHOW(face_row);
+        }
+        SHOW(face_ring);
+        SHOW(lbl_face_top); SHOW(lbl_face_bot);
         // The clock block steps aside — one face carries one value, and a
         // second big number beside it would defeat the whole point.
         HIDE(lbl_clock); HIDE(lbl_date);
@@ -926,6 +993,8 @@ static void face_render(int index)
         HIDE(lbl_flap);
     } else {
         HIDE(face_row); HIDE(lbl_face_top); HIDE(lbl_face_bot); HIDE(lbl_face_unit);
+        HIDE(face_icon_obj); HIDE(face_ring);
+        face_icon_current = Faces::ICON_NONE;
         SHOW(lbl_clock); SHOW(lbl_date); SHOW(lbl_flap);
         if (!s_night) {
             SHOW(lbl_wxicon); SHOW(lbl_temp); SHOW(lbl_highlow); SHOW(lbl_condition);

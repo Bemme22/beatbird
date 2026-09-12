@@ -60,6 +60,14 @@ MAX_BOT = 34
 # the kitchen.
 BIG_CHARSET = set("0123456789:. °-+")
 
+# Icons the firmware can draw (src/ui/face_icon.cpp). An icon may stand in for
+# the number when the event IS the message: "washing machine done" is a state
+# change, and the duration that produced it is history — a number there is
+# something to decode, not something to act on.
+# Kept as a closed set on purpose: an unknown name would degrade to an empty
+# hero slot two hops away, where nobody can see why.
+ICONS = frozenset({"wash", "bolt", "window", "alert"})
+
 # Cap on how many faces we keep — the "short rotation of quiet faces" the
 # concept calls for; a speaker cycling more than four things is wallpaper.
 # ⚠️ This is the FIRMWARE's capacity, not a taste setting — the ESP32 holds
@@ -118,12 +126,17 @@ class Face:
     top: str
     bot: str
     deadline: float
+    icon: str = ""
 
     def line(self) -> str:
         """Render the serial form. Empty fields are omitted, not sent blank —
         the firmware treats a missing token as 'unchanged/none' anyway, and it
         keeps the common case short."""
-        parts = [f"id={self.id}", f"prio={self.prio}", f"big={self.big}"]
+        parts = [f"id={self.id}", f"prio={self.prio}"]
+        if self.icon:
+            parts.append(f"icon={self.icon}")
+        if self.big:
+            parts.append(f"big={self.big}")
         if self.unit:
             parts.append(f"unit={self.unit}")
         if self.top:
@@ -193,11 +206,18 @@ class FaceStore:
             top=_clean(data.get("top", ""), MAX_TOP),
             bot=_clean(data.get("bot", ""), MAX_BOT),
             deadline=now + ttl,
+            icon=_clean(data.get("icon", ""), 9).lower(),
         )
-        if not face.big:
+        if face.icon and face.icon not in ICONS:
+            log.warning(
+                "face %s: unknown icon %r (have: %s), ignored",
+                face_id, face.icon, ", ".join(sorted(ICONS)),
+            )
+            return False
+        if not face.big and not face.icon:
             # A face with nothing far-readable on it is the one thing the whole
             # concept rules out, so it is a publisher bug, not a display state.
-            log.warning("face %s: no 'big' value, ignored", face_id)
+            log.warning("face %s: neither 'big' nor 'icon', ignored", face_id)
             return False
         unrenderable = sorted(set(face.big) - BIG_CHARSET)
         if unrenderable:
@@ -256,7 +276,7 @@ def _visible(face: Face) -> tuple:
     """The part a viewer would notice — deliberately excludes ``deadline`` so a
     re-publish of an unchanged face (HA re-sends retained state on every
     reconnect) does not churn the display."""
-    return (face.prio, face.big, face.unit, face.top, face.bot)
+    return (face.prio, face.big, face.unit, face.top, face.bot, face.icon)
 
 
 def face_id_from_topic(topic: str, prefix: str) -> str | None:

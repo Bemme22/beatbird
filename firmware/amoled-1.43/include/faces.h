@@ -56,12 +56,33 @@ constexpr int LEN_TOP   = 17;
 // would sit against the round bezel, so the Pi truncates to what fits.
 constexpr int LEN_BOT   = 35;
 
-struct Face {
-    char big [LEN_BIG];    // digits — never a word (the font has no letters)
-    char unit[LEN_UNIT];
-    char top [LEN_TOP];
-    char bot [LEN_BOT];
+// What the big slot can show when a number would be meaningless. Drawn as
+// geometry (see ui/face_icon.cpp), not as a glyph: the clock font is subset to
+// digits, and pulling in an icon font for three shapes would cost flash and a
+// second text style for nothing.
+//
+// An icon is stored as a byte, not as the wire's name string — 4 faces × 2
+// staging sets means every byte of this struct is multiplied by 8, and the
+// name is only needed while parsing one line.
+enum IconId : uint8_t {
+    ICON_NONE = 0,
+    ICON_WASH,      // washing machine: drum in a box
+    ICON_BOLT,      // energy
+    ICON_WINDOW,    // ventilate
+    ICON_ALERT,     // generic "look at this"
 };
+
+struct Face {
+    char    big [LEN_BIG];    // digits — never a word (the font has no letters)
+    char    unit[LEN_UNIT];
+    char    top [LEN_TOP];
+    char    bot [LEN_BOT];
+    IconId  icon;             // when set, it replaces `big` in the hero slot
+};
+
+/** Map a wire name ("wash") to its id. ICON_NONE for unknown — an unknown
+ *  icon must degrade to the numeric path, never to an empty screen. */
+IconId icon_from_name(const char *name);
 
 /** Feed one FACE: line body (everything after "FACE:").
  *

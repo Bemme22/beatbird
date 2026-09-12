@@ -46,6 +46,16 @@ static bool field(const char *body, const char *key, char *out, size_t out_size)
     return false;
 }
 
+IconId icon_from_name(const char *name)
+{
+    if (!name || !name[0])            return ICON_NONE;
+    if (!strcmp(name, "wash"))        return ICON_WASH;
+    if (!strcmp(name, "bolt"))        return ICON_BOLT;
+    if (!strcmp(name, "window"))      return ICON_WINDOW;
+    if (!strcmp(name, "alert"))       return ICON_ALERT;
+    return ICON_NONE;
+}
+
 static void add_staged(const char *body)
 {
     if (s_stage_count >= MAX_FACES) return;   // Pi caps this too; belt and braces
@@ -59,9 +69,19 @@ static void add_staged(const char *body)
     // has already sorted the batch, so the order of arrival IS the priority.
     char scratch[8];
     if (!field(body, "id", scratch, sizeof(scratch)) || !scratch[0]) return;
+
+    // An icon MAY stand in for the number — some things ("washing machine
+    // done") are events, and the duration that produced them is history, not a
+    // reason to walk over. The name only lives long enough to be looked up.
+    char iconname[10];
+    field(body, "icon", iconname, sizeof(iconname));
+    f.icon = icon_from_name(iconname);
+
     // A face with nothing far-readable on it is exactly what the concept rules
-    // out, so drop it here rather than render an empty hero slot.
-    if (!field(body, "big", f.big, LEN_BIG) || !f.big[0]) return;
+    // out, so drop it here rather than render an empty hero slot. With an icon
+    // present the hero slot is filled, so `big` becomes optional.
+    const bool has_big = field(body, "big", f.big, LEN_BIG) && f.big[0];
+    if (!has_big && f.icon == ICON_NONE) return;
 
     field(body, "unit", f.unit, LEN_UNIT);
     field(body, "top",  f.top,  LEN_TOP);

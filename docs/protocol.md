@@ -163,6 +163,7 @@ small detail below (`bot`).
 |-----|---------|-------|
 | `id` | stable identifier; one face per id | 16 chars |
 | `prio` | 0–100, higher first — decides rotation **order**, not exclusivity | |
+| `icon` | shape in the hero slot INSTEAD of a number: `wash` `bolt` `window` `alert` | one of those |
 | `big` | the far-readable value — **digits only**, see below | 10 chars |
 | `unit` | rendered small beside the value | 4 chars |
 | `top` | label above | 16 chars |
@@ -176,6 +177,19 @@ The limits above are firmware DRAM budgets multiplied by four entries and two
 staging sets, so they are tighter than they look: `bot` at 34 chars is the
 measured single-line width of the label (the example above is 32 and spans ~296
 of 320 px), and longer text would wrap against the round bezel.
+
+**When an icon beats a number.** Some things are events, not measurements:
+"washing machine done" is a state change, and the duration that produced it is
+history — a number there is something to decode, not something to act on. Such
+a face sends `icon=` and may omit `big` entirely. Icons are drawn as geometry
+(`src/ui/face_icon.cpp`), not as glyphs, so they cost no second font; the
+vocabulary is closed on both sides and a test pins the two lists together. A
+face carrying both is rendered as the icon — two things competing for the one
+far-readable slot is what the concept forbids.
+
+**Faces wear a rim arc.** A thin accent ring just inside the bezel marks every
+face, and the clock never draws one. Without it a face was mistaken for the
+clock screen at a glance, which defeats the point of showing it at all.
 
 **Batch semantics.** Entries accumulate into a staging set and `FACE:end` swaps
 it in. So a face that disappeared from the set is genuinely gone, and a
