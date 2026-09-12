@@ -684,8 +684,14 @@ void create()
     // A thin accent arc just inside the bezel is the cheapest signal that
     // cannot be confused with content — the clock never draws one, and on a
     // ROUND panel the rim is the one place nothing else competes for.
+    // ⚠️ 416, not 452: the panel sits off-centre in the bezel (measured
+    // 10.09. — 4 mm of glass above, 6 mm below), so a ring hugging the edge
+    // gets clipped on one side and stands free on the other, and reads as
+    // crooked even though it is centred in the FRAMEBUFFER. Same lesson the
+    // panel-diag test rings taught: a mark near the rim says nothing, it has
+    // to sit well inside it. ~28 px of margin survives the offset.
     face_ring = lv_arc_create(scr);
-    lv_obj_set_size(face_ring, 452, 452);
+    lv_obj_set_size(face_ring, 416, 416);
     lv_obj_center(face_ring);
     lv_arc_set_rotation(face_ring, 270);        // 0° at 12 o'clock
     lv_arc_set_bg_angles(face_ring, 0, 360);
@@ -952,6 +958,70 @@ bool is_visible()
 // the first face after the clock, which is what "exception interrupts" means
 // here without inventing a second mechanism.
 
+// ─── Rotation cross-fade ────────────────────────────────────────────────────
+// The rotation used to cut between clock and face in one frame, which reads as
+// a glitch on a screen that is otherwise motionless. It fades the outgoing
+// view down, swaps, then fades the new one up — sequential rather than
+// overlapping, because clock and face occupy the SAME pixels and a true
+// cross-fade would show both at half strength, i.e. a smear.
+//
+// Object opacity (not text opacity) so one callback covers labels, the flex
+// row and the arc alike. Follows the night-fade pattern above: a dummy var, an
+// exec callback over the group, and a ready callback for the state change.
+
+static constexpr uint32_t FACE_FADE_MS = 260;
+
+static int  face_fade_dummy = 0;
+static int  face_fade_target = -1;     // index to show once the fade-out ends
+static bool face_fading      = false;
+
+static void stage_opa_cb(void * /*var*/, int32_t v)
+{
+    lv_opa_t o = (lv_opa_t)v;
+    lv_obj_t *group[] = {
+        lbl_clock, lbl_date, lbl_flap, lbl_wxicon, lbl_temp, lbl_highlow,
+        lbl_condition, accent_tick,
+        face_row, lbl_face_top, lbl_face_bot, face_icon_obj, face_ring,
+    };
+    for (lv_obj_t *o2 : group) if (o2) lv_obj_set_style_opa(o2, o, 0);
+}
+
+static void face_render(int index);
+
+static void face_fade_in()
+{
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, &face_fade_dummy);
+    lv_anim_set_exec_cb(&a, stage_opa_cb);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_time(&a, FACE_FADE_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+    face_fading = false;
+}
+
+static void face_fade_out_done(lv_anim_t * /*a*/)
+{
+    face_render(face_fade_target);
+    face_fade_in();
+}
+
+/** Switch the rotation to `index` (-1 = the clock) through a fade. */
+static void face_switch_to(int index)
+{
+    face_fade_target = index;
+    face_fading      = true;
+    lv_anim_del(&face_fade_dummy, stage_opa_cb);
+    lv_anim_t a; lv_anim_init(&a);
+    lv_anim_set_var(&a, &face_fade_dummy);
+    lv_anim_set_exec_cb(&a, stage_opa_cb);
+    lv_anim_set_values(&a, 255, 0);
+    lv_anim_set_time(&a, FACE_FADE_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+    lv_anim_set_ready_cb(&a, face_fade_out_done);
+    lv_anim_start(&a);
+}
+
 static void face_render(int index)
 {
     auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
@@ -1009,7 +1079,16 @@ static void face_tick(uint32_t now)
     // dim clock — in both cases the rotation stands down rather than fighting
     // for the same pixels.
     if ((State::sys.bt_pairing && qr_url_applied) || s_night) {
-        if (face_showing) { face_index = -1; face_render(-1); }
+        if (face_showing) {
+            // No fade here: pairing and night both take the whole screen over,
+            // so a 260 ms dissolve would only delay a change the user already
+            // sees happening for another reason.
+            lv_anim_del(&face_fade_dummy, stage_opa_cb);
+            face_fading = false;
+            face_index  = -1;
+            face_render(-1);
+            stage_opa_cb(nullptr, 255);
+        }
         return;
     }
 
@@ -1018,24 +1097,26 @@ static void face_tick(uint32_t now)
     // would show something arbitrary.
     if (Faces::revision() != face_rev_seen) {
         face_rev_seen = Faces::revision();
-        face_index    = -1;
         face_since_ms = now;
-        face_render(-1);
+        if (face_index != -1) { face_index = -1; face_switch_to(-1); }
         return;
     }
 
     const int n = Faces::count();
     if (n <= 0) {
-        if (face_showing) { face_index = -1; face_render(-1); }
+        if (face_showing) { face_index = -1; face_switch_to(-1); }
         return;
     }
+
+    // A dwell that expires mid-dissolve would stack two transitions.
+    if (face_fading) return;
 
     const uint32_t dwell_ms = (uint32_t)Faces::dwell_s() * 1000u;
     if (now - face_since_ms < dwell_ms) return;
 
     face_since_ms = now;
     face_index    = (face_index + 1 > n - 1) ? -1 : face_index + 1;
-    face_render(face_index);
+    face_switch_to(face_index);
 }
 
 void update()
