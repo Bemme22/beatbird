@@ -142,6 +142,15 @@ sources:
   toslink:   {enabled: false}
   snapcast:  {enabled: false, server: 192.168.1.10, latency_ms: 30}
 
+# Weather — coords live in secrets/location.coords (gitignored).
+# ⚠️ This block was missing since the profile was written, and the default is
+# `enabled: false`, so RobinPi never showed weather at all — the coordinates
+# and BEATBIRD_WEATHER_LAT/LON were in place the whole time, only the opt-in
+# was absent. Worth knowing when a speaker "lost" something it never had.
+weather:
+  enabled: true
+  interval_minutes: 30
+
 web:
   enabled: true
   port: 8080
