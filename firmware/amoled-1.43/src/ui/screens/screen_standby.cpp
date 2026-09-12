@@ -13,6 +13,7 @@
 
 #include "screens/screen_standby.h"
 #include "screens/split_flap.h"
+#include "faces.h"
 #include "proto.h"
 #include "state.h"
 #include "theme.h"
@@ -63,6 +64,23 @@ static lv_obj_t *qr_caption    = nullptr;
 static String    qr_url_cached = "";
 static bool      qr_url_applied= false;
 static bool      qr_was_pairing= false;
+// ── Standby faces (see faces.h) ─────────────────────────────────────────────
+// One glanceable decision from HA, drawn in the clock's own geometry: small
+// label above, one big value, small detail below. That layout is reused rather
+// than reinvented because it is the one already verified at the real reading
+// distance — a new one would have to earn that again.
+static lv_obj_t *face_row      = nullptr;   // big value + unit, centred as a unit
+static lv_obj_t *lbl_face_big  = nullptr;
+static lv_obj_t *lbl_face_unit = nullptr;
+static lv_obj_t *lbl_face_top  = nullptr;
+static lv_obj_t *lbl_face_bot  = nullptr;
+// Rotation: -1 = the clock itself, >= 0 = index into the live face set. The
+// clock is always part of the cycle, so a speaker with faces still tells the
+// time and "calm by default" holds.
+static int       face_index    = -1;
+static uint32_t  face_since_ms = 0;
+static uint32_t  face_rev_seen = 0;
+static bool      face_showing  = false;
 
 // ─── Scintillation: ambient dot field ──────────────────────────────────────
 // A handful of low-opacity accent dots scattered across the round display,
@@ -590,6 +608,57 @@ void create()
     lv_obj_add_flag(qr_caption, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(qr_caption, LV_OBJ_FLAG_CLICKABLE);
 
+    // ── Face widgets (hidden until a face is due) ───────────────────────────
+    // Deliberately their own labels rather than borrowing the clock's: the
+    // clock has its own update path (split-flap on the minute tick), and
+    // writing foreign text into it would fight that logic every rotation.
+    lbl_face_top = lv_label_create(scr);
+    lv_label_set_text(lbl_face_top, "");
+    lv_obj_set_style_text_color       (lbl_face_top, Theme::text_secondary, 0);
+    lv_obj_set_style_text_font        (lbl_face_top, Theme::font_sm(), 0);
+    lv_obj_set_style_text_letter_space(lbl_face_top, 3, 0);
+    lv_obj_align(lbl_face_top, LV_ALIGN_TOP_MID, 0, 154);   // = the date's slot
+    lv_obj_add_flag(lbl_face_top, LV_OBJ_FLAG_HIDDEN);
+
+    // Big value + unit share a flex row so the pair stays optically centred
+    // regardless of how many digits the value has (same trick as the weather
+    // row). The unit rides at font_lg — present, but not competing.
+    face_row = lv_obj_create(scr);
+    lv_obj_remove_style_all(face_row);
+    lv_obj_set_style_bg_opa(face_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(face_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(face_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(face_row, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(face_row, 6, 0);
+    lv_obj_clear_flag(face_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(face_row, LV_ALIGN_TOP_MID, 0, 180);       // = the clock's slot
+    lv_obj_add_flag(face_row, LV_OBJ_FLAG_HIDDEN);
+
+    lbl_face_big = lv_label_create(face_row);
+    lv_label_set_text(lbl_face_big, "");
+    lv_obj_set_style_text_color(lbl_face_big, Theme::text_primary, 0);
+    lv_obj_set_style_text_font (lbl_face_big, Theme::font_clock_xl(), 0);
+    lv_obj_set_style_text_letter_space(lbl_face_big, -2, 0);
+
+    lbl_face_unit = lv_label_create(face_row);
+    lv_label_set_text(lbl_face_unit, "");
+    lv_obj_set_style_text_color(lbl_face_unit, Theme::accent, 0);
+    lv_obj_set_style_text_font (lbl_face_unit, Theme::font_lg(), 0);
+    // Lift the unit clear of the digits' baseline so it reads as a suffix.
+    lv_obj_set_style_pad_bottom(lbl_face_unit, 18, 0);
+
+    lbl_face_bot = lv_label_create(scr);
+    lv_label_set_text(lbl_face_bot, "");
+    lv_obj_set_style_text_color       (lbl_face_bot, Theme::text_secondary, 0);
+    lv_obj_set_style_text_opa         (lbl_face_bot, (lv_opa_t)170, 0);
+    lv_obj_set_style_text_font        (lbl_face_bot, Theme::font_sm(), 0);
+    lv_obj_set_style_text_letter_space(lbl_face_bot, 2, 0);
+    lv_obj_set_style_text_align       (lbl_face_bot, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width                  (lbl_face_bot, 320);
+    lv_obj_align(lbl_face_bot, LV_ALIGN_TOP_MID, 0, 348);   // = the high/low slot
+    lv_obj_add_flag(lbl_face_bot, LV_OBJ_FLAG_HIDDEN);
+
     // Apply any URL the bridge pushed before create() ran.
     if (qr_url_cached.length() > 0 && !qr_url_applied) {
         lv_qrcode_update(qr_code, qr_url_cached.c_str(), qr_url_cached.length());
@@ -823,6 +892,79 @@ bool is_visible()
 
 // ─── Per-frame update ───────────────────────────────────────────────────────
 
+// ─── Face rotation ──────────────────────────────────────────────────────────
+// Calm by default: the clock is always part of the cycle, and faces take their
+// turn beside it rather than replacing it. Priority only decides the ORDER —
+// the Pi has already sorted the set — so a high-priority notification is simply
+// the first face after the clock, which is what "exception interrupts" means
+// here without inventing a second mechanism.
+
+static void face_render(int index)
+{
+    auto SHOW = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+    auto HIDE = [](lv_obj_t *o) { if (o) lv_obj_add_flag  (o, LV_OBJ_FLAG_HIDDEN); };
+
+    const Faces::Face *f = (index >= 0) ? Faces::at(index) : nullptr;
+    const bool on = (f != nullptr);
+    if (on == face_showing && !on) return;      // already on the clock, nothing to do
+
+    if (on) {
+        lv_label_set_text(lbl_face_big,  f->big);
+        lv_label_set_text(lbl_face_unit, f->unit);
+        lv_label_set_text(lbl_face_top,  f->top);
+        lv_label_set_text(lbl_face_bot,  f->bot);
+        // An empty unit would otherwise leave the flex row padded off-centre.
+        if (f->unit[0]) SHOW(lbl_face_unit); else HIDE(lbl_face_unit);
+        SHOW(face_row); SHOW(lbl_face_top); SHOW(lbl_face_bot);
+        // The clock block steps aside — one face carries one value, and a
+        // second big number beside it would defeat the whole point.
+        HIDE(lbl_clock); HIDE(lbl_date);
+        HIDE(lbl_wxicon); HIDE(lbl_temp); HIDE(lbl_highlow); HIDE(lbl_condition);
+    } else {
+        HIDE(face_row); HIDE(lbl_face_top); HIDE(lbl_face_bot); HIDE(lbl_face_unit);
+        SHOW(lbl_clock); SHOW(lbl_date);
+        if (!s_night) {
+            SHOW(lbl_wxicon); SHOW(lbl_temp); SHOW(lbl_highlow); SHOW(lbl_condition);
+        }
+    }
+    face_showing = on;
+}
+
+static void face_tick(uint32_t now)
+{
+    // Pairing owns the whole screen, and night standby is deliberately just a
+    // dim clock — in both cases the rotation stands down rather than fighting
+    // for the same pixels.
+    if ((State::sys.bt_pairing && qr_url_applied) || s_night) {
+        if (face_showing) { face_index = -1; face_render(-1); }
+        return;
+    }
+
+    // A new batch restarts the cycle at the clock: the set may have changed
+    // under us, and resuming at "index 3" of a set that now has two entries
+    // would show something arbitrary.
+    if (Faces::revision() != face_rev_seen) {
+        face_rev_seen = Faces::revision();
+        face_index    = -1;
+        face_since_ms = now;
+        face_render(-1);
+        return;
+    }
+
+    const int n = Faces::count();
+    if (n <= 0) {
+        if (face_showing) { face_index = -1; face_render(-1); }
+        return;
+    }
+
+    const uint32_t dwell_ms = (uint32_t)Faces::dwell_s() * 1000u;
+    if (now - face_since_ms < dwell_ms) return;
+
+    face_since_ms = now;
+    face_index    = (face_index + 1 > n - 1) ? -1 : face_index + 1;
+    face_render(face_index);
+}
+
 void update()
 {
     if (!created || !is_visible()) return;
@@ -865,6 +1007,9 @@ void update()
     // gets invalidated, so we tick it here.
     static uint32_t last_anim_tick = 0;
     uint32_t now = millis();
+
+    // Face rotation — cheap: a counter compare on most frames.
+    face_tick(now);
     if (now - last_anim_tick >= 50) {
         last_anim_tick = now;
         if (State::weather.valid) lv_obj_invalidate(icon_obj);

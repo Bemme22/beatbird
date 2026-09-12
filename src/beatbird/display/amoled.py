@@ -105,6 +105,8 @@ class AmoledDisplay(DisplayInterface):
         # send still happens every time, only the log line dedups on content.
         self._last_logged_palette: str | None = None
         self._last_logged_led: str | None = None
+        # Last complete face batch, replayed after an ESP32 reboot (see poll()).
+        self._last_faces: list[str] = []
         # QR URL is similarly volatile across firmware reboots. The bridge
         # pushes it once at start; on a mid-session ESP32 boot we re-send
         # via the [boot] handler so the standby screen has it ready
@@ -454,6 +456,22 @@ class AmoledDisplay(DisplayInterface):
             return
         self._send(f"STBY:{clean}")
 
+    def push_faces(self, lines: list[str]) -> None:
+        """Push the standby faces as a complete set.
+
+        The caller (``FaceStore.lines``) always ends the batch with
+        ``FACE:end``; the firmware swaps its set over on that terminator rather
+        than mutating entry by entry. That way a face that disappeared from the
+        set is actually gone, and a half-delivered batch (USB hiccup) leaves the
+        previous set standing instead of a mixture of both.
+
+        Text is already ASCII-folded and delimiter-stripped in ``faces.py`` — it
+        arrives here ready for the wire.
+        """
+        self._last_faces = list(lines)
+        for line in lines:
+            self._send(line)
+
     def push_system(self, status: DisplaySystemStatus) -> None:
         amp_fields = "|".join(
             f"h{k[0]}={v}" for k, v in (status.amp_statuses or {}).items()
@@ -535,6 +553,14 @@ class AmoledDisplay(DisplayInterface):
             # ready for the next bt_pairing transition.
             if self._last_qr_url:
                 self._send(f"QR:{self._last_qr_url}")
+            # Faces are firmware-side state too, and unlike the palette they
+            # are not re-derivable — the bridge holds the only copy. Replay the
+            # last batch so a mid-session ESP32 reboot doesn't leave the standby
+            # rotation empty until the next HA publish (a standing condition
+            # like "ventilate" may not change for hours).
+            if self._last_faces:
+                for line in self._last_faces:
+                    self._send(line)
         elif raw.startswith("cover_rx:"):
             # Diagnostic echo from firmware's IMG: parser. Format:
             # "cover_rx: got <received>/<expected>". INFO so it surfaces

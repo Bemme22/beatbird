@@ -99,6 +99,16 @@ display:
       active_evening: 40
       active_night: 12
     chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
+  # ── Standby-Faces: HA-Entscheidungen neben der Uhr ──────────────────────
+  # RobinPi steht in der Küche, Ableseabstand ~3 m ⇒ eine Ansicht trägt genau
+  # EINEN fernlesbaren Wert. Kurze Rotation, sonst wird das Display Tapete.
+  # HA liefert unter beatbird/hints/<id>: Lüften (Dauerzustand) und
+  # Waschmaschine (Ereignis mit Timeout).
+  faces:
+    enabled: true
+    topic: beatbird/hints
+    max_faces: 4
+    dwell_s: 8
 
 wifi:
   ssid: "your-ssid"

@@ -147,6 +147,53 @@ Re-sends are idempotent — the firmware compares the wiring and only rebuilds
 the driver when pin, count or chip actually changed, so a flapping USB link
 does not blink the strip.
 
+### `FACE` — standby faces (a batch, on change)
+
+```
+FACE:id=luften|prio=40|big=3.4|unit=K|top=LUEFTEN|bot=Taupunkt aussen 9.8 - innen 13.2
+FACE:id=waschmaschine|prio=70|big=:washer:|top=WAESCHE FERTIG|bot=2:14 h - 0.62 kWh
+FACE:end|dwell=8
+```
+
+A *face* is one glanceable decision shown on the standby screen, drawn in the
+clock's own geometry: small label above (`top`), one big value (`big` + `unit`),
+small detail below (`bot`).
+
+| Key | Meaning | Limit |
+|-----|---------|-------|
+| `id` | stable identifier; one face per id | 16 chars |
+| `prio` | 0–100, higher first — decides rotation **order**, not exclusivity | |
+| `big` | the far-readable value: digits, or a `:symbol:` token | 10 chars |
+| `unit` | rendered small beside the value | 4 chars |
+| `top` | label above | 20 chars |
+| `bot` | detail line below, for arm's length | 48 chars |
+| `dwell` | seconds per face; only on the `end` line | 2–120 |
+
+**Batch semantics.** Entries accumulate into a staging set and `FACE:end` swaps
+it in. So a face that disappeared from the set is genuinely gone, and a
+half-delivered batch leaves the previous set standing instead of a mixture of
+the two. An empty batch (`FACE:end` alone) clears the rotation. The bridge
+replays the last batch after an ESP32 reboot — unlike the palette, a face is not
+re-derivable, and a standing condition may not change for hours.
+
+**⚠️ The big value must be a number or a symbol, never a word.** The panel is
+0.095 mm/px, so `inter_clock` at 140 px subtends ~11 arcmin at 3 m while the 40
+px player title manages ~3.2 — below the ~5 arcmin that 20/20 vision resolves.
+Digits survive that because they are ten known shapes read as patterns;
+arbitrary text does not. `WASCHMASCHINE FERTIG` fails twice — on width and on
+the eye — which is why it belongs in `top`, not `big`.
+
+**Why the Pi sends decisions, not sensor values.** Every case that is actually
+wanted is a derived condition: a rate of change, a comparison of two sensors, a
+state transition, a deviation from expected. HA owns the history, the templates
+and the statistics; this protocol has no business computing dew points, and one
+HA-side rule then serves the whole fleet. Text is folded to ASCII digraphs and
+stripped of `|` on the Pi, so the firmware parser needs no escaping.
+
+Configured per speaker under `display.faces` (`enabled`, `topic`, `max_faces`,
+`dwell_s`) — reading distance is a property of the installation, so it belongs
+in the profile next to `status_led`. See `HA.md`, *Display concept*.
+
 ### Single-shot messages
 
 These are legacy from v1 and may still be emitted occasionally for UX

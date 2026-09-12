@@ -266,6 +266,32 @@ class StatusLed(BaseModel):
     chain_join: Literal["inner", "outer"] = "inner"
 
 
+class StandbyFaces(BaseModel):
+    """Glanceable decisions on the standby screen ("faces").
+
+    Lives in the profile for the same reason as the LED strip and the white
+    point: **reading distance is a property of the installation**. A speaker 3 m
+    across the kitchen carries one value per face; one at arm's length could
+    carry three. RobinPi's panel measures 0.095 mm/px, which puts the 140 px
+    standby clock at ~11 arcmin at 3 m and the 40 px player title at ~3.2 —
+    below the ~5 arcmin that 20/20 vision resolves. SwallowPi gets a different
+    display and therefore a different budget. (``HA.md``, *Display concept*.)
+
+    ``topic`` is the MQTT prefix HA publishes decisions to, one retained
+    message per face at ``<topic>/<id>``. Keep real household topics in
+    ``secrets/`` if they ever carry room names — the default is a generic
+    namespace and safe to ship.
+    """
+
+    enabled: bool = False
+    topic: str = "beatbird/hints"
+    # How many faces may share the rotation. The concept asks for "a short
+    # rotation of quiet faces" — a speaker cycling eight things is wallpaper.
+    max_faces: int = Field(default=4, ge=1, le=8)
+    # Seconds per face before the standby screen moves on.
+    dwell_s: int = Field(default=8, ge=2, le=120)
+
+
 class Display(BaseModel):
     type: Literal["amoled", "led-button", "none"] = "none"
     variant: Optional[str] = None
@@ -276,6 +302,8 @@ class Display(BaseModel):
     # Status strip on the display ESP32 — distinct from the led_pin/led_count
     # fields further down, which are the Pi-side "led-button" display type.
     status_led: StatusLed = Field(default_factory=StatusLed)
+    # Standby faces fed by HA decisions (see StandbyFaces).
+    faces: StandbyFaces = Field(default_factory=StandbyFaces)
 
     # ── Single accent colour (current PAL: protocol) ──
     # Bridge sends `PAL:rrggbb` once per ESP32 (re)connect; the firmware
