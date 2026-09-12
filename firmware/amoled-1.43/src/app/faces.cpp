@@ -53,13 +53,16 @@ static void add_staged(const char *body)
     Face &f = s_stage[s_stage_count];
     memset(&f, 0, sizeof(f));
 
-    if (!field(body, "id", f.id, LEN_ID) || !f.id[0]) return;
+    // The id is required on the wire (it is what makes a face addressable for
+    // the publisher) but nothing here renders it, so it is validated on the
+    // stack and dropped rather than carried in the set. Same for prio: the Pi
+    // has already sorted the batch, so the order of arrival IS the priority.
+    char scratch[8];
+    if (!field(body, "id", scratch, sizeof(scratch)) || !scratch[0]) return;
     // A face with nothing far-readable on it is exactly what the concept rules
     // out, so drop it here rather than render an empty hero slot.
     if (!field(body, "big", f.big, LEN_BIG) || !f.big[0]) return;
 
-    char num[8];
-    f.prio = field(body, "prio", num, sizeof(num)) ? (uint8_t)atoi(num) : 0;
     field(body, "unit", f.unit, LEN_UNIT);
     field(body, "top",  f.top,  LEN_TOP);
     field(body, "bot",  f.bot,  LEN_BOT);

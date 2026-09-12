@@ -37,11 +37,16 @@ log = logging.getLogger("beatbird.faces")
 # Field budgets. The display is 466 px wide and round, so these are generous
 # rather than tight; they exist to stop one bad payload from pushing a
 # multi-kilobyte line into a firmware read buffer.
+# These mirror the firmware's fixed-size store (firmware/.../include/faces.h),
+# where every byte is multiplied by MAX_FACES and by the two staging sets — so
+# they are budgets, not guesses. MAX_BOT is the measured single-line width of
+# the detail label (~296 px of 320 for 32 chars at font_sm); longer text would
+# wrap against the round bezel, so it is cut here instead.
 MAX_ID = 16
 MAX_BIG = 10
 MAX_UNIT = 4
-MAX_TOP = 20
-MAX_BOT = 48
+MAX_TOP = 16
+MAX_BOT = 34
 
 # What the big slot can actually render. `inter_clock` is a SUBSET font —
 # digits, colon, period, space, degree, plus/minus (see fonts/build_inter.py,
@@ -55,9 +60,12 @@ MAX_BOT = 48
 # the kitchen.
 BIG_CHARSET = set("0123456789:. °-+")
 
-# Cap on how many faces we keep. Well above the "a short rotation of quiet
-# faces" the concept calls for; a speaker showing 12 things is already wrong.
-MAX_FACES = 8
+# Cap on how many faces we keep — the "short rotation of quiet faces" the
+# concept calls for; a speaker cycling more than four things is wallpaper.
+# ⚠️ This is the FIRMWARE's capacity, not a taste setting — the ESP32 holds
+# MAX_FACES entries and silently drops the rest, so a higher number here would
+# not show more, it would only make the Pi lie about what it sent.
+MAX_FACES = 4
 
 # Upper bound on a single face's lifetime, so a publisher that sends a silly
 # ttl (or none at all, meaning "forever") cannot pin a face on screen for good.

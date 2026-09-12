@@ -286,8 +286,10 @@ class StandbyFaces(BaseModel):
     enabled: bool = False
     topic: str = "beatbird/hints"
     # How many faces may share the rotation. The concept asks for "a short
-    # rotation of quiet faces" — a speaker cycling eight things is wallpaper.
-    max_faces: int = Field(default=4, ge=1, le=8)
+    # rotation of quiet faces" — more than that is wallpaper, not a rotation.
+    # The ceiling is the firmware's fixed-size store (ha/faces.MAX_FACES), so a
+    # profile cannot ask for more faces than the ESP32 can actually hold.
+    max_faces: int = Field(default=4, ge=1, le=4)
     # Seconds per face before the standby screen moves on.
     dwell_s: int = Field(default=8, ge=2, le=120)
 

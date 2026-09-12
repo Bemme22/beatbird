@@ -187,3 +187,61 @@ def test_face_id_from_topic(topic, expected):
 
 def test_trailing_slash_in_configured_prefix_is_tolerated():
     assert face_id_from_topic("beatbird/hints/x", "beatbird/hints/") == "x"
+
+
+# ─── Firmware budgets ───────────────────────────────────────────────────────
+# These limits are not style, they are DRAM: every char is multiplied by
+# MAX_FACES and by the firmware's two staging sets. The first version of the
+# face code overflowed dram0_0_seg by 352 bytes in every ESP32 env, and nothing
+# caught it — the simulator has no such region and no test connected the two
+# sides. Parsing the header is ugly; discovering the mismatch as a linker error
+# on a pushed branch is uglier.
+
+def _firmware_constants() -> dict[str, int]:
+    import re
+    from pathlib import Path
+
+    header = Path(__file__).resolve().parents[1] / (
+        "firmware/amoled-1.43/include/faces.h")
+    found = dict(re.findall(r"constexpr int (\w+)\s*=\s*(\d+)", header.read_text()))
+    return {k: int(v) for k, v in found.items()}
+
+
+@pytest.mark.parametrize("py_name,fw_name", [
+    ("MAX_BIG", "LEN_BIG"),
+    ("MAX_UNIT", "LEN_UNIT"),
+    ("MAX_TOP", "LEN_TOP"),
+    ("MAX_BOT", "LEN_BOT"),
+])
+def test_field_budgets_match_the_firmware_buffers(py_name, fw_name):
+    """The Pi truncates; the firmware's buffer must hold that plus a NUL."""
+    from beatbird.ha import faces as mod
+
+    fw = _firmware_constants()
+    assert fw[fw_name] == getattr(mod, py_name) + 1, (
+        f"{py_name} and {fw_name} drifted apart — the panel would silently "
+        f"cut text the Pi considered fine")
+
+
+def test_the_pi_never_sends_more_faces_than_the_firmware_can_hold():
+    # Otherwise the surplus is dropped on the ESP32 without a word, and the
+    # bridge logs a set it did not actually show.
+    from beatbird.ha import faces as mod
+
+    assert mod.MAX_FACES == _firmware_constants()["MAX_FACES"]
+
+
+def test_the_firmware_does_not_store_what_it_never_draws():
+    # id and prio are consumed by the bridge (addressing, ordering). Storing
+    # them cost 216 bytes of the scarcest memory in this project for data no
+    # screen reads; see include/faces.h.
+    fw = _firmware_constants()
+    assert "LEN_ID" not in fw
+
+
+def test_the_face_set_fits_the_dram_budget():
+    # Two staging sets of MAX_FACES entries. 1248 bytes was the version that
+    # overflowed; this keeps the successor honest if someone adds a field.
+    fw = _firmware_constants()
+    per_face = fw["LEN_BIG"] + fw["LEN_UNIT"] + fw["LEN_TOP"] + fw["LEN_BOT"]
+    assert 2 * fw["MAX_FACES"] * per_face <= 560

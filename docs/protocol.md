@@ -165,9 +165,17 @@ small detail below (`bot`).
 | `prio` | 0–100, higher first — decides rotation **order**, not exclusivity | |
 | `big` | the far-readable value — **digits only**, see below | 10 chars |
 | `unit` | rendered small beside the value | 4 chars |
-| `top` | label above | 20 chars |
-| `bot` | detail line below, for arm's length | 48 chars |
+| `top` | label above | 16 chars |
+| `bot` | detail line below, for arm's length | 34 chars |
 | `dwell` | seconds per face; only on the `end` line | 2–120 |
+
+At most **4** faces per batch; the firmware drops the rest. `id` and `prio` are
+consumed by the bridge and are *not* stored on the ESP32 — it addresses faces by
+index and renders them in the order received, which is already priority order.
+The limits above are firmware DRAM budgets multiplied by four entries and two
+staging sets, so they are tighter than they look: `bot` at 34 chars is the
+measured single-line width of the label (the example above is 32 and spans ~296
+of 320 px), and longer text would wrap against the round bezel.
 
 **Batch semantics.** Entries accumulate into a staging set and `FACE:end` swaps
 it in. So a face that disappeared from the set is genuinely gone, and a

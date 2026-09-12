@@ -76,7 +76,7 @@ display:
   # faces:
   #   enabled: false
   #   topic: beatbird/hints  # MQTT prefix HA publishes decisions to
-  #   max_faces: 4           # 1..8 — a speaker cycling eight things is wallpaper
+  #   max_faces: 4           # 1..4 — more than that is wallpaper, not a rotation
   #   dwell_s: 8             # 2..120 seconds per face
   # For led-button (to be implemented):
   # led_pin: 18                          # GPIO pin (BCM numbering)

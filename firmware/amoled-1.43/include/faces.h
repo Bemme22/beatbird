@@ -22,6 +22,14 @@
 //
 // Storage is fixed-size on purpose. This firmware sits at ~88 % of dram0_0_seg
 // before anything is added, so a handful of small char arrays is the budget.
+//
+// ⚠️ That budget is not theoretical: the first version of this file stored an
+// `id` and a `prio` it never rendered, and budgeted `bot` at 48 chars, and the
+// two staging sets that resulted overflowed dram0_0_seg by 352 bytes in EVERY
+// ESP32 env. The simulator cannot show this (a desktop has no dram0_0_seg), so
+// a face set that fits on screen still has to be checked against the linker.
+// Rule for this struct: a field that is never drawn does not get stored, and a
+// field that is drawn is budgeted at the width that actually fits.
 // =============================================================================
 
 #include <stdint.h>
@@ -29,22 +37,30 @@
 namespace Faces {
 
 // Field budgets mirror the Pi side (src/beatbird/ha/faces.py), which already
-// folds text to ASCII and strips the protocol's own delimiters — the firmware
-// never has to unescape anything.
-constexpr int MAX_FACES = 6;
-constexpr int LEN_ID    = 17;
+// folds text to ASCII, sorts by priority, caps the count and strips the
+// protocol's own delimiters — the firmware never has to unescape anything, and
+// it keeps neither `id` nor `prio`: it addresses faces by index and renders
+// them in the order received, so storing either would cost 216 bytes of DRAM
+// to hold data nothing reads.
+// MEASURED, not chosen for looks: at 6 the link leaves 80 bytes of
+// dram0_0_seg, at 7 it is 56 bytes short. 4 is what the profiles actually
+// configure (and what the concept calls a rotation rather than wallpaper), and
+// it buys back 272 bytes — capacity nobody uses is not free here.
+constexpr int MAX_FACES = 4;
 constexpr int LEN_BIG   = 11;
 constexpr int LEN_UNIT  = 5;
-constexpr int LEN_TOP   = 21;
-constexpr int LEN_BOT   = 49;
+constexpr int LEN_TOP   = 17;
+// 34 chars is the measured limit of the detail line, not a round number: at
+// font_sm with letter_space 2 the 32-char example in docs/protocol.md spans
+// ~296 of the label's 320 px. Anything longer wraps to a second line that
+// would sit against the round bezel, so the Pi truncates to what fits.
+constexpr int LEN_BOT   = 35;
 
 struct Face {
-    char    id  [LEN_ID];
-    char    big [LEN_BIG];    // digits or a :symbol: token — never a word
-    char    unit[LEN_UNIT];
-    char    top [LEN_TOP];
-    char    bot [LEN_BOT];
-    uint8_t prio;             // higher wins; the Pi already sorted them
+    char big [LEN_BIG];    // digits — never a word (the font has no letters)
+    char unit[LEN_UNIT];
+    char top [LEN_TOP];
+    char bot [LEN_BOT];
 };
 
 /** Feed one FACE: line body (everything after "FACE:").
