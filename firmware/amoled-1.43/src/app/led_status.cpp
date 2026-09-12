@@ -420,12 +420,15 @@ static void render_twinkle(uint32_t now, RGB accent, float scale)
 // seconds is well below a resting pulse, which is what makes it read as calm
 // rather than as an alarm. Gaussian, so it has no edges anywhere.
 //
-// ⚠️ Direction runs from the chain's inner end (p=0, the joint behind the
-// driver) outwards. Whether that LOOKS like rising depends on how the strips
-// are wired into the enclosure — flip WAVE_RISING if it runs the wrong way.
-static constexpr float WAVE_PERIOD_MS = 5000.0f;
-static constexpr float WAVE_SIGMA     = 2.6f;    // pixels; hump half-width
-static constexpr bool  WAVE_RISING    = true;
+// Direction: the hump always RISES. Which chain end that is, is a wiring fact
+// — MEASURED on RobinPi 12.09.2026 by watching the strip: p=0 (the joint
+// behind the driver) is at the TOP, so rising means counting down from the
+// outer end. Stated as the wiring fact rather than as a "flip me" flag,
+// because the next enclosure can answer the same question by looking, and
+// then the intent ("rises") needs no re-reading.
+static constexpr float WAVE_PERIOD_MS   = 5000.0f;
+static constexpr float WAVE_SIGMA       = 2.6f;  // pixels; hump half-width
+static constexpr bool  CHAIN_INNER_IS_TOP = true;
 
 static void render_wave(uint32_t now, RGB c, float scale)
 {
@@ -436,7 +439,7 @@ static void render_wave(uint32_t now, RGB c, float scale)
     // Travel a little past both ends so the hump enters and leaves instead of
     // being born and dying inside the strip.
     float pos = phase * ((float)half + 2.0f * WAVE_SIGMA) - WAVE_SIGMA;
-    if (!WAVE_RISING) pos = (float)(half - 1) - pos;
+    if (CHAIN_INNER_IS_TOP) pos = (float)(half - 1) - pos;
 
     for (int p = 0; p < half; p++) {
         const float d  = ((float)p - pos) / WAVE_SIGMA;
