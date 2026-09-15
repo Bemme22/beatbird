@@ -2,6 +2,47 @@
 {% block title %}Diagnose{% endblock %}
 {% block subtitle %}Diagnose & Tuning{% endblock %}
 
+{% block head_extra %}
+<style>
+  /* ── Loudness-Panel (nativer CamillaDSP-Filter) ───────────────────────
+     Bewusst einspaltig aufgebaut: Label + Wert in einer Zeile, der Regler
+     mit seinen Stepper-Knoepfen darunter ueber die volle Breite. Am Handy
+     ist das der Unterschied zwischen "trifft man" und "trifft man nicht". */
+  .legend-l { color: var(--bb-text-3); font-size: 0.78rem; line-height: 1.5; margin: 0 0 0.7rem; }
+  .legend-l code { color: var(--bb-text-2); }
+  .l-now {
+    font-size: 0.82rem; color: var(--bb-text-2); margin: 0 0 0.8rem;
+    padding: 0.45rem 0.6rem; border-radius: 8px;
+    background: var(--bb-card-2); border: 1px solid var(--bb-line);
+  }
+  .l-now b { color: var(--bb-accent); }
+  .l-now small { color: var(--bb-text-3); }
+  .l-row {
+    display: grid; grid-template-columns: 1fr auto;
+    grid-template-areas: "lab val" "sld sld";
+    gap: 0.1rem 0.5rem; align-items: baseline;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--bb-line);
+  }
+  .l-row label { grid-area: lab; margin: 0; font-size: 0.85rem; color: var(--bb-text); }
+  .l-row label small {
+    display: block; color: var(--bb-text-3); font-size: 0.66rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .l-val { grid-area: val; color: var(--bb-accent); font-size: 0.95rem; font-weight: 600; }
+  .l-row .stepper, .l-row > input[type=range] { grid-area: sld; margin-top: 0.2rem; }
+  .l-dirty {
+    font-size: 0.78rem; color: var(--bb-alert); margin: 0.7rem 0 0;
+  }
+  .l-warn { font-size: 0.75rem; color: var(--bb-text-3); margin: 0.4rem 0 0; }
+  .l-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.8rem; }
+  .l-buttons button { margin: 0; }
+  .l-status { color: var(--pico-muted-color); font-size: 0.85rem; margin: 0.5rem 0 0; }
+  @media (max-width: 420px) {
+    .l-buttons { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- System tile — refreshes every 4 s via htmx outerHTML swap. The
      inline content is the initial render so the page doesn't flash. -->
@@ -183,6 +224,74 @@
       .then(() => { htmx.ajax('GET', '/ui/advanced/loudness', '#loudness-panel'); })
       .catch(e => { alert('Fehler: ' + e); });
   }
+
+  // ── Nativer CamillaDSP-Loudness-Filter ────────────────────────────────
+  // Regler patchen SOFORT (fluechtig) — nach Gehoer stellen heisst hoeren,
+  // waehrend man schiebt. Erst "In die Config schreiben" macht es dauerhaft.
+  // Gedrosselt, weil ein Daumen-Wisch sonst dutzende PatchConfigs ausloest.
+  var _nTimer = null;
+  function nativeBody() {
+    var b = {};
+    document.querySelectorAll('#loudness-panel input[data-key]').forEach(function (el) {
+      b[el.dataset.key] = parseFloat(el.value);
+    });
+    return b;
+  }
+  function markNativeDirty() {
+    var d = document.getElementById('n-dirty');
+    if (d) d.hidden = false;
+  }
+  function patchNative() {
+    clearTimeout(_nTimer);
+    _nTimer = setTimeout(function () {
+      fetch('/api/loudness/native', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nativeBody())
+      }).then(r => r.json()).then(function (d) {
+        if (!d.ok) { return; }
+        markNativeDirty();
+        // Die Live-Anzeige "wie viel wird gerade angehoben" mitfuehren —
+        // das ist beim Einstellen die eigentlich interessante Zahl.
+        if (d.now) {
+          var lo = document.getElementById('l-now-low');
+          var hi = document.getElementById('l-now-high');
+          if (lo) lo.textContent = d.now.low_db + ' dB';
+          if (hi) hi.textContent = '(' + d.now.high_db + ' dB oben)';
+        }
+      }).catch(function () {});
+    }, 120);
+  }
+  function saveNative() {
+    var s = document.getElementById('loudness-status');
+    s.textContent = 'Schreibe in die Config…';
+    fetch('/api/loudness/native/save', { method: 'POST' })
+      .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+      .then(function (res) {
+        if (!res.ok) { s.textContent = 'Fehler: ' + (res.d.detail || JSON.stringify(res.d)); return; }
+        s.textContent = 'In ' + res.d.path + ' geschrieben — überlebt jetzt Reload und Reboot.';
+        var dd = document.getElementById('n-dirty');
+        if (dd) dd.hidden = true;
+      })
+      .catch(function (e) { s.textContent = 'Fehler: ' + e; });
+  }
+  function revertNative() {
+    // Reload zieht die Datei-Werte zurueck in den laufenden DSP.
+    fetch('/api/reload', { method: 'POST' })
+      .then(function () { setTimeout(function () {
+        htmx.ajax('GET', '/ui/advanced/loudness', '#loudness-panel');
+      }, 600); })
+      .catch(function (e) { alert('Fehler: ' + e); });
+  }
+  // Delegiert, damit es den htmx-Swap ueberlebt: die Regler existieren beim
+  // Laden der Seite noch gar nicht.
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (!el.dataset || !el.dataset.key) return;
+    if (!el.closest('#loudness-panel')) return;
+    var v = document.getElementById(el.id + '-v');
+    if (v) v.textContent = parseFloat(el.value).toFixed(1) + ' dB';
+    patchNative();
+  });
   function persistSettings() {
     const s = document.getElementById('persist-status');
     s.textContent = 'Sichere auf Platte…';

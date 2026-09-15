@@ -1,6 +1,22 @@
 ---
-# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v1, gemessen 06.09.2026.
+# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v2, 15.09.2026.
 # Single fullrange Mark Audio Pluvia 11, PR-loaded (Dayton DS175-PR), MONO.
+#
+# ── ARCHITEKTURWECHSEL 15.09.2026 ───────────────────────────────────────────
+# Die Bridge regelt ab hier NUR NOCH DIE LAUTSTÄRKE. Alles Klangliche steht in
+# dieser Datei. Vorher rechnete die Bridge die Loudness in Python und patchte
+# bass_shelf/timpani_body per PatchConfig — mit drei Folgen:
+#   * Web-EQ-Editor und Bridge besassen DIESELBEN zwei Filter. Entschaerft nur
+#     durch ein Lock (eq_editing) — und blieb der Editor offen, stand die
+#     Kompensation still (am 15.09. 12 Minuten lang unbemerkt).
+#   * Die Kurve hing an der UI-PROZENTZAHL statt am dB-Pegel, war also zwischen
+#     Speakern mit anderem curve_gamma nicht uebertragbar.
+#   * Ein permanenter base_gain (zuletzt 5 dB) lag im Loudness-Modul und war in
+#     DIESER Datei unsichtbar — hier stand 0. Wer die Datei las, rechnete falsch.
+# Jetzt getrennt wie bei KestrelPi (configs/G-resampler.yml):
+#   dauerhafte Entzerrung   -> statische Biquads (room_130, bass_voicing, …)
+#   pegelabhaengige Anhebung -> nativer Loudness-Filter am Main-Fader
+# ⚠️ Setzt audio.loudness.enabled: false in profiles/robinpi.yml voraus.
 #
 # Amp: Louder Hat Plus 1X (TAS5825M @ 0x4c) in PBTL. The overlay sets
 # bridge_mode=1 + mixer_mode=1, so the CHIP sums L+R to mono and bridges
@@ -11,7 +27,7 @@
 # ── Messgrundlage (alles am 06.09.2026, Doku: Vault "Einmessung - BauLog") ──
 #   Nahfeld    : f_b = 44,53 Hz (Sweep) / 44,61 Hz (RTA, 05.09.) — zwei Wege, 0,2 %
 #   Anechoisch : 1 m on-axis, Gate 1,9 ms → 526 Hz–3 kHz flach ±1 dB
-#   Hörplatz   : Küche, 4 Positionen energetisch gemittelt
+#   Hoerplatz  : Kueche, 4 Positionen energetisch gemittelt
 #   A/B belegt : +3 dB @ 130 Hz kommen im Raummittel als +3,1…+4,0 dB an
 devices:
   samplerate: 48000
@@ -31,76 +47,84 @@ devices:
     format: S32_LE
 
 filters:
-  # ── Headroom für die Anhebungen dahinter. room_130 hebt immer an (+3,5 dB),
-  #    die Loudness kommt bei leiser Wiedergabe mit bis zu 4,5 dB dazu. Ohne
-  #    Vorabsenkung stapelt sich das vor dem Limiter — und der arbeitet mit
-  #    soft_clip, dessen Oberwellen im MITTELTON landen, während die Ursache im
-  #    Bass sitzt. Genau diese Verwechslung hat beim KestrelPi eine Session
-  #    gekostet. 2 dB reichen, weil die Loudness nur greift, wo ohnehin wenig
-  #    Pegel anliegt.
+  # ── Pegelabhaengige Anhebung — ersetzt die Bridge-Loudness vollstaendig.
+  #    Haengt am Main-Fader, den die Bridge per SetVolume stellt: ein Wert, ein
+  #    Ort, kein Umweg ueber Prozent. low_boost wirkt unter 70 Hz, high_boost
+  #    ueber 3500 Hz (feste Eckfrequenzen des Filters, nicht einstellbar).
+  #    Rampe: bei reference_level keine Anhebung, linear wachsend bis zur
+  #    vollen Anhebung bei reference_level − 20 dB und darunter.
+  #    RobinPis Fader spannt −60…−10 dB (vol_max_db −10), normal gehoert wird
+  #    bei −32…−22 dB ⇒ ref −25 heisst: laut unbehelligt, leise angehoben.
+  #    ⚠️ NACH GEHOER zu stellen, nicht nach Messung — bewusste Entscheidung
+  #    (Loudness-Kompensation ist subjektiv; die Messung sagt dazu nichts).
+  loudness:
+    type: Loudness
+    parameters:
+      fader: Main
+      reference_level: -25.0
+      low_boost: 8.0
+      high_boost: 0.0
+      attenuate_mid: false
+
+  # ── Headroom fuer die Anhebungen dahinter.
   headroom:
     type: Gain
     parameters: {gain: -2.0, inverted: false}
 
-  # ── Subsonic: schützt den Treiber unterhalb der gemessenen Abstimmung.
+  # ── Subsonic: schuetzt den Treiber unterhalb der gemessenen Abstimmung.
   #    f_b = 44,5 Hz gemessen ⇒ 32 Hz liegt bei 0,72·f_b, also genau dort, wo
-  #    der PR entkoppelt und der Treiberhub steil steigt. Bestätigt, unverändert.
+  #    der PR entkoppelt und der Treiberhub steil steigt.
+  #    ⚠️ Steht BEWUSST HINTER dem Loudness-Filter, damit dessen Tiefbass-
+  #    anhebung mit abgefangen wird (gleiche Reihenfolge wie bei KestrelPi).
   sub_protect:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 32, order: 4}
 
-  # ── Raumkorrektur Küche: breites Tal 90–200 Hz im Raummittel (−4…−8 dB).
-  #    ⭐ Per A/B-Sweep belegt, dass es EQ-bar ist und keine Auslöschung: +3 dB
-  #    kamen an einer Position als +2,83 dB an, im Mittel über vier Positionen
-  #    als +3,1…+4,0 dB. Wäre es eine Auslöschung, hätte sich nichts bewegt.
-  #    ⚠️ Bewusst NICHT flach gezogen — nach der Korrektur bleiben ~3 dB Senke
-  #    stehen. Eine Raumkurve gehört nicht auf Linie gebügelt.
+  # ── Raumkorrektur Kueche: breites Tal 90–200 Hz im Raummittel (−4…−8 dB).
+  #    ⭐ Per A/B-Sweep belegt, dass es EQ-bar ist und keine Ausloeschung.
+  #    ⚠️ Bewusst NICHT flach gezogen — es bleiben ~3 dB Senke stehen.
   room_130:
     type: Biquad
     parameters: {type: Peaking, freq: 130, gain: 3.5, q: 1.2}
 
-  # ── Baffle-step: 24-cm-Schallwand ⇒ Step bei ~460 Hz, im Freifeld −6 dB.
-  #    ⚠️ BLEIBT AUF 0, und das ist ein Messergebnis: am Hörplatz ist davon
-  #    nichts zu sehen (315 Hz +2,4 dB · 500 Hz −2,0 · 1–2 kHz +1,1). Die
-  #    wandnahe Aufstellung gibt zurück, was die schmale Front verliert.
-  #    Bei freier Aufstellung im Raum neu bewerten.
+  # ── Dauerhaftes Bass-Voicing. War bis 15.09. der `base_gain` der
+  #    Bridge-Loudness (10 dB, am 15.09. nach Gehoer auf 5 reduziert) und lag
+  #    damit ausserhalb dieser Datei. Frequenz und Q sind die Werte, die die
+  #    Bridge TATSAECHLICH geschrieben hat (120 Hz / q 0,6) — nicht die q 0,7,
+  #    die hier vorher als toter Platzhalter stand und nie geklungen hat.
+  bass_voicing:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 120, gain: 5.0, q: 0.6}
+  timpani_voicing:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 3.0, q: 1.0}
+
+  # ── Baffle-step: bleibt auf 0 — das ist ein Messergebnis, kein Platzhalter.
+  #    Am Hoerplatz ist vom Step nichts zu sehen; die wandnahe Aufstellung gibt
+  #    zurueck, was die schmale Front verliert. Bei freier Aufstellung neu bewerten.
   baffle_step:
     type: Biquad
     parameters: {type: Highshelf, freq: 480, gain: 0, q: 0.7}
 
-  # ── Präsenz: am Hörplatz liegt 4 kHz um 8,7 dB unter dem Mittelton,
-  #    anechoisch dagegen bei 0. Das ist BÜNDELUNG, kein Fehler des Wandlers.
-  #    ⚠️ Deshalb Platzhalter auf 0: eine Anhebung würde den Direktschall
-  #    on-axis überhöhen, um das Diffusfeld zu füllen. Wer es probieren will,
-  #    nimmt +1,5…2 dB — aber nach Gehör, nicht nach dieser Kurve.
+  # ── Praesenz: am Hoerplatz liegt 4 kHz um 8,7 dB unter dem Mittelton,
+  #    anechoisch dagegen bei 0 — das ist BUENDELUNG, kein Wandlerfehler.
   presence:
     type: Biquad
     parameters: {type: Peaking, freq: 4000, gain: 0, q: 0.7}
 
-  # ── Loudness targets (the bridge boosts these at low volume) — flat base.
-  #    Names MUST match audio.loudness.filters in profiles/robinpi.yml.
-  #    ⚠️ NICHT für Raumkorrektur zweckentfremden: die Bridge überschreibt den
-  #    gain dieser beiden Filter laufend. Feste Entzerrung gehört in room_130.
-  bass_shelf:
-    type: Biquad
-    parameters: {type: Lowshelf, freq: 120, gain: 0, q: 0.7}
-  timpani_body:
-    type: Biquad
-    parameters: {type: Peaking, freq: 70, gain: 0, q: 1.0}
-
-  # ── Soft clip: loudness adds bass boost at low vol; cap peaks at high vol so
-  #    a hot track distorts gracefully instead of hard-clipping.
+  # ── Soft clip: faengt Spitzen ab, statt hart zu clippen.
   #    ⚠️ GetClippedSamples ist bei soft_clip: true blind — im Zweifel
-  #    GetSignalLevels lesen, nicht den Clipping-Zähler.
+  #    GetSignalLevels lesen, nicht den Clipping-Zaehler.
   fullrange_limiter:
     type: Limiter
     parameters: {clip_limit: -1.0, soft_clip: true}
 
 pipeline:
   # Same chain on both channels — the amp sums them (mixer_mode=1) to mono.
-  # Reihenfolge: erst Headroom, dann Schutz, dann feste Entzerrung, dann die
-  # variablen Loudness-Ziele, Limiter zuletzt.
+  # Reihenfolge: Loudness ganz vorn (wie KestrelPi), damit der Subsonic dahinter
+  # die Tiefbassanhebung begrenzt; dann Headroom, feste Entzerrung, Limiter zuletzt.
   - type: Filter
     channels: [0, 1]
-    names: [headroom, sub_protect, room_130, baffle_step, presence,
-            bass_shelf, timpani_body, fullrange_limiter]
+    names: [loudness, headroom, sub_protect, room_130,
+            bass_voicing, timpani_voicing, baffle_step, presence,
+            fullrange_limiter]

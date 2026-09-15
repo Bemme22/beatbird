@@ -103,6 +103,36 @@
     .pill.src-bluetooth{ background: #3F8CFF; color: #001a3d; border-color: #3F8CFF; }
     .pill.src-snapcast { background: #A678FF; color: #1e0f33; border-color: #A678FF; }
     .num { font-variant-numeric: tabular-nums; }
+
+    /* ── Regler am Smartphone ────────────────────────────────────────────
+       Der Pico-Default-Thumb ist am Handy kaum zu treffen, und auf der
+       EQ-Seite bleiben einem Regler in der Grid-Spalte nur ~120 px Spur —
+       bei ±24 dB sind das 0,4 dB pro Pixel. Zwei Hebel dagegen:
+         1. groesseres Touch-Ziel (>= 44 px, Apple-HIG/WCAG-Richtwert)
+         2. Stepper-Knoepfe, die stepperize() unten an JEDEN Regler haengt.
+       Der eigentliche Gewinn sind die Knoepfe: ein Tap = genau ein `step`,
+       exakt und ohne Zielen. Der Regler bleibt fuer die grobe Fahrt. */
+    input[type=range] {
+      height: 2.6rem;        /* Touch-Ziel, nicht Spurhoehe */
+      touch-action: pan-y;   /* vertikales Scrollen bleibt moeglich */
+      margin: 0;
+    }
+    input[type=range]::-webkit-slider-thumb { width: 1.7rem; height: 1.7rem; }
+    input[type=range]::-moz-range-thumb { width: 1.7rem; height: 1.7rem; }
+
+    .stepper { display: flex; align-items: center; gap: 0.35rem; }
+    .stepper > input[type=range] { flex: 1 1 auto; min-width: 2rem; }
+    .stepper > button.step {
+      flex: 0 0 auto; width: 2.5rem; height: 2.5rem; padding: 0; margin: 0;
+      font-size: 1.2rem; line-height: 1; font-weight: 600;
+      background: var(--bb-card-2); color: var(--bb-text);
+      border: 1px solid var(--bb-line); border-radius: 0.55rem;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;   /* kein 300-ms-Delay, kein Doppeltipp-Zoom */
+      user-select: none;
+    }
+    .stepper > button.step:active { background: var(--bb-accent); color: var(--bb-inverse); }
+    .stepper > button.step:disabled { opacity: 0.35; }
   </style>
   {% block head_extra %}{% endblock %}
 </head>
@@ -127,6 +157,58 @@
     {% endblock %}
   </nav>
   <script>
+    // ── Stepper-Knoepfe an jeden Regler ─────────────────────────────────
+    // Haengt links/rechts von jedem <input type=range> ein − und ein +.
+    // Ein Tap = genau ein `step` — am Handy der einzige Weg, 0,5 dB sicher
+    // zu treffen. Laeuft zentral hier, damit Dashboard, EQ, Loudness und
+    // Settings dieselbe Bedienung bekommen, ohne es je zu wiederholen.
+    //
+    // Nach dem Setzen feuern wir `input` UND `change`: htmx horcht auf
+    // "input changed", die Seiten-Skripte teils auf `change`. Ohne beides
+    // bewegt sich der Regler, aber niemand erfaehrt davon.
+    window.stepperize = (function () {
+      function decimalsOf(step) {
+        var s = String(step || '1');
+        return s.indexOf('.') >= 0 ? s.split('.')[1].length : 0;
+      }
+      function make(range, dir) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'step';
+        b.textContent = dir < 0 ? '−' : '+';   // echtes Minus, kein Bindestrich
+        b.setAttribute('aria-label', (dir < 0 ? 'kleiner' : 'groesser'));
+        b.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          var step = parseFloat(range.step) || 1;
+          var min = parseFloat(range.min), max = parseFloat(range.max);
+          var v = (parseFloat(range.value) || 0) + dir * step;
+          if (!isNaN(min)) v = Math.max(min, v);
+          if (!isNaN(max)) v = Math.min(max, v);
+          // Auf die Schrittweite runden — sonst sammeln sich Fliesskomma-
+          // reste (0.1+0.2) und der Wert driftet neben das Raster.
+          range.value = v.toFixed(decimalsOf(range.step));
+          range.dispatchEvent(new Event('input', { bubbles: true }));
+          range.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        return b;
+      }
+      return function (root) {
+        (root || document).querySelectorAll('input[type=range]').forEach(function (r) {
+          if (r.dataset.stepped) return;      // htmx swapt Panels mehrfach ein
+          r.dataset.stepped = '1';
+          var wrap = document.createElement('div');
+          wrap.className = 'stepper';
+          r.parentNode.insertBefore(wrap, r);
+          wrap.appendChild(make(r, -1));
+          wrap.appendChild(r);                 // verschiebt den Regler in den Wrapper
+          wrap.appendChild(make(r, +1));
+        });
+      };
+    })();
+    stepperize(document);
+    // Panels der Diagnose-Seite kommen per htmx nachtraeglich rein.
+    document.body.addEventListener('htmx:afterSwap', function (e) { stepperize(e.target); });
+
     // Highlight the nav link for the current page (exact match, with "/"
     // treated as the dashboard root). Pure client-side so the partials
     // and htmx swaps never need to care about it.

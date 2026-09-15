@@ -1,8 +1,18 @@
-<!-- Voicing panel — "Bass laut" = base_gain (gain at high volume),
-     "Bass leise" = base+max_boost (gain at the lowest volume). Saved to
-     settings-overrides; the bridge applies it live (≤5 s) and it survives
-     reboot. saveLoudness()/resetLoudness() live in advanced.html so they
-     survive the htmx innerHTML swap (inline <script> here would not run). -->
+<!-- Loudness-Panel. Zwei Betriebsarten, weil nicht jeder Speaker gleich weit ist:
+
+     NATIV (l.native, seit 15.09.2026 auf RobinPi) — CamillaDSPs eigener
+     Loudness-Filter haengt am Main-Fader. Zwei Zahlen: ab WANN angehoben wird
+     (reference_level) und WIE VIEL maximal (low_boost/high_boost). Aenderungen
+     sind zunaechst fluechtig; "In die Config schreiben" macht sie dauerhaft.
+     Bewusst getrennt: nach Gehoer stellen heisst probieren, und nicht jeder
+     Zwischenstand gehoert in die Datei.
+
+     BRIDGE (l.enabled) — der alte Python-Weg mit base_gain/max_boost je Filter.
+     Bleibt fuer Speaker, die noch nicht umgestellt sind.
+
+     saveLoudness()/resetLoudness()/patchNative()/saveNative() liegen in
+     advanced.html, damit sie den htmx-innerHTML-Swap ueberleben (ein inline
+     <script> hier wuerde nicht ausgefuehrt). -->
 {% if l.suspended %}
   <p style="margin:0 0 0.8rem;padding:0.5rem 0.7rem;border:1px solid var(--bb-accent);
             border-radius:0.5rem;color:var(--bb-accent);font-size:0.85rem">
@@ -10,9 +20,67 @@
     Läuft von selbst wieder an, sobald die Sitzung abläuft.
   </p>
 {% endif %}
-{% if not l.enabled %}
-  <span style="color:var(--pico-muted-color)">Loudness ist im Profil deaktiviert.</span>
-{% else %}
+{% if l.native %}
+  {% set n = l.native %}
+  <p class="legend-l">
+    Pegelabhängige Anhebung über <b>CamillaDSPs eigenen Loudness-Filter</b>
+    (<code>{{ n.name }}</code>, Fader <code>{{ n.fader }}</code>).
+    Er liest die Lautstärke selbst — egal ob sie vom Handy, vom Display-Knopf
+    oder von Spotify kommt.
+    <br>Keine Anhebung bei <b>{{ n.reference_level }} dB</b>, voll bei
+    <b>{{ n.now.full_at_db if n.now else '—' }} dB</b> und darunter
+    (Rampe {{ n.ramp_db }} dB, linear).
+    <code>low_boost</code> wirkt unter 70 Hz, <code>high_boost</code> über 3500 Hz.
+  </p>
+
+  {% if n.now %}
+  <p class="l-now">
+    Gerade: Fader <b class="num">{{ n.now.volume_db }} dB</b> →
+    Anhebung <b class="num" id="l-now-low">{{ n.now.low_db }} dB</b> unten
+    <span class="num" id="l-now-high">({{ n.now.high_db }} dB oben)</span>
+    <small>— {{ (n.now.fraction * 100) | round | int }} % der Rampe</small>
+  </p>
+  {% endif %}
+
+  <div class="l-row">
+    <label for="n-ref">ab wann <small>reference_level</small></label>
+    <span class="num l-val" id="n-ref-v">{{ n.reference_level }} dB</span>
+    <input id="n-ref" type="range" min="-60" max="0" step="0.5"
+           value="{{ n.reference_level }}" data-key="reference_level">
+  </div>
+  <div class="l-row">
+    <label for="n-low">wie viel unten <small>low_boost &lt; 70 Hz</small></label>
+    <span class="num l-val" id="n-low-v">{{ n.low_boost }} dB</span>
+    <input id="n-low" type="range" min="0" max="20" step="0.5"
+           value="{{ n.low_boost }}" data-key="low_boost">
+  </div>
+  <div class="l-row">
+    <label for="n-high">wie viel oben <small>high_boost &gt; 3,5 kHz</small></label>
+    <span class="num l-val" id="n-high-v">{{ n.high_boost }} dB</span>
+    <input id="n-high" type="range" min="0" max="20" step="0.5"
+           value="{{ n.high_boost }}" data-key="high_boost">
+  </div>
+
+  <p id="n-dirty" class="l-dirty" {% if not n.dirty %}hidden{% endif %}>
+    ⚠️ Live geändert, aber noch nicht in <code>{{ n.path }}</code> —
+    ein Reload verwirft das.
+  </p>
+
+  <div class="l-buttons">
+    <button onclick="saveNative()" {% if not n.writable %}disabled{% endif %}>
+      In die Config schreiben
+    </button>
+    <button class="secondary outline" onclick="revertNative()">Datei-Stand laden</button>
+  </div>
+  {% if not n.writable %}
+    <p class="l-warn">
+      <code>{{ n.path }}</code> ist für diesen Dienst nicht schreibbar —
+      Speichern deaktiviert. Werte bleiben bis zum nächsten Reload aktiv.
+    </p>
+  {% endif %}
+  <p id="loudness-status" class="l-status"></p>
+
+{% elif l.enabled %}
   {% for f in l.filters %}
   <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:0.6rem;align-items:center;margin:0.4rem 0">
     <label style="color:var(--pico-muted-color);font-size:0.8rem">{{ f.name }}<br><small>@{{ f.freq }} Hz</small></label>
@@ -43,4 +111,10 @@
     <button class="secondary outline" onclick="resetLoudness()">Auf Profil zurücksetzen</button>
   </div>
   <p id="loudness-status" style="color:var(--pico-muted-color);font-size:0.85rem;margin:0.4rem 0 0"></p>
+
+{% else %}
+  <span style="color:var(--pico-muted-color)">
+    Loudness ist im Profil deaktiviert und es läuft kein nativer
+    Loudness-Filter in der DSP-Config.
+  </span>
 {% endif %}

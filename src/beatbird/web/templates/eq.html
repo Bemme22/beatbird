@@ -25,6 +25,29 @@
   .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-text-2); font-size: 0.76rem; text-align: right; }
   #status { font-size: 0.78rem; color: var(--bb-text-2); margin-left: 0.5rem; }
   .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
+
+  /* ── Schmale Displays ───────────────────────────────────────────────────
+     Das Drei-Spalten-Raster (96px Name | Regler | 56px Wert) laesst dem
+     Regler auf einem 360-px-Handy ~120 px Spur — mit den Stepper-Knoepfen
+     davon noch weniger. Unter 560 px deshalb stapeln: Name als eigene
+     Zeile, darunter pro Regler "Label + Wert" und die Spur ueber die volle
+     Breite. Das macht aus ~120 px rund 320 px, also 2,7x feiner. */
+  @media (max-width: 560px) {
+    .band { grid-template-columns: 1fr; gap: 0.35rem; padding: 0.7rem 0; }
+    .band .nm { grid-column: 1; }
+    .ctlrow {
+      grid-column: 1;
+      grid-template-columns: auto 1fr;   /* Label links, Wert rechts */
+      grid-template-areas: "lab val" "sld sld";
+      gap: 0.15rem 0.5rem;
+    }
+    .ctlrow label { grid-area: lab; }
+    .ctlrow .v { grid-area: val; }
+    .ctlrow .stepper { grid-area: sld; }
+    /* Sicherheitsnetz: ein noch nicht gestepperter Regler (JS aus) darf
+       nicht in der Label-Spalte landen. */
+    .ctlrow > input[type=range] { grid-area: sld; }
+  }
 </style>
 {% endblock %}
 
