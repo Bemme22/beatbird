@@ -179,14 +179,18 @@
         b.setAttribute('aria-label', (dir < 0 ? 'kleiner' : 'groesser'));
         b.addEventListener('click', function (ev) {
           ev.preventDefault();
-          var step = parseFloat(range.step) || 1;
+          // `data-step` entkoppelt den TAP vom Drag-Raster: der Frequenz-
+          // regler braucht feine Schritte beim Ziehen (sonst rasten beim
+          // Rendern vorhandene Werte auf ein grobes Raster und veraendern
+          // sich stillschweigend), aber ein Tap soll hoerbar etwas tun.
+          var step = parseFloat(range.dataset.step || range.step) || 1;
           var min = parseFloat(range.min), max = parseFloat(range.max);
           var v = (parseFloat(range.value) || 0) + dir * step;
           if (!isNaN(min)) v = Math.max(min, v);
           if (!isNaN(max)) v = Math.min(max, v);
           // Auf die Schrittweite runden — sonst sammeln sich Fliesskomma-
           // reste (0.1+0.2) und der Wert driftet neben das Raster.
-          range.value = v.toFixed(decimalsOf(range.step));
+          range.value = v.toFixed(decimalsOf(range.dataset.step || range.step));
           range.dispatchEvent(new Event('input', { bubbles: true }));
           range.dispatchEvent(new Event('change', { bubbles: true }));
         });
