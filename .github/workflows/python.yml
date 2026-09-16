@@ -45,10 +45,12 @@ jobs:
           # (imported by test_serial_escape) needs pyserial even though
           # the actual test only exercises a pure static method —
           # importing the class still runs `import serial` at module
-          # load time. No need for fastapi/paho-mqtt/jinja2/websocket-
-          # client since none of the test modules touch the bridge,
-          # webserver, or DSP WS client.
-          pip install pydantic pyyaml pyserial pytest ruff
+          # load time. Likewise fastapi + jinja2: test_webserver_status
+          # exercises pure derivation functions, but importing the module
+          # they live in runs its FastAPI/Jinja imports first.
+          # Still no paho-mqtt / websocket-client — nothing under tests/
+          # reaches the bridge or the DSP websocket client.
+          pip install pydantic pyyaml pyserial pytest ruff fastapi jinja2
 
       - name: ruff
         # Linter only — formatter run is separate (and noisier).

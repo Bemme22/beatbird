@@ -51,23 +51,58 @@
       wrap.innerHTML = '<div class="empty">Noch keine gekoppelten Geräte.</div>';
       return;
     }
+    // Built as DOM nodes, not interpolated HTML. A device alias is whatever
+    // the phone advertises: an apostrophe ("Steffen's iPhone") used to break
+    // the onclick string literal so "Vergessen" silently stopped working, and
+    // a crafted name went straight into innerHTML as markup. The htmx partial
+    // (_bluetooth.html) renders the same data through Jinja's autoescape —
+    // this page was the one hand-rolled path without that protection.
+    const badge = (on, text) => {
+      const s = document.createElement('span');
+      s.className = 'badge ' + (on ? 'on' : 'off');
+      s.textContent = text;
+      return s;
+    };
+    const button = (cls, text, onClick) => {
+      const b = document.createElement('button');
+      b.className = cls;
+      b.textContent = text;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+
     for (const d of j.devices) {
       const row = document.createElement('div');
       row.className = 'dev';
-      row.innerHTML = `
-        <div>
-          <div class="name">${d.alias || '(unbenannt)'}</div>
-          <div class="meta">
-            ${d.connected ? '<span class="badge on">connected</span>' : '<span class="badge off">offline</span>'}
-            ${d.trusted ? '<span class="badge on">trusted</span>' : '<span class="badge off">untrusted</span>'}
-            <span style="margin-left:.4em">${d.mac}</span>
-          </div>
-        </div>
-        <div class="actions">
-          <button class="secondary outline" onclick="act('${d.mac}','${d.trusted ? 'untrust' : 'trust'}')">${d.trusted ? 'Untrust' : 'Trust'}</button>
-          ${d.connected ? `<button class="secondary outline" onclick="act('${d.mac}','disconnect')">Trennen</button>` : ''}
-          <button class="secondary" onclick="forget('${d.mac}','${d.alias}')">Vergessen</button>
-        </div>`;
+
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = d.alias || '(unbenannt)';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.append(
+        badge(d.connected, d.connected ? 'connected' : 'offline'),
+        badge(d.trusted, d.trusted ? 'trusted' : 'untrusted'),
+      );
+      const macEl = document.createElement('span');
+      macEl.style.marginLeft = '.4em';
+      macEl.textContent = d.mac;
+      meta.appendChild(macEl);
+      info.append(name, meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      actions.appendChild(button('secondary outline', d.trusted ? 'Untrust' : 'Trust',
+                                 () => act(d.mac, d.trusted ? 'untrust' : 'trust')));
+      if (d.connected) {
+        actions.appendChild(button('secondary outline', 'Trennen',
+                                   () => act(d.mac, 'disconnect')));
+      }
+      actions.appendChild(button('secondary', 'Vergessen',
+                                 () => forget(d.mac, d.alias)));
+
+      row.append(info, actions);
       wrap.appendChild(row);
     }
   }

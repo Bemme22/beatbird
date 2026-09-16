@@ -1,18 +1,18 @@
 """
 beatbird.webserver — diagnostics / control UI on http://<host>.local:8080
 
-Entities exposed:
-  GET  /                   — HTML dashboard
-  GET  /api/profile        — the active profile (sanitised)
-  GET  /api/status         — live status snapshot
-  GET  /api/filters        — current CamillaDSP filter list (name + gain + freq + q)
-  GET  /api/logs           — Server-Sent Events stream of `journalctl -fu beatbird-bridge`
-  POST /api/volume         — {"pct": 42}
-  POST /api/playback       — {"cmd": "PLAY"|"PAUSE"|"PLAYPAUSE"|"NEXT"|"PREV"}
-  POST /api/reload         — reload the CamillaDSP config from disk
-  POST /api/filter         — {"name": "bass_shelf", "gain": 6.5} live-patch one filter
-  POST /api/service        — {"name": "beatbird-bridge|camilladsp|go-librespot", "action": "restart"}
-  POST /api/system         — {"action": "reboot"|"shutdown"}
+Surfaces, by group (the route decorators below are the authoritative list —
+this listing had gone stale at 11 of 47 entries, so it names groups now
+rather than pretending to enumerate):
+
+  Pages        /, /advanced, /eq, /settings, /bluetooth, /health
+  htmx bits    /ui/*                — HTML partials for the pages above
+  Read API     /api/{profile,status,filters,health,diag,volume,
+                     settings,loudness,dsp-configs,dsp-health,
+                     eq/bands,bluetooth,logs}
+  Write API    /api/{volume,playback,reload,filter,service,system,
+                     settings,loudness,persist,dsp-config,
+                     eq/band,eq/suspend,bluetooth/*}
 
 The webserver does NOT import the running bridge directly. It talks to the
 same underlying services (CamillaDSP over websocket, go-librespot over
@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -64,16 +65,29 @@ _spotify = SpotifyClient()
 # POST can't restart arbitrary units on the Pi.
 _ALLOWED_SERVICES = {"beatbird-bridge", "camilladsp", "go-librespot", "snapclient"}
 
-# CamillaDSP filters the web UI is allowed to patch. Keeps random POSTs
-# from blowing up the pipeline by editing crossovers / limiters etc.
-_TUNABLE_FILTERS = {"bass_shelf", "sub_punch", "timpani_body", "fullness"}
-
 
 def _get_profile():
     global _profile
     if _profile is None:
         _profile = load_profile()
     return _profile
+
+
+def _tunable_filters() -> set[str]:
+    """CamillaDSP filters the web UI may live-patch — i.e. exactly the ones
+    this speaker's profile hands to the loudness controller.
+
+    Derived, not hardcoded: a fixed set here was speaker-specific state living
+    in code (the very thing profiles exist to prevent), and it had drifted out
+    of sync in both directions — it listed `fullness`, which is static voicing
+    in no profile's loudness list, and omitted `air_lift`, which IS one on
+    beat-1 and beatpimini. The result was a "Loudness — Live tuning" card that
+    offered a filter the bridge never touches while hiding one it does, and an
+    EQ-editor badge that marked the wrong bands.
+
+    Structural filters (crossovers, limiters, sub-protect) are still excluded
+    by construction, since a profile only ever lists tonal filters here."""
+    return {f.name for f in _get_profile().audio.loudness.filters}
 
 
 def _display_name() -> str:
@@ -174,9 +188,10 @@ def get_filters():
     cfg = _dsp.get_config()
     if not cfg:
         return {"filters": []}
+    tunable = _tunable_filters()
     out = []
     for name, body in (cfg.get("filters") or {}).items():
-        if name not in _TUNABLE_FILTERS:
+        if name not in tunable:
             continue
         params = body.get("parameters", {}) if isinstance(body, dict) else {}
         out.append({
@@ -243,7 +258,7 @@ def set_filter(req: FilterReq):
     """Live-patch a single filter's gain via CamillaDSP. Volatile —
     the change reverts on `systemctl reload camilladsp`. Persisting
     into the profile YAML is V2."""
-    if req.name not in _TUNABLE_FILTERS:
+    if req.name not in _tunable_filters():
         raise HTTPException(400, f"filter {req.name!r} not in tunable allowlist")
     if not -20.0 <= req.gain <= 20.0:
         raise HTTPException(400, "gain must be -20..+20 dB")
@@ -736,6 +751,7 @@ def get_eq_bands():
     cfg = _dsp.get_config()
     if not cfg:
         return {"bands": [], "samplerate": 48000}
+    tunable = _tunable_filters()
     bands = []
     for name, body in (cfg.get("filters") or {}).items():
         if not isinstance(body, dict) or body.get("type") != "Biquad":
@@ -745,7 +761,7 @@ def get_eq_bands():
             continue
         bands.append({"name": name, "type": p.get("type"), "freq": p.get("freq"),
                       "gain": p.get("gain"), "q": p.get("q"),
-                      "loudness": name in _TUNABLE_FILTERS})
+                      "loudness": name in tunable})
     sr = (cfg.get("devices") or {}).get("samplerate", 48000)
     return {"bands": bands, "samplerate": sr}
 
@@ -948,9 +964,20 @@ def _read_meminfo() -> dict:
 def _disk_free_root() -> dict:
     """`/` is overlay tmpfs on the speakers — what shrinks is RAM-backed.
     We report both the usable / view and /media/root-rw (the tmpfs upper
-    layer) so users can see what's actually free."""
+    layer) so users can see what's actually free.
+
+    Every key is ALWAYS present, None where unavailable. Omitting them was a
+    trap for the templates: `/media/root-rw` only exists on overlayroot
+    speakers, and Jinja resolves a missing dict key to Undefined — which is
+    not None, so `{% if ... is not none %}` passed on exactly the machines
+    that have no upper layer and rendered "Overlay (RAM, tmpfs):  MB /  MB"
+    with empty numbers. A key that is sometimes absent and sometimes not is
+    the kind of contract that reads fine and renders wrong."""
     import shutil
-    out: dict = {}
+    out: dict = {
+        "root_total_mb": None, "root_used_mb": None, "root_free_mb": None,
+        "upper_total_mb": None, "upper_used_mb": None, "upper_free_mb": None,
+    }
     try:
         u = shutil.disk_usage("/")
         out["root_total_mb"] = u.total // (1024 * 1024)
@@ -959,6 +986,7 @@ def _disk_free_root() -> dict:
     except OSError:
         pass
     try:
+        # Absent on a plain rw root (LoungePi, KestrelPi) — not an error.
         u = shutil.disk_usage("/media/root-rw")
         out["upper_total_mb"] = u.total // (1024 * 1024)
         out["upper_used_mb"]  = u.used  // (1024 * 1024)
@@ -968,26 +996,28 @@ def _disk_free_root() -> dict:
     return out
 
 
-@app.get("/api/diag")
-def diag():
-    mi = _read_meminfo()
-    mem_total = mi.get("MemTotal", "")
-    mem_avail = mi.get("MemAvailable", "")
-    # bt active codec via the bridge's BT source state if available
-    bt_codec = None
-    bt_alias = None
+# Snapcast snapshot, cached. Every read goes through here so the dashboard's
+# 2 s poll and the /advanced card's 5 s poll share one TCP round-trip to the
+# snapserver instead of each opening their own.
+_SNAP_TTL_S = 4.0
+_snap_cache: tuple[float, dict] = (0.0, {})
+
+
+def _snapcast_snapshot(max_age_s: float = _SNAP_TTL_S) -> dict:
+    """Current Snapcast state for this speaker, or {} when not configured.
+    Shape matches what the /advanced card and the dashboard pill expect;
+    {"error": ...} when the server is configured but unreachable."""
+    global _snap_cache
+    now = time.monotonic()
+    ts, cached = _snap_cache
+    if now - ts < max_age_s:
+        return cached
+
+    snap: dict = {}
     try:
-        active = bt._list_connected_devices()  # type: ignore
-        if active:
-            bt_alias = active[0].alias
-    except Exception:
-        pass
-    # snapcast — bridge's poll already keeps state; expose via the
-    # bridge's state file or by re-querying the server. Cheap re-query:
-    snap = {}
-    try:
-        snap_host = os.environ.get("BEATBIRD_SNAPCAST_SERVER", "").strip()
-        if snap_host:
+        snap_host = (os.environ.get("BEATBIRD_SNAPCAST_SERVER", "").strip()
+                     or _get_profile().sources.snapcast.server)
+        if snap_host and _get_profile().sources.snapcast.enabled:
             from beatbird.sources.snapcast import SnapcastClient, get_local_wlan_mac
             mac = get_local_wlan_mac()
             if mac:
@@ -1005,6 +1035,25 @@ def diag():
                     }
     except Exception as e:
         snap = {"error": str(e)}
+    _snap_cache = (now, snap)
+    return snap
+
+
+@app.get("/api/diag")
+def diag():
+    mi = _read_meminfo()
+    mem_total = mi.get("MemTotal", "")
+    mem_avail = mi.get("MemAvailable", "")
+    # bt active codec via the bridge's BT source state if available
+    bt_codec = None
+    bt_alias = None
+    try:
+        active = bt._list_connected_devices()  # type: ignore
+        if active:
+            bt_alias = active[0].alias
+    except Exception:
+        pass
+    snap = _snapcast_snapshot()
     return {
         "firmware_version": _read_fw_version(),
         "uptime_s":         _read_uptime_seconds(),
@@ -1051,28 +1100,56 @@ def _bt_context() -> dict:
 def _status_for_template() -> dict:
     """Same shape get_status returns but post-processed for the template
     layer: playback as a string ("Playing"/"Paused"/"Stopped"), source as
-    a tag, title/artist flattened from the nested spotify state."""
+    a tag, title/artist flattened from the active source's state.
+
+    Precedence is "something is actually playing" before "something is merely
+    attached". Snapcast comes first because a multiroom stream is pushed at us
+    and is the least ambiguous signal; Spotify next; a connected Bluetooth
+    phone only wins when neither is producing audio. The old order let a
+    *connected but idle* phone relabel the pill to Bluetooth while the title
+    and artist underneath still came from a playing Spotify — two sources
+    contradicting each other in one card.
+
+    Snapcast was missing here entirely: the template has always had a
+    `src-snapcast` pill, but nothing ever set that value, so it could not
+    render. That went unnoticed while no speaker used Snapcast and became
+    visible the moment RobinPi got a Music Assistant target."""
     raw = get_status()
     sp = raw.get("spotify") or {}
-    if sp and not sp.get("stopped"):
+    spotify_active = bool(sp) and not sp.get("stopped")
+
+    snap = _snapcast_snapshot()
+    snap_playing = bool(snap.get("playing"))
+
+    try:
+        bt_connected = any(d.connected for d in bt.list_paired_devices())
+    except Exception:
+        bt_connected = False
+
+    if snap_playing:
+        playback = "Playing"
+        source = "snapcast"
+        title = snap.get("title") or ""
+        artist = snap.get("artist") or ""
+    elif spotify_active:
         playback = "Paused" if sp.get("paused") else "Playing"
         source = "spotify"
         title = sp.get("title") or ""
         artist = sp.get("artist") or ""
+    elif bt_connected:
+        # bluealsa knows whether the link is actually streaming; the web layer
+        # deliberately does not talk to the bridge, so "connected" is as far as
+        # it can honestly go. Left as Stopped rather than guessing Playing.
+        playback = "Stopped"
+        source = "bluetooth"
+        title = ""
+        artist = ""
     else:
         playback = "Stopped"
         source = "none"
         title = ""
         artist = ""
-    # BT-active overrides Spotify-stopped: if a phone is streaming the
-    # bridge sees source=bluetooth in its own state. The web layer can't
-    # query the bridge directly, so we just check whether any device is
-    # currently connected — close enough for the dashboard pill.
-    try:
-        if any(d.connected for d in bt.list_paired_devices()):
-            source = "bluetooth"
-    except Exception:
-        pass
+
     return {
         **raw,
         "playback": playback,
@@ -1242,15 +1319,12 @@ def ui_advanced_system_action(action: str):
     return HTMLResponse("")
 
 
-# ─── Legacy inline HTML blob — replaced by templates/dashboard.html.
-# Kept here only because removing it would require a parallel surgery
-# on the duplicated `@app.get("/")` route below. The route was already
-# replaced by the Jinja-based dashboard() above; this old definition is
-# now unreachable (FastAPI uses the first match) but harmless. Marking
-# both for deletion in a follow-up to keep this commit focused.
-
-
 # ─── /health page — one-glance network + service diagnostics ─────────────────
+#
+# The one page still built from an inline string rather than base.html, so it
+# does not carry the speaker's theme. Deliberate: it is the page you open when
+# something is broken, and it must not depend on the template stack, the
+# palette or the profile load path to render.
 
 _HEALTH_HTML = """<!doctype html>
 <html lang="en"><head>
