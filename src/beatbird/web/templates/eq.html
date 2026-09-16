@@ -21,8 +21,24 @@
   .ctlrow { grid-column: 2 / 4; display: grid; grid-template-columns: 38px 1fr 52px; gap: 0.5rem;
             align-items: center; }
   .ctlrow label { color: var(--bb-text-3); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  .ctlrow input[type=range] { margin: 0; }
-  .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-text-2); font-size: 0.76rem; text-align: right; }
+
+  /* ── Keine Slider hier, nur Tasten ──────────────────────────────────────
+     Ein <input type=range> springt bei einem Tipper auf die Spur dorthin,
+     und weil jede Aenderung sofort live geht, war das der schnellste Weg,
+     sich ein Band zu zerschiessen (am 15.09. real passiert: baffle_step
+     480 -> 9955 Hz, room_130 q 1,2 -> 7,8).
+     Der Regler BLEIBT im DOM — er ist weiterhin der Wertespeicher, an dem
+     Raster, Min/Max und das logarithmische Frequenz-Mapping haengen. Nur
+     sichtbar ist er nicht mehr; bedient wird ueber die beiden Tasten.
+     Der einzige Vorteil, den er hatte (schnell durch den Bereich fahren),
+     steckt jetzt im Halten der Taste. */
+  .ctlrow .stepper > input[type=range] { display: none; }
+  .ctlrow .stepper { gap: 0.5rem; }
+  .ctlrow .stepper > button.step { flex: 1 1 0; height: 2.9rem; font-size: 1.35rem; }
+  /* Der Zahlenwert ist jetzt die einzige numerische Rueckmeldung (die Kurve
+     oben zeigt nur die Summe) — also darf er nicht mehr klein und grau sein. */
+  .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-accent);
+               font-size: 0.9rem; font-weight: 600; text-align: right; }
   #status { font-size: 0.78rem; color: var(--bb-text-2); margin-left: 0.5rem; }
   .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
 
@@ -65,7 +81,9 @@
 {% block content %}
 <p class="legend">Grafischer EQ über die tonalen CamillaDSP-Bänder (Peaking / Shelf). Änderungen greifen
   <b>live</b> (PatchConfig) und sind <em>flüchtig</em> — ein <code>reload camilladsp</code> stellt das
-  Profil wieder her. Struktur-Filter (Crossover, Sub-Schutz) sind bewusst ausgeblendet.</p>
+  Profil wieder her. Struktur-Filter (Crossover, Sub-Schutz) sind bewusst ausgeblendet.
+  <br>Bedienung über <b>− / +</b>: ein Tipp ist ein Schritt (Gain 0,5 dB · Q 0,1 · Freq ≈ 1/12 Oktave),
+  <b>gedrückt halten</b> fährt schnell durch den Bereich.</p>
 
 <!-- Standardmässig AUS: load() blendet den Hinweis nur ein, wenn die Bridge
      tatsächlich eines der Bänder besitzt. Sonst stünde hier eine Warnung vor

@@ -177,15 +177,15 @@
         b.className = 'step';
         b.textContent = dir < 0 ? '−' : '+';   // echtes Minus, kein Bindestrich
         b.setAttribute('aria-label', (dir < 0 ? 'kleiner' : 'groesser'));
-        b.addEventListener('click', function (ev) {
-          ev.preventDefault();
-          // `data-step` entkoppelt den TAP vom Drag-Raster: der Frequenz-
-          // regler braucht feine Schritte beim Ziehen (sonst rasten beim
-          // Rendern vorhandene Werte auf ein grobes Raster und veraendern
-          // sich stillschweigend), aber ein Tap soll hoerbar etwas tun.
+
+        function bump(mult) {
+          // `data-step` entkoppelt den TAP vom Regler-Raster: der Frequenz-
+          // regler braucht ein feines `step` (sonst rasten beim Rendern
+          // vorhandene Werte auf ein grobes Raster und veraendern sich
+          // stillschweigend), aber ein Tap soll hoerbar etwas tun.
           var step = parseFloat(range.dataset.step || range.step) || 1;
           var min = parseFloat(range.min), max = parseFloat(range.max);
-          var v = (parseFloat(range.value) || 0) + dir * step;
+          var v = (parseFloat(range.value) || 0) + dir * step * (mult || 1);
           if (!isNaN(min)) v = Math.max(min, v);
           if (!isNaN(max)) v = Math.min(max, v);
           // Auf die Schrittweite runden — sonst sammeln sich Fliesskomma-
@@ -193,6 +193,38 @@
           range.value = v.toFixed(decimalsOf(range.dataset.step || range.step));
           range.dispatchEvent(new Event('input', { bubbles: true }));
           range.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // ── Halten wiederholt, und zwar beschleunigt ────────────────────
+        // Das ist der Ersatz fuer den einzigen echten Vorteil eines Sliders:
+        // schnell durch den ganzen Bereich fahren. Ohne das waeren 480 Hz →
+        // 5 kHz rund 42 Taps. Mit Halten sind es ~2 Sekunden.
+        // Kein preventDefault auf pointerdown — sonst bleibt das click-Event
+        // aus, das Maus UND Tastatur (Enter/Space) bedienen.
+        var holdTimer = null, repeatTimer = null, repeated = false;
+        function stopHold() {
+          clearTimeout(holdTimer); clearInterval(repeatTimer);
+          holdTimer = repeatTimer = null;
+        }
+        b.addEventListener('pointerdown', function () {
+          repeated = false;
+          holdTimer = setTimeout(function () {
+            var n = 0;
+            repeatTimer = setInterval(function () {
+              repeated = true;          // unterdrueckt den click beim Loslassen
+              bump(n++ > 12 ? 5 : 1);   // nach ~1 s groessere Spruenge
+            }, 70);
+          }, 400);
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (e) {
+          b.addEventListener(e, stopHold);
+        });
+        b.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          // Nach einem Halten kommt beim Loslassen noch ein click — der wuerde
+          // einen Schritt zu viel setzen.
+          if (repeated) { repeated = false; return; }
+          bump(1);
         });
         return b;
       }
