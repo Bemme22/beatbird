@@ -125,6 +125,7 @@
           btn.disabled = false;
           btn.textContent = 'Pairing starten (60 s)';
           clearInterval(pairTimer);
+          pairTimer = null;        // gibt den 5-s-Hintergrund-Poll wieder frei
           load();
           return;
         }
@@ -132,7 +133,15 @@
         pairCountdown--;
       };
       tick();
-      pairTimer = setInterval(() => { tick(); load(); }, 1000);
+      // Der Countdown laeuft im Sekundentakt, die GERAETELISTE nicht: jeder
+      // load() kostet serverseitig bluez-Aufrufe, und die waehrend des
+      // Pairings im Sekundentakt zu feuern heisst, BlueZ genau dann zu
+      // stoeren, wenn es arbeitet. Neu gekoppelte Geraete tauchen mit bis zu
+      // 2 s Verzug auf — in einem 60-s-Fenster nicht wahrnehmbar.
+      pairTimer = setInterval(() => {
+        tick();
+        if (pairCountdown % 2 === 0) load();
+      }, 1000);
     } catch (e) {
       document.getElementById('pair-status').textContent = 'Fehler: ' + e;
       btn.disabled = false;
@@ -159,6 +168,9 @@
   }
 
   load();
-  setInterval(load, 5000);
+  // Der Hintergrund-Poll pausiert waehrend des Pairings: dort laeuft bereits
+  // ein eigener, schnellerer Takt. Vorher liefen beide parallel, also genau
+  // im empfindlichsten Moment die meisten Anfragen.
+  setInterval(() => { if (!pairTimer) load(); }, 5000);
 </script>
 {% endblock %}
