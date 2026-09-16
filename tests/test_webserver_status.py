@@ -26,6 +26,23 @@ def _profile(name: str):
     return load_profile(PROFILES_DIR / f"{name}.yml")
 
 
+@pytest.fixture(autouse=True)
+def _clean_caches():
+    """Drop the webserver's poll-dampening caches around every test.
+
+    They are module-level by design (the point is that pollers share them),
+    which means without this a test inherits whatever the previous one left
+    behind — the first version of this suite had exactly that bug: a test
+    wiring bt_connected=False poisoned the snapshot for the next one."""
+    w._bt_cache = (0.0, {})
+    w._service_cache = {}
+    w._snap_cache = (0.0, {})
+    yield
+    w._bt_cache = (0.0, {})
+    w._service_cache = {}
+    w._snap_cache = (0.0, {})
+
+
 @pytest.fixture
 def as_speaker(monkeypatch):
     """Pin the webserver to one speaker's profile, bypassing the module cache."""

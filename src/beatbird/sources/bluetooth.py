@@ -353,8 +353,16 @@ def _btctl_info(mac: str) -> dict[str, str]:
 def list_paired_devices() -> list[BTDevice]:
     """Return every device known to bluez, with paired/trusted/connected
     flags populated. Sorted with connected devices first, then paired,
-    then by alias. Cheap enough for the web UI (single bluetoothctl
-    invocation, no AVRCP polling)."""
+    then by alias.
+
+    ⚠️ Costs 1 + N bluetoothctl processes: one `devices Paired`, then one
+    `info <mac>` per device — the flags are only available per device. The
+    price therefore grows with every phone ever paired to this speaker, and
+    is NOT cheap enough to put behind a seconds-scale poll. (This docstring
+    claimed "single bluetoothctl invocation" until 16.09.2026, which is how
+    it ended up behind three of them; the web layer now reads it through a
+    shared TTL snapshot.) Use _list_connected_devices() when the question is
+    only "what is attached right now" — that one really is a single call."""
     devs: list[BTDevice] = []
     out = _btctl("devices Paired")
     for line in out.splitlines():

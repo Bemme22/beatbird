@@ -116,6 +116,92 @@ def _vol_params():
     return v.min_db, v.max_db, v.curve_gamma
 
 
+# ─── Poll dampening ──────────────────────────────────────────────────────────
+#
+# Several pollers ask the same expensive questions at different rates: the
+# dashboard's now-playing partial (2 s), its bluetooth card (4 s), the
+# bluetooth page (5 s, faster while pairing) and the diagnose tiles (4/5 s).
+# Measured on the real call path with three paired phones, an idle dashboard
+# cost 195 `bluetoothctl` + 90 `systemctl` processes per minute — ~4.75
+# spawns/s on a Zero 2 W for a page nobody is touching.
+#
+# Two things made it that expensive. bt.list_paired_devices() is NOT one
+# bluetoothctl call as its docstring long claimed — it runs `devices Paired`
+# and then one `info <mac>` per device, so the cost grows with every phone
+# ever paired. And nothing was shared: each poller re-asked independently.
+#
+# Same remedy as the snapcast snapshot further down: one TTL'd snapshot per
+# question, shared by every caller. The TTLs sit below the polls they serve,
+# so the cache never makes the UI slower than the poll that reads it, and
+# every mutating endpoint drops the entry it invalidates — a user must never
+# wait out a TTL to see their own click take effect.
+
+_BT_TTL_S = 3.0
+_bt_cache: tuple[float, dict] = (0.0, {})
+
+
+def _bt_snapshot(max_age_s: float = _BT_TTL_S) -> dict:
+    """The bluez-derived BT state: {"paired", "connected", "discoverable"}.
+
+    Memoised because three separate pollers want it and each miss costs
+    1 + N bluetoothctl processes. Fails soft to "nothing paired, not
+    discoverable" — the dashboard showing no phone is a better failure than
+    the dashboard 500ing."""
+    global _bt_cache
+    now = time.monotonic()
+    ts, cached = _bt_cache
+    if cached and now - ts < max_age_s:
+        return cached
+    try:
+        paired = bt.list_paired_devices()
+        discoverable = bt.is_discoverable()
+    except Exception as e:
+        log.debug("bt snapshot failed: %s", e)
+        paired, discoverable = [], False
+    snap = {
+        "paired":       paired,
+        "connected":    next((d for d in paired if d.connected), None),
+        "discoverable": discoverable,
+    }
+    _bt_cache = (now, snap)
+    return snap
+
+
+def _invalidate_bt() -> None:
+    """Drop the BT snapshot after trust/disconnect/forget/discoverable.
+    Those endpoints are followed immediately by a UI reload, and showing the
+    pre-click state back to the user reads as "the button did nothing"."""
+    global _bt_cache
+    _bt_cache = (0.0, {})
+
+
+_SERVICE_TTL_S = 3.0
+_service_cache: dict[str, tuple[float, bool]] = {}
+
+
+def _service_active(name: str, max_age_s: float = _SERVICE_TTL_S) -> bool:
+    """system.service_active(), memoised per unit.
+
+    Three of these fire on every dashboard tick. Unit state does not change
+    on a 2 s timescale unless somebody is restarting something — and the
+    restart endpoints invalidate, so that case stays live."""
+    now = time.monotonic()
+    hit = _service_cache.get(name)
+    if hit and now - hit[0] < max_age_s:
+        return hit[1]
+    val = system.service_active(name)
+    _service_cache[name] = (now, val)
+    return val
+
+
+def _invalidate_service(name: str | None = None) -> None:
+    """After a restart the cached verdict is stale by definition."""
+    if name is None:
+        _service_cache.clear()
+    else:
+        _service_cache.pop(name, None)
+
+
 # ─── Pydantic models ─────────────────────────────────────────────────────────
 
 class VolumeReq(BaseModel):
@@ -169,9 +255,9 @@ def get_status():
         "cpu_temp": system.cpu_temp(),
         "wifi_rssi": system.wifi_rssi(),
         "amp": amp,
-        "camilladsp": system.service_active("camilladsp"),
-        "spotify_service": system.service_active("go-librespot"),
-        "bridge": system.service_active("beatbird-bridge"),
+        "camilladsp": _service_active("camilladsp"),
+        "spotify_service": _service_active("go-librespot"),
+        "bridge": _service_active("beatbird-bridge"),
         "spotify": state.__dict__ if state else None,
     }
 
@@ -239,6 +325,7 @@ def control_service(req: ServiceReq):
         )
     except Exception as e:
         raise HTTPException(500, f"systemctl failed: {e}")
+    _invalidate_service(req.name)
     if r.returncode != 0:
         # "Job canceled" on a mid-restart race is fine — the service IS
         # being acted on. Pass that through but flag non-zero exits.
@@ -269,12 +356,12 @@ def health():
         "spotify_api":  system.http_probe("https://api.spotify.com/"),
         "spotify_ap":   {"ok": system.tcp_reachable("ap-gew4.spotify.com", 4070)},
         "snapserver":   {"host": snap_host, "ok": system.tcp_reachable(snap_host, 1705)} if snap_host else {"host": "", "ok": False},
-        "mdns":         system.service_active("avahi-daemon"),
+        "mdns":         _service_active("avahi-daemon"),
         "services": {
-            "beatbird-bridge": system.service_active("beatbird-bridge"),
-            "camilladsp":      system.service_active("camilladsp"),
-            "go-librespot":    system.service_active("go-librespot"),
-            "snapclient":      system.service_active("snapclient"),
+            "beatbird-bridge": _service_active("beatbird-bridge"),
+            "camilladsp":      _service_active("camilladsp"),
+            "go-librespot":    _service_active("go-librespot"),
+            "snapclient":      _service_active("snapclient"),
         },
         "recent_warnings": system.journal_recent_errors("beatbird-bridge", 20),
     }
@@ -1066,9 +1153,13 @@ def _validate_mac(mac: str) -> str:
 
 @app.get("/api/bluetooth")
 def get_bluetooth():
-    """Snapshot of paired devices plus adapter state. Cheap enough to
-    poll from the web UI every few seconds during a pairing session."""
-    devices = bt.list_paired_devices()
+    """Snapshot of paired devices plus adapter state.
+
+    Served from the shared TTL snapshot, which is what makes it safe to poll
+    during a pairing session: the underlying bluez calls are 1 + N processes,
+    and spawning those once a second is exactly the wrong thing to do while
+    BlueZ is mid-pair."""
+    devices = _bt_snapshot()["paired"]
     return {
         "devices": [
             {
@@ -1093,6 +1184,7 @@ def bt_discoverable(req: BtDiscoverableReq):
     if not bt.set_discoverable(True, timeout_s=seconds):
         raise HTTPException(500, "set discoverable failed")
     _note_discoverable(seconds)
+    _invalidate_bt()
     return {"ok": True, "seconds": seconds}
 
 
@@ -1113,6 +1205,9 @@ def bt_device_action(req: BtDeviceReq):
         ok = bt.forget_device(mac)
     else:
         raise HTTPException(400, f"unknown action: {action!r}")
+    # Before the error check on purpose: a half-failed action (bluez did the
+    # thing but reported badly) must not leave a stale snapshot behind.
+    _invalidate_bt()
     if not ok:
         raise HTTPException(500, f"{action} failed for {mac}")
     return {"ok": True, "mac": mac, "action": action}
@@ -1302,15 +1397,16 @@ def diag():
 # external integrations and the old inline JS pages keep working.
 
 def _bt_context() -> dict:
-    """Snapshot of paired/connected BT state in the shape the templates
-    expect. Cheap (single bluetoothctl invocation + one is_discoverable
-    check)."""
-    paired = bt.list_paired_devices()
-    connected = next((d for d in paired if d.connected), None)
+    """Paired/connected BT state in the shape the templates expect.
+
+    Reads the shared snapshot rather than bluez directly — this runs on a 4 s
+    poll next to a 2 s one that wants the same data. NOT cheap underneath:
+    a miss costs 1 + N bluetoothctl processes."""
+    snap = _bt_snapshot()
     return {
-        "paired":       paired,
-        "connected":    connected,
-        "discoverable": bt.is_discoverable(),
+        "paired":       snap["paired"],
+        "connected":    snap["connected"],
+        "discoverable": snap["discoverable"],
         # Real remaining seconds when we opened the window ourselves, None
         # when something else did (the display can) — see the note on
         # _bt_discoverable_until. The template omits the number for None.
@@ -1342,10 +1438,11 @@ def _status_for_template() -> dict:
     snap = _snapcast_snapshot()
     snap_playing = bool(snap.get("playing"))
 
-    try:
-        bt_connected = any(d.connected for d in bt.list_paired_devices())
-    except Exception:
-        bt_connected = False
+    # Only "is anything attached" is needed here, but it comes from the same
+    # shared snapshot the BT card reads — on the dashboard both are on screen
+    # at once, so asking bluez twice bought nothing. (_bt_snapshot fails soft,
+    # hence no try/except of its own.)
+    bt_connected = _bt_snapshot()["connected"] is not None
 
     if snap_playing:
         playback = "Playing"
@@ -1517,6 +1614,7 @@ def ui_advanced_service(name: str):
                        capture_output=True, timeout=10)
     except Exception as e:
         log.error("service restart %s: %s", name, e)
+    _invalidate_service(name)
     return HTMLResponse("")
 
 
