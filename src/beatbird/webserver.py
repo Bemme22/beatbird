@@ -807,9 +807,13 @@ def set_loudness(req: LoudnessReq):
     return {"ok": True, "overrides": out["loudness"]}
 
 
-@app.get("/ui/advanced/loudness", response_class=HTMLResponse)
-def ui_advanced_loudness(request: Request):
-    return templates.TemplateResponse(request, "_advanced_loudness.html",
+@app.get("/ui/loudness", response_class=HTMLResponse)
+def ui_loudness(request: Request):
+    """Loudness-Panel. Sitzt seit 16.09.2026 auf /eq statt auf /advanced —
+    die feste Entzerrung und die pegelabhaengige Anhebung ergeben zusammen den
+    Klang und gehoeren damit auf dieselbe Seite. Deshalb auch kein "advanced"
+    mehr im Pfad."""
+    return templates.TemplateResponse(request, "_loudness.html",
                                       {"l": get_loudness()})
 
 
