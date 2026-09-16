@@ -72,11 +72,17 @@ set_q '2.0 Channel Right Gain'    0     # 0 dB
 set_q '2.0 Equalizer'           Off     # CamillaDSP handles EQ
 
 # Sub amp — secondary 0x4D, PBTL mono, prefix '0.1'
+# 'Equalizer' On/Off toggles EQ_BYPASS_ENABLE, which bypasses the WHOLE biquad
+# block — crossover coefficients live in the same block (ti,eq-mode=LF_CROSSOVER
+# in the overlay just selects which coefficients get loaded there). So "Off"
+# doesn't just skip EQ, it also disables the crossover we just set above,
+# leaving the sub full-range. Must be On whenever a crossover is wanted; only
+# stays Off when sub_crossover_hz is explicitly OFF (bypass by choice, not bug).
 set_q '0.1 Digital'             __SUB_DVOL__
 set_q '0.1 Analog Gain'          25
 set_q '0.1 Mono Channel Gain'     0
 set_q '0.1 Crossover Frequency' '__SUB_XO_VAL__'
-set_q '0.1 Equalizer'           Off
+set_q '0.1 Equalizer'           __SUB_EQ_STATE__
 
 echo "louder-hat-init: $CARD configured (sub DV=__SUB_DVOL__, XO=__SUB_XO_VAL__)"
 AMIXER_EOF
@@ -93,10 +99,19 @@ case "$SUB_XO" in
     ;;
 esac
 
+# Equalizer must be On to make the crossover above actually take effect (see
+# comment in the heredoc) — except when OFF was explicitly requested, where
+# staying bypassed is the correct (full-range) behaviour, not a regression.
+if [ "$SUB_XO_VAL" = "OFF" ]; then
+  SUB_EQ_STATE="Off"
+else
+  SUB_EQ_STATE="On"
+fi
+
 # Use | as sed separator since SUB_XO_VAL contains a space
-sed -i "s/__SUB_DVOL__/$SUB_DVOL/g; s|__SUB_XO_VAL__|$SUB_XO_VAL|g" "$AMIXER_PATH"
+sed -i "s/__SUB_DVOL__/$SUB_DVOL/g; s|__SUB_XO_VAL__|$SUB_XO_VAL|g; s/__SUB_EQ_STATE__/$SUB_EQ_STATE/g" "$AMIXER_PATH"
 chmod 755 "$AMIXER_PATH"
-log_ok "wrote $AMIXER_PATH (sub XO=$SUB_XO_VAL, DV=$SUB_DVOL)"
+log_ok "wrote $AMIXER_PATH (sub XO=$SUB_XO_VAL, DV=$SUB_DVOL, EQ=$SUB_EQ_STATE)"
 
 # ─── systemd service ─────────────────────────────────────────────────────────
 cat > /etc/systemd/system/louder-hat-init.service <<EOF
