@@ -61,29 +61,22 @@
   {% include "_advanced_snapcast.html" %}
 </article>
 
-<!-- Loudness filters — live sliders patch CamillaDSP at runtime. Refresh
-     once on load only; sliders carry their own state once dragged so
-     re-rendering them would fight the user. -->
-<article id="filters-card">
-  <header><strong>Loudness — Live tuning</strong></header>
-  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
-    Patcht CamillaDSP zur Laufzeit — nicht persistent (weg bei DSP-Reload).
-    Solange du hier schiebst, hält die Loudness still; ein paar Minuten nach
-    der letzten Änderung übernimmt sie wieder. Dauerhaft tunen: Voicing unten.
-  </p>
-  <div id="filter-list" hx-get="/ui/advanced/filters" hx-trigger="load" hx-swap="innerHTML">
-    <span style="color:var(--pico-muted-color)">Lade…</span>
-  </div>
-</article>
+<!-- Das frühere "Loudness — Live tuning"-Panel ist am 16.09.2026 entfallen.
+     Es hing an einer fest einkompilierten Namensliste (bass_shelf, sub_punch,
+     timpani_body, fullness), bot nur Gain und wurde still wirkungslos, sobald
+     ein Filter umbenannt wurde. Die EQ-Seite kann dasselbe und mehr: sie liest
+     JEDES tonale Biquad aus der laufenden Config, mit Frequenz, Q und Kurve. -->
 
-<!-- Voicing — persistent loudness tuning (Bass laut/leise + Kurve). Unlike the
-     live sliders above, this edits the loudness DEFINITION (base_gain +
-     max_boost + curve) and survives reboot. -->
+<!-- Loudness = NUR die pegelabhängige Anhebung. Die feste Entzerrung (Bass-
+     Voicing, Raumkorrektur, Präsenz) gehört auf die EQ-Seite — das Panel
+     selbst unterscheidet, ob dieser Speaker CamillaDSPs nativen Filter fährt
+     oder noch die Bridge-Loudness. -->
 <article id="loudness-card">
-  <header><strong>Voicing — Bass laut / leise + Kurve</strong></header>
+  <header><strong>Loudness — pegelabhängige Anhebung</strong></header>
   <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
-    Persistent (überlebt Reboot). „laut" = Grundpegel, „leise" = bei kleiner
-    Lautstärke. Wird ~5 s nach Speichern aktiv.
+    Nur der Anteil, der sich mit der <em>Lautstärke</em> ändert.
+    Die feste Entzerrung — Bass-Voicing, Raumkorrektur, Präsenz —
+    steht auf der <a href="/eq">EQ-Seite</a>.
   </p>
   <div id="loudness-panel" hx-get="/ui/advanced/loudness" hx-trigger="load" hx-swap="innerHTML">
     <span style="color:var(--pico-muted-color)">Lade…</span>

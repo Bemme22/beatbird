@@ -126,11 +126,6 @@ class PlaybackReq(BaseModel):
     cmd: str
 
 
-class FilterReq(BaseModel):
-    name: str
-    gain: float
-
-
 class ServiceReq(BaseModel):
     name: str
     action: str = "restart"
@@ -181,29 +176,6 @@ def get_status():
     }
 
 
-@app.get("/api/filters")
-def get_filters():
-    """Current Biquad/Peaking filter parameters from the running DSP.
-    Returns only the tunable subset — the web slider UI keys off this."""
-    cfg = _dsp.get_config()
-    if not cfg:
-        return {"filters": []}
-    tunable = _tunable_filters()
-    out = []
-    for name, body in (cfg.get("filters") or {}).items():
-        if name not in tunable:
-            continue
-        params = body.get("parameters", {}) if isinstance(body, dict) else {}
-        out.append({
-            "name": name,
-            "type": params.get("type"),
-            "freq": params.get("freq"),
-            "gain": params.get("gain"),
-            "q":    params.get("q"),
-        })
-    return {"filters": out}
-
-
 # ─── Write API ───────────────────────────────────────────────────────────────
 
 @app.post("/api/volume")
@@ -251,27 +223,6 @@ def reload_dsp():
     except Exception as e:
         raise HTTPException(500, f"reload failed: {e}")
     return {"ok": True}
-
-
-@app.post("/api/filter")
-def set_filter(req: FilterReq):
-    """Live-patch a single filter's gain via CamillaDSP. Volatile —
-    the change reverts on `systemctl reload camilladsp`. Persisting
-    into the profile YAML is V2."""
-    if req.name not in _tunable_filters():
-        raise HTTPException(400, f"filter {req.name!r} not in tunable allowlist")
-    if not -20.0 <= req.gain <= 20.0:
-        raise HTTPException(400, "gain must be -20..+20 dB")
-    cfg = _dsp.get_config()
-    if not cfg:
-        raise HTTPException(500, "DSP not reachable")
-    f = (cfg.get("filters") or {}).get(req.name)
-    if not f:
-        raise HTTPException(404, f"filter {req.name!r} not in running config")
-    params = f.get("parameters", {})
-    patch = {req.name: {"parameters": {**params, "gain": req.gain}}}
-    _dsp.patch_filters(patch)
-    return {"ok": True, "name": req.name, "gain": req.gain}
 
 
 @app.post("/api/service")
@@ -971,7 +922,7 @@ def get_eq_bands():
     cfg = _dsp.get_config()
     if not cfg:
         return {"bands": [], "samplerate": 48000}
-    tunable = _tunable_filters()
+    owned = _bridge_loudness_names()
     bands = []
     for name, body in (cfg.get("filters") or {}).items():
         if not isinstance(body, dict) or body.get("type") != "Biquad":
@@ -981,9 +932,28 @@ def get_eq_bands():
             continue
         bands.append({"name": name, "type": p.get("type"), "freq": p.get("freq"),
                       "gain": p.get("gain"), "q": p.get("q"),
-                      "loudness": name in tunable})
+                      "loudness": name in owned})
     sr = (cfg.get("devices") or {}).get("samplerate", 48000)
     return {"bands": bands, "samplerate": sr}
+
+
+def _bridge_loudness_names() -> set[str]:
+    """Names of the filters the BRIDGE patches per volume — i.e. the bands a
+    user must not edit while the bridge is running.
+
+    Derived from the profile, deliberately not from a hardcoded list: the
+    previous constant named `bass_shelf`/`timpani_body` and silently stopped
+    matching anything the moment those filters were renamed, which left the EQ
+    editor warning about a mechanism that no longer touched any band.
+    Empty when the speaker uses CamillaDSP's native Loudness filter (that one
+    reads the fader and never patches a Biquad)."""
+    try:
+        p = _get_profile()
+    except Exception:
+        return set()
+    if not p.audio.loudness.enabled:
+        return set()
+    return {f.name for f in p.audio.loudness.filters}
 
 
 @app.post("/api/eq/band")
@@ -1531,13 +1501,6 @@ def ui_advanced_system(request: Request):
 def ui_advanced_snapcast(request: Request):
     return templates.TemplateResponse(request, "_advanced_snapcast.html", {
         "diag":    diag(),
-    })
-
-
-@app.get("/ui/advanced/filters", response_class=HTMLResponse)
-def ui_advanced_filters(request: Request):
-    return templates.TemplateResponse(request, "_advanced_filters.html", {
-        "filters": get_filters().get("filters", []),
     })
 
 
