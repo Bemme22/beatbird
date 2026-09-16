@@ -22,19 +22,10 @@
             align-items: center; }
   .ctlrow label { color: var(--bb-text-3); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
-  /* ── Keine Slider hier, nur Tasten ──────────────────────────────────────
-     Ein <input type=range> springt bei einem Tipper auf die Spur dorthin,
-     und weil jede Aenderung sofort live geht, war das der schnellste Weg,
-     sich ein Band zu zerschiessen (am 15.09. real passiert: baffle_step
-     480 -> 9955 Hz, room_130 q 1,2 -> 7,8).
-     Der Regler BLEIBT im DOM — er ist weiterhin der Wertespeicher, an dem
-     Raster, Min/Max und das logarithmische Frequenz-Mapping haengen. Nur
-     sichtbar ist er nicht mehr; bedient wird ueber die beiden Tasten.
-     Der einzige Vorteil, den er hatte (schnell durch den Bereich fahren),
-     steckt jetzt im Halten der Taste. */
-  .ctlrow .stepper > input[type=range] { display: none; }
-  .ctlrow .stepper { gap: 0.5rem; }
-  .ctlrow .stepper > button.step { flex: 1 1 0; height: 2.9rem; font-size: 1.35rem; }
+  /* Tasten statt Slider kommt aus base.html und gilt ueberall — hier nur
+     etwas hoeher, weil auf dieser Seite drei Regler pro Band uebereinander
+     stehen und der Daumen oft mehrfach hintereinander trifft. */
+  .ctlrow .stepper > button.step { height: 2.9rem; font-size: 1.35rem; }
   /* Der Zahlenwert ist jetzt die einzige numerische Rueckmeldung (die Kurve
      oben zeigt nur die Summe) — also darf er nicht mehr klein und grau sein. */
   .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-accent);

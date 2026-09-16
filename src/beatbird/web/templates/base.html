@@ -120,11 +120,26 @@
     input[type=range]::-webkit-slider-thumb { width: 1.7rem; height: 1.7rem; }
     input[type=range]::-moz-range-thumb { width: 1.7rem; height: 1.7rem; }
 
-    .stepper { display: flex; align-items: center; gap: 0.35rem; }
-    .stepper > input[type=range] { flex: 1 1 auto; min-width: 2rem; }
+    .stepper { display: flex; align-items: center; gap: 0.5rem; }
+
+    /* ── Der Regler selbst ist AUS. Bedient wird ueber die Tasten. ────────
+       Er bleibt im DOM, weil an ihm Raster, Min/Max und (auf der EQ-Seite)
+       das logarithmische Frequenz-Mapping haengen — er ist der Wertespeicher,
+       nicht die Bedienung.
+       Warum weg: ein Tipper auf die Spur springt dorthin, und weil jede
+       Aenderung sofort live geht, war das der schnellste Weg, sich etwas zu
+       zerschiessen (15.09. real: baffle_step 480 -> 9955 Hz, room_130
+       q 1,2 -> 7,8 — beides unbemerkt im laufenden DSP).
+       Der einzige echte Vorteil eines Sliders — schnell durch den Bereich
+       fahren — steckt jetzt im HALTEN der Taste.
+       Wer ihn doch braucht: class="stepper with-slider" am Wrapper. */
+    .stepper > input[type=range] { display: none; }
+    .stepper.with-slider > input[type=range] {
+      display: block; flex: 1 1 auto; min-width: 2rem;
+    }
     .stepper > button.step {
-      flex: 0 0 auto; width: 2.5rem; height: 2.5rem; padding: 0; margin: 0;
-      font-size: 1.2rem; line-height: 1; font-weight: 600;
+      flex: 1 1 0; min-width: 2.5rem; height: 2.7rem; padding: 0; margin: 0;
+      font-size: 1.3rem; line-height: 1; font-weight: 600;
       background: var(--bb-card-2); color: var(--bb-text);
       border: 1px solid var(--bb-line); border-radius: 0.55rem;
       -webkit-tap-highlight-color: transparent;
