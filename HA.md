@@ -1,5 +1,14 @@
 # HA sensor data on the BeatBird display — plan
 
+> ⚠️ **Superseded (2026-09-16).** This planning doc's `SENS:` design (raw
+> values, direct room temps) was superseded by what actually got built in
+> PR #5: `FACE:` (see `docs/protocol.md` §"FACE — standby faces" and
+> `src/beatbird/ha/faces.py`), which carries HA-side *decisions* rather than
+> raw sensor values, has priority/rotation, icons, and tap-to-acknowledge —
+> none of which this plan anticipated. Keep this file for the phase-1/phase-2
+> historical reasoning (direct-MQTT vs. Statestream), but treat `docs/protocol.md`
+> as the current spec, not this one.
+
 Roadmap for surfacing smart-home / Home-Assistant sensor values on the BeatBird
 standby screen (room temperatures now, power/energy later). **This is a planning
 doc for a dedicated future session — nothing here is built yet.**

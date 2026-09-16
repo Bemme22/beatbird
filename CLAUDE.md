@@ -156,8 +156,10 @@ sees credentials in its YAML profile.
 Long-form project memory lives in Steffen's Obsidian vault (synced via
 Syncthing, not reachable from this repo):
 
-- Hub note: `projekte/beatbird.md` — status, decision log, open items
-- Session notes land in `00-inbox/` as dated notes, linked to the hub
+- Hub note: `projekte/BeatBird/BeatBird.md` — status, decision log, open items
+  (BauLog: `projekte/BeatBird/BeatBird - BauLog.md`, newest entry first)
+- Session notes land in `00-inbox/Inbox.md` (a single running file, not one
+  file per session) — Steffen sorts them into the right project note from there
 
 Conventions for Claude Code:
 - This CLAUDE.md covers *how to work in the repo*; the vault covers *why

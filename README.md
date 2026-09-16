@@ -5,14 +5,16 @@ One repo, one installer, one profile per speaker.
 
 ## Supported speakers
 
-| Profile         | Enclosure           | Compute       | Soundcard                | Display      |
-|-----------------|---------------------|---------------|--------------------------|--------------|
-| `beat-1`        | Libratone Beat #1   | Pi Zero 2W    | Louder Hat Plus 2X       | AMOLED 1.43" |
-| `beat-2`        | Libratone Beat #2   | Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43" |
-| `zipp-mini-2`   | Zipp Mini 2 / LTH200| Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43" |
-| `zipp-2`        | Zipp 2   / LTH300   | Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43" |
-| `zipp`          | Zipp      / LT300   | Pi Zero 2W    | Louder Hat Plus 1X       | LED + Button |
-| `lounge`        | Libratone Lounge    | Pi 5 (1 GB)   | 2× Plus 2X + 1× non-Plus | LED + Button |
+| Profile         | Enclosure           | Compute       | Soundcard                | Display          |
+|-----------------|---------------------|---------------|--------------------------|------------------|
+| `beat-1`        | Libratone Beat #1   | Pi Zero 2W    | Louder Hat Plus 2X       | AMOLED 1.43"     |
+| `beat-2`        | Libratone Beat #2   | Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43"     |
+| `zipp-mini-2`   | Zipp Mini 2 / LTH200| Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43"     |
+| `zipp-2`        | Zipp 2   / LTH300   | Pi Zero 2W    | Louder Hat Plus 1X       | AMOLED 1.43"     |
+| `zipp`          | Zipp      / LT300   | Pi Zero 2W    | Louder Hat Plus 1X       | LED + Button     |
+| `lounge`        | Libratone Lounge    | Pi 5 (1 GB)   | 2× Plus 2X + 1× non-Plus | LED + Button     |
+| `robinpi`       | RobinPi (own build) | Pi Zero 2W    | Louder Hat Plus 1X (PBTL)| AMOLED 1.75"     |
+| `beatpimini`    | BeatPiMini (own build, not yet built) | Pi Zero 2W | Louder Hat Plus 1X | AMOLED 1.43" + LED strip |
 
 ## Quick start (fresh Pi OS Bookworm Lite)
 

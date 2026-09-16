@@ -19,8 +19,8 @@ soundcard:
   analog_gain_db: -3
 
 audio:
-  camilladsp_config: robinpi     # config/camilladsp/robinpi.yml — STARTER, flat
-                                 # until Pluvia 11 is measured in the enclosure
+  camilladsp_config: robinpi     # config/camilladsp/robinpi.yml — Voicing v1
+                                 # (measured 2026-09-06, see git history for detail)
   sample_rate: 48000
   format: S32_LE
   loudness:
