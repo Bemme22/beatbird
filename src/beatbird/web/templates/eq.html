@@ -21,19 +21,101 @@
   .ctlrow { grid-column: 2 / 4; display: grid; grid-template-columns: 38px 1fr 52px; gap: 0.5rem;
             align-items: center; }
   .ctlrow label { color: var(--bb-text-3); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  .ctlrow input[type=range] { margin: 0; }
-  .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-text-2); font-size: 0.76rem; text-align: right; }
+
+  /* Tasten statt Slider kommt aus base.html und gilt ueberall — hier nur
+     etwas hoeher, weil auf dieser Seite drei Regler pro Band uebereinander
+     stehen und der Daumen oft mehrfach hintereinander trifft. */
+  .ctlrow .stepper > button.step { height: 2.9rem; font-size: 1.35rem; }
+  /* Der Zahlenwert ist jetzt die einzige numerische Rueckmeldung (die Kurve
+     oben zeigt nur die Summe) — also darf er nicht mehr klein und grau sein. */
+  .ctlrow .v { font-variant-numeric: tabular-nums; color: var(--bb-accent);
+               font-size: 0.9rem; font-weight: 600; text-align: right; }
   #status { font-size: 0.78rem; color: var(--bb-text-2); margin-left: 0.5rem; }
   .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.8rem; }
+
+  /* ── Schmale Displays ───────────────────────────────────────────────────
+     Das Drei-Spalten-Raster (96px Name | Regler | 56px Wert) laesst dem
+     Regler auf einem 360-px-Handy ~120 px Spur — mit den Stepper-Knoepfen
+     davon noch weniger. Unter 560 px deshalb stapeln: Name als eigene
+     Zeile, darunter pro Regler "Label + Wert" und die Spur ueber die volle
+     Breite. Das macht aus ~120 px rund 320 px, also 2,7x feiner. */
+  @media (max-width: 560px) {
+    /* Jede Aenderung geht SOFORT live und ein Fehlgriff auf der Spur ist am
+       Handy schnell passiert (ein Tap auf die Spur springt dorthin). Also
+       muss "verwerfen" immer in Reichweite sein statt erst hinter allen
+       Baendern — der Rueckweg gehoert neben die Gefahr, nicht ans Ende. */
+    .toolbar {
+      position: sticky; bottom: 0; z-index: 5;
+      margin: 0 -0.5rem; padding: 0.6rem 0.5rem;
+      background: var(--bb-card); border-top: 1px solid var(--bb-line);
+    }
+    .toolbar button { margin: 0; font-size: 0.8rem; }
+
+    .band { grid-template-columns: 1fr; gap: 0.35rem; padding: 0.7rem 0; }
+    .band .nm { grid-column: 1; }
+    .ctlrow {
+      grid-column: 1;
+      grid-template-columns: auto 1fr;   /* Label links, Wert rechts */
+      grid-template-areas: "lab val" "sld sld";
+      gap: 0.15rem 0.5rem;
+    }
+    .ctlrow label { grid-area: lab; }
+    .ctlrow .v { grid-area: val; }
+    .ctlrow .stepper { grid-area: sld; }
+    /* Sicherheitsnetz: ein noch nicht gestepperter Regler (JS aus) darf
+       nicht in der Label-Spalte landen. */
+    .ctlrow > input[type=range] { grid-area: sld; }
+  }
+  /* ── Loudness-Panel (nativer CamillaDSP-Filter) ───────────────────────
+     Bewusst einspaltig aufgebaut: Label + Wert in einer Zeile, der Regler
+     mit seinen Stepper-Knoepfen darunter ueber die volle Breite. Am Handy
+     ist das der Unterschied zwischen "trifft man" und "trifft man nicht". */
+  .legend-l { color: var(--bb-text-3); font-size: 0.78rem; line-height: 1.5; margin: 0 0 0.7rem; }
+  .legend-l code { color: var(--bb-text-2); }
+  .l-now {
+    font-size: 0.82rem; color: var(--bb-text-2); margin: 0 0 0.8rem;
+    padding: 0.45rem 0.6rem; border-radius: 8px;
+    background: var(--bb-card-2); border: 1px solid var(--bb-line);
+  }
+  .l-now b { color: var(--bb-accent); }
+  .l-now small { color: var(--bb-text-3); }
+  .l-row {
+    display: grid; grid-template-columns: 1fr auto;
+    grid-template-areas: "lab val" "sld sld";
+    gap: 0.1rem 0.5rem; align-items: baseline;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--bb-line);
+  }
+  .l-row label { grid-area: lab; margin: 0; font-size: 0.85rem; color: var(--bb-text); }
+  .l-row label small {
+    display: block; color: var(--bb-text-3); font-size: 0.66rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .l-val { grid-area: val; color: var(--bb-accent); font-size: 0.95rem; font-weight: 600; }
+  .l-row .stepper, .l-row > input[type=range] { grid-area: sld; margin-top: 0.2rem; }
+  .l-dirty {
+    font-size: 0.78rem; color: var(--bb-alert); margin: 0.7rem 0 0;
+  }
+  .l-warn { font-size: 0.75rem; color: var(--bb-text-3); margin: 0.4rem 0 0; }
+  .l-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.8rem; }
+  .l-buttons button { margin: 0; }
+  .l-status { color: var(--pico-muted-color); font-size: 0.85rem; margin: 0.5rem 0 0; }
+  @media (max-width: 420px) {
+    .l-buttons { grid-template-columns: 1fr; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <p class="legend">Grafischer EQ über die tonalen CamillaDSP-Bänder (Peaking / Shelf). Änderungen greifen
   <b>live</b> (PatchConfig) und sind <em>flüchtig</em> — ein <code>reload camilladsp</code> stellt das
-  Profil wieder her. Struktur-Filter (Crossover, Sub-Schutz) sind bewusst ausgeblendet.</p>
+  Profil wieder her. Struktur-Filter (Crossover, Sub-Schutz) sind bewusst ausgeblendet.
+  <br>Bedienung über <b>− / +</b>: ein Tipp ist ein Schritt (Gain 0,5 dB · Q 0,1 · Freq ≈ 1/12 Oktave),
+  <b>gedrückt halten</b> fährt schnell durch den Bereich.</p>
 
-<p class="susp" id="suspnote">⏸︎ <b>Loudness pausiert</b>, solange dieser Editor offen ist — sonst würde die
+<!-- Standardmässig AUS: load() blendet den Hinweis nur ein, wenn die Bridge
+     tatsächlich eines der Bänder besitzt. Sonst stünde hier eine Warnung vor
+     einem Mechanismus, den dieser Speaker gar nicht mehr hat. -->
+<p class="susp" id="suspnote" style="display:none">⏸︎ <b>Loudness pausiert</b>, solange dieser Editor offen ist — sonst würde die
   Volume-Loudness deine Edits an den Bass-Bändern überschreiben. Beim Verlassen läuft sie wieder an
   (≤ 5 s).</p>
 
@@ -44,6 +126,23 @@
     <button class="secondary outline" onclick="resetFlat()">Alle auf 0 dB</button>
     <button class="secondary outline" onclick="reloadProfile()">Profil neu laden (verwerfen)</button>
     <span id="status"></span>
+  </div>
+</article>
+
+<!-- Pegelabhaengige Anhebung. Steht seit 16.09.2026 hier statt auf der
+     Diagnose-Seite: die Baender oben sind die FESTE Entzerrung, dieser Filter
+     der Teil, der sich mit der Lautstaerke aendert — zusammen ergeben sie den
+     Klang, also gehoeren sie auf dieselbe Seite. Das Panel selbst
+     unterscheidet, ob der Speaker CamillaDSPs nativen Filter faehrt oder noch
+     die Bridge-Loudness. -->
+<article id="loudness-card">
+  <header><strong>Loudness — pegelabhängige Anhebung</strong></header>
+  <p class="legend" style="margin-bottom:0.6rem">
+    Der Anteil, der sich mit der <em>Lautstärke</em> ändert. Die Bänder oben
+    gelten dagegen immer.
+  </p>
+  <div id="loudness-panel" hx-get="/ui/loudness" hx-trigger="load" hx-swap="innerHTML">
+    <span style="color:var(--pico-muted-color)">Lade…</span>
   </div>
 </article>
 
@@ -123,12 +222,19 @@
       const row = document.createElement('div'); row.className = 'band';
       row.innerHTML =
         `<div class="nm">${b.name}<small>${b.type}${b.loudness ? ' · <span class="lb">loudness</span>' : ''}</small></div>
-         <div class="ctlrow"><label>Freq</label><input type="range" min="0" max="1000" value="${fSlider(b.freq)}" data-i="${i}" data-k="freq"><span class="v" id="vf${i}">${b.freq} Hz</span></div>
+         <div class="ctlrow"><label>Freq</label><input type="range" min="0" max="1000" value="${fSlider(b.freq)}" data-step="8" data-i="${i}" data-k="freq"><span class="v" id="vf${i}">${b.freq} Hz</span></div>
          <div class="ctlrow"><label>Gain</label><input type="range" min="-${GMAX}" max="${GMAX}" step="0.5" value="${b.gain}" data-i="${i}" data-k="gain"><span class="v" id="vg${i}">${(+b.gain).toFixed(1)} dB</span></div>
          <div class="ctlrow"><label>Q</label><input type="range" min="0.1" max="10" step="0.1" value="${b.q}" data-i="${i}" data-k="q"><span class="v" id="vq${i}">${(+b.q).toFixed(1)}</span></div>`;
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', onInput));
+    // ⚠️ MUSS hier stehen: die Regler entstehen per JS, also lange nachdem
+    // stepperize() in base.html ueber das Dokument gelaufen ist. Ohne diesen
+    // Aufruf bekommt ausgerechnet die EQ-Seite — die mit den meisten und
+    // empfindlichsten Reglern — als einzige keine Stepper-Knoepfe.
+    // data-step="8" am Frequenzregler: ein Tap ~ 1/12 Oktave (die Skala ist
+    // logarithmisch, 1000 Schritte ueber 20 Hz..20 kHz = 0,69 % je Schritt).
+    stepperize(wrap);
   }
   function onInput(e) {
     const i = +e.target.dataset.i, k = e.target.dataset.k; let v = +e.target.value;
@@ -184,11 +290,133 @@
   async function load() {
     const r = await fetch('/api/eq/bands'); const d = await r.json();
     SR = d.samplerate || 48000; bands = (d.bands || []).map(b => ({ ...b, freq: +b.freq, gain: +b.gain, q: +b.q }));
-    if (!bands.length) { document.getElementById('bands').innerHTML = '<p class="legend">Keine tonalen Bänder im laufenden DSP — oder DSP nicht erreichbar.</p>'; document.getElementById('suspnote').style.display = 'none'; return; }
+    const note = document.getElementById('suspnote');
+    if (!bands.length) { document.getElementById('bands').innerHTML = '<p class="legend">Keine tonalen Bänder im laufenden DSP — oder DSP nicht erreichbar.</p>'; note.style.display = 'none'; return; }
+    // Das Pausieren der Loudness ergibt nur Sinn, wenn die Bridge ueberhaupt
+    // eines dieser Baender besitzt. Seit dem Umstieg auf CamillaDSPs nativen
+    // Loudness-Filter (der am Fader haengt und keine Biquads anfasst) ist das
+    // hier nicht mehr so — dann waere der Hinweis schlicht falsch. Also an der
+    // Datenlage entscheiden, nicht am Speaker: /api/eq/bands markiert jedes
+    // Band mit `loudness`.
+    if (bands.some(b => b.loudness)) {
+      note.style.display = '';
+      suspend(true);
+    } else {
+      note.style.display = 'none';
+    }
     renderBands(); draw();
   }
   // Pause loudness for the editing session, then keep it paused by beating.
   suspend(true).then(d => startHeartbeat(d && d.ttl_s));
-  load();
+  // Dieses Script steht IM content-Block, stepperize() wird aber erst danach
+  // in base.html definiert. Ohne das Warten haengt es am Zufall, dass der
+  // fetch in load() langsamer ist als der Rest des Parsens — heute wahr,
+  // morgen vielleicht nicht (Cache, lokaler DSP). Also explizit abwarten.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', load);
+  } else {
+    load();
+  }
+
+  // Voicing panel — defined here (page-level) so they survive the htmx
+  // innerHTML swap of #loudness-panel. "leise" is base+max, so the UI sends
+  // max_boost = leise - laut.
+  function saveLoudness() {
+    const filters = {};
+    document.querySelectorAll('#loudness-panel .l-laut').forEach(el => {
+      const n = el.dataset.filter;
+      const laut = parseFloat(el.value);
+      const leiseEl = document.querySelector('#loudness-panel .l-leise[data-filter="' + n + '"]');
+      const leise = parseFloat(leiseEl.value);
+      filters[n] = { base_gain: laut, max_boost: Math.round((leise - laut) * 10) / 10 };
+    });
+    const body = {
+      curve: document.getElementById('l-curve').value,
+      knee_low: parseInt(document.getElementById('l-knee-low').value, 10),
+      knee_high: parseInt(document.getElementById('l-knee-high').value, 10),
+      filters: filters,
+    };
+    const s = document.getElementById('loudness-status');
+    s.textContent = 'Speichere…';
+    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(r => r.json())
+      .then(d => { s.textContent = d.ok ? 'Gespeichert — in ein paar Sekunden aktiv.' : ('Fehler: ' + JSON.stringify(d)); })
+      .catch(e => { s.textContent = 'Fehler: ' + e; });
+  }
+  function resetLoudness() {
+    if (!confirm('Voicing auf Profil-Default zurücksetzen?')) return;
+    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reset: true }) })
+      .then(r => r.json())
+      .then(() => { htmx.ajax('GET', '/ui/loudness', '#loudness-panel'); })
+      .catch(e => { alert('Fehler: ' + e); });
+  }
+
+  // ── Nativer CamillaDSP-Loudness-Filter ────────────────────────────────
+  // Regler patchen SOFORT (fluechtig) — nach Gehoer stellen heisst hoeren,
+  // waehrend man schiebt. Erst "In die Config schreiben" macht es dauerhaft.
+  // Gedrosselt, weil ein Daumen-Wisch sonst dutzende PatchConfigs ausloest.
+  var _nTimer = null;
+  function nativeBody() {
+    var b = {};
+    document.querySelectorAll('#loudness-panel input[data-key]').forEach(function (el) {
+      b[el.dataset.key] = parseFloat(el.value);
+    });
+    return b;
+  }
+  function markNativeDirty() {
+    var d = document.getElementById('n-dirty');
+    if (d) d.hidden = false;
+  }
+  function patchNative() {
+    clearTimeout(_nTimer);
+    _nTimer = setTimeout(function () {
+      fetch('/api/loudness/native', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nativeBody())
+      }).then(r => r.json()).then(function (d) {
+        if (!d.ok) { return; }
+        markNativeDirty();
+        // Die Live-Anzeige "wie viel wird gerade angehoben" mitfuehren —
+        // das ist beim Einstellen die eigentlich interessante Zahl.
+        if (d.now) {
+          var lo = document.getElementById('l-now-low');
+          var hi = document.getElementById('l-now-high');
+          if (lo) lo.textContent = d.now.low_db + ' dB';
+          if (hi) hi.textContent = '(' + d.now.high_db + ' dB oben)';
+        }
+      }).catch(function () {});
+    }, 120);
+  }
+  function saveNative() {
+    var s = document.getElementById('loudness-status');
+    s.textContent = 'Schreibe in die Config…';
+    fetch('/api/loudness/native/save', { method: 'POST' })
+      .then(r => r.json().then(d => ({ ok: r.ok, d: d })))
+      .then(function (res) {
+        if (!res.ok) { s.textContent = 'Fehler: ' + (res.d.detail || JSON.stringify(res.d)); return; }
+        s.textContent = 'In ' + res.d.path + ' geschrieben — überlebt jetzt Reload und Reboot.';
+        var dd = document.getElementById('n-dirty');
+        if (dd) dd.hidden = true;
+      })
+      .catch(function (e) { s.textContent = 'Fehler: ' + e; });
+  }
+  function revertNative() {
+    // Reload zieht die Datei-Werte zurueck in den laufenden DSP.
+    fetch('/api/reload', { method: 'POST' })
+      .then(function () { setTimeout(function () {
+        htmx.ajax('GET', '/ui/loudness', '#loudness-panel');
+      }, 600); })
+      .catch(function (e) { alert('Fehler: ' + e); });
+  }
+  // Delegiert, damit es den htmx-Swap ueberlebt: die Regler existieren beim
+  // Laden der Seite noch gar nicht.
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (!el.dataset || !el.dataset.key) return;
+    if (!el.closest('#loudness-panel')) return;
+    var v = document.getElementById(el.id + '-v');
+    if (v) v.textContent = parseFloat(el.value).toFixed(1) + ' dB';
+    patchNative();
+  });
 </script>
 {% endblock %}

@@ -20,34 +20,19 @@
   {% include "_advanced_snapcast.html" %}
 </article>
 
-<!-- Loudness filters — live sliders patch CamillaDSP at runtime. Refresh
-     once on load only; sliders carry their own state once dragged so
-     re-rendering them would fight the user. -->
-<article id="filters-card">
-  <header><strong>Loudness — Live tuning</strong></header>
-  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
-    Patcht CamillaDSP zur Laufzeit — nicht persistent (weg bei DSP-Reload).
-    Solange du hier schiebst, hält die Loudness still; ein paar Minuten nach
-    der letzten Änderung übernimmt sie wieder. Dauerhaft tunen: Voicing unten.
-  </p>
-  <div id="filter-list" hx-get="/ui/advanced/filters" hx-trigger="load" hx-swap="innerHTML">
-    <span style="color:var(--pico-muted-color)">Lade…</span>
-  </div>
-</article>
-
-<!-- Voicing — persistent loudness tuning (Bass laut/leise + Kurve). Unlike the
-     live sliders above, this edits the loudness DEFINITION (base_gain +
-     max_boost + curve) and survives reboot. -->
-<article id="loudness-card">
-  <header><strong>Voicing — Bass laut / leise + Kurve</strong></header>
-  <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
-    Persistent (überlebt Reboot). „laut" = Grundpegel, „leise" = bei kleiner
-    Lautstärke. Wird ~5 s nach Speichern aktiv.
-  </p>
-  <div id="loudness-panel" hx-get="/ui/advanced/loudness" hx-trigger="load" hx-swap="innerHTML">
-    <span style="color:var(--pico-muted-color)">Lade…</span>
-  </div>
-  <hr style="margin:0.8rem 0 0.6rem">
+<!-- Am 16.09.2026 sind hier ZWEI Audio-Panels verschwunden:
+     * "Loudness — Live tuning" ersatzlos — es hing an einer fest
+       einkompilierten Namensliste (bass_shelf, sub_punch, timpani_body,
+       fullness), bot nur Gain und wurde still wirkungslos, sobald ein Filter
+       umbenannt wurde. /eq liest stattdessen JEDES tonale Biquad aus der
+       laufenden Config, mit Frequenz, Q und Kurve.
+     * "Loudness — pegelabhaengige Anhebung" ist auf /eq umgezogen.
+     Grund fuer beides: aller Klang liegt in CamillaDSP und gehoert damit an
+     EINEN Ort. Diese Seite ist zum Diagnostizieren da. Was bleibt, ist das
+     Sichern der Browser-Einstellungen (Palette/Idle) — Systemsache, keine
+     Abstimmung. -->
+<article id="persist-card">
+  <header><strong>Einstellungen sichern</strong></header>
   <button class="secondary" onclick="persistSettings()" style="width:100%">
     💾 Einstellungen dauerhaft sichern (Reboot-fest)
   </button>
@@ -133,56 +118,6 @@
   };
   ev.onerror = () => { logBox.textContent += '(stream lost — reconnecting…)\n'; };
 
-  // Live-tuning slider. The filters it patches ARE the loudness filters, so
-  // the bridge would rewrite the gain on the very next volume change and the
-  // slider would appear to do nothing. Each change therefore also refreshes
-  // the same editing session the EQ editor uses: the manual value holds while
-  // you are listening to it, and the session expires by itself a few minutes
-  // after the last tweak — no flag left switched, nothing to clean up.
-  // Defined here (page level) so it survives the htmx swap of #filter-list.
-  function patchFilter(name, gain) {
-    fetch('/api/filter', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: name, gain: gain })
-    }).catch(() => {});
-    fetch('/api/eq/suspend', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active: true })
-    }).catch(() => {});
-  }
-
-  // Voicing panel — defined here (page-level) so they survive the htmx
-  // innerHTML swap of #loudness-panel. "leise" is base+max, so the UI sends
-  // max_boost = leise - laut.
-  function saveLoudness() {
-    const filters = {};
-    document.querySelectorAll('#loudness-panel .l-laut').forEach(el => {
-      const n = el.dataset.filter;
-      const laut = parseFloat(el.value);
-      const leiseEl = document.querySelector('#loudness-panel .l-leise[data-filter="' + n + '"]');
-      const leise = parseFloat(leiseEl.value);
-      filters[n] = { base_gain: laut, max_boost: Math.round((leise - laut) * 10) / 10 };
-    });
-    const body = {
-      curve: document.getElementById('l-curve').value,
-      knee_low: parseInt(document.getElementById('l-knee-low').value, 10),
-      knee_high: parseInt(document.getElementById('l-knee-high').value, 10),
-      filters: filters,
-    };
-    const s = document.getElementById('loudness-status');
-    s.textContent = 'Speichere…';
-    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      .then(r => r.json())
-      .then(d => { s.textContent = d.ok ? 'Gespeichert — in ein paar Sekunden aktiv.' : ('Fehler: ' + JSON.stringify(d)); })
-      .catch(e => { s.textContent = 'Fehler: ' + e; });
-  }
-  function resetLoudness() {
-    if (!confirm('Voicing auf Profil-Default zurücksetzen?')) return;
-    fetch('/api/loudness', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reset: true }) })
-      .then(r => r.json())
-      .then(() => { htmx.ajax('GET', '/ui/advanced/loudness', '#loudness-panel'); })
-      .catch(e => { alert('Fehler: ' + e); });
-  }
   function persistSettings() {
     const s = document.getElementById('persist-status');
     s.textContent = 'Sichere auf Platte…';

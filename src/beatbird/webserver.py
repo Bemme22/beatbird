@@ -126,11 +126,6 @@ class PlaybackReq(BaseModel):
     cmd: str
 
 
-class FilterReq(BaseModel):
-    name: str
-    gain: float
-
-
 class ServiceReq(BaseModel):
     name: str
     action: str = "restart"
@@ -181,29 +176,6 @@ def get_status():
     }
 
 
-@app.get("/api/filters")
-def get_filters():
-    """Current Biquad/Peaking filter parameters from the running DSP.
-    Returns only the tunable subset — the web slider UI keys off this."""
-    cfg = _dsp.get_config()
-    if not cfg:
-        return {"filters": []}
-    tunable = _tunable_filters()
-    out = []
-    for name, body in (cfg.get("filters") or {}).items():
-        if name not in tunable:
-            continue
-        params = body.get("parameters", {}) if isinstance(body, dict) else {}
-        out.append({
-            "name": name,
-            "type": params.get("type"),
-            "freq": params.get("freq"),
-            "gain": params.get("gain"),
-            "q":    params.get("q"),
-        })
-    return {"filters": out}
-
-
 # ─── Write API ───────────────────────────────────────────────────────────────
 
 @app.post("/api/volume")
@@ -251,27 +223,6 @@ def reload_dsp():
     except Exception as e:
         raise HTTPException(500, f"reload failed: {e}")
     return {"ok": True}
-
-
-@app.post("/api/filter")
-def set_filter(req: FilterReq):
-    """Live-patch a single filter's gain via CamillaDSP. Volatile —
-    the change reverts on `systemctl reload camilladsp`. Persisting
-    into the profile YAML is V2."""
-    if req.name not in _tunable_filters():
-        raise HTTPException(400, f"filter {req.name!r} not in tunable allowlist")
-    if not -20.0 <= req.gain <= 20.0:
-        raise HTTPException(400, "gain must be -20..+20 dB")
-    cfg = _dsp.get_config()
-    if not cfg:
-        raise HTTPException(500, "DSP not reachable")
-    f = (cfg.get("filters") or {}).get(req.name)
-    if not f:
-        raise HTTPException(404, f"filter {req.name!r} not in running config")
-    params = f.get("parameters", {})
-    patch = {req.name: {"parameters": {**params, "gain": req.gain}}}
-    _dsp.patch_filters(patch)
-    return {"ok": True, "name": req.name, "gain": req.gain}
 
 
 @app.post("/api/service")
@@ -563,22 +514,234 @@ class LoudnessReq(BaseModel):
     reset: bool | None = None
 
 
+# ─── Native CamillaDSP Loudness filter ───────────────────────────────────────
+# Seit 15.09.2026 macht RobinPi die pegelabhaengige Bassanhebung mit CamillaDSPs
+# EIGENEM Loudness-Filter, statt sie in Python zu rechnen und Biquads zu patchen.
+# Der Filter liest den Main-Fader selbst — damit bekommt JEDER Weg, der die
+# Lautstaerke stellt (Bridge, Web-Slider, Display-Knopf), automatisch die
+# richtige Kompensation. Der alte Pfad verfehlte das still: /ui/vol und
+# /api/volume schreiben den Fader direkt und riefen nie _apply_loudness.
+#
+# Rampe (von CamillaDSP vorgegeben): bei `reference_level` keine Anhebung,
+# linear wachsend bis zur vollen Anhebung bei reference_level − 20 dB.
+# `low_boost` wirkt unter 70 Hz, `high_boost` ueber 3500 Hz — feste
+# Eckfrequenzen des Filters, nicht einstellbar.
+LOUDNESS_RAMP_DB = 20.0
+_NATIVE_LOUDNESS_RANGES = {
+    "reference_level": (-100.0, 20.0),
+    "low_boost": (0.0, 20.0),
+    "high_boost": (0.0, 20.0),
+}
+
+
+def _native_loudness_name(cfg: dict) -> str | None:
+    """Name of the first Loudness-type filter in the running config, if any.
+    Found by TYPE, not by name — the filter may be called anything."""
+    for name, body in (cfg.get("filters") or {}).items():
+        if isinstance(body, dict) and body.get("type") == "Loudness":
+            return name
+    return None
+
+
+def _loudness_boost_now(params: dict, volume_db: float | None) -> dict:
+    """How much the filter boosts *right now*, at the current fader position.
+
+    Pure UI feedback, but the important kind: loudness is tuned by ear, and
+    the first question at any volume is "is the lift even active here?".
+    Without this the user is adjusting a curve they cannot see."""
+    if volume_db is None:
+        return {}
+    ref = float(params.get("reference_level") or 0.0)
+    frac = max(0.0, min(1.0, (ref - volume_db) / LOUDNESS_RAMP_DB))
+    return {
+        "fraction": round(frac, 3),
+        "low_db": round(float(params.get("low_boost") or 0.0) * frac, 1),
+        "high_db": round(float(params.get("high_boost") or 0.0) * frac, 1),
+        "full_at_db": round(ref - LOUDNESS_RAMP_DB, 1),
+        "volume_db": round(volume_db, 1),
+    }
+
+
+def _native_loudness_state() -> dict | None:
+    """Running native-Loudness state + what the config FILE says, so the UI can
+    show whether the live values are still unsaved."""
+    cfg = _dsp.get_config()
+    if not cfg:
+        return None
+    name = _native_loudness_name(cfg)
+    if not name:
+        return None
+    params = dict((cfg["filters"][name] or {}).get("parameters") or {})
+    path = _dsp.get_config_path()
+    saved = _read_native_loudness(path, name) if path else None
+    live = {k: float(params.get(k) or 0.0) for k in _NATIVE_LOUDNESS_RANGES}
+    return {
+        "name": name,
+        "fader": params.get("fader", "Main"),
+        "attenuate_mid": bool(params.get("attenuate_mid")),
+        **{k: round(v, 1) for k, v in live.items()},
+        "ramp_db": LOUDNESS_RAMP_DB,
+        "now": _loudness_boost_now(params, _dsp.get_volume_db()),
+        "path": path,
+        "saved": saved,
+        # True = live values differ from the file, i.e. a reload would lose them.
+        "dirty": bool(saved) and any(
+            round(live[k], 1) != round(float(saved.get(k, live[k])), 1)
+            for k in _NATIVE_LOUDNESS_RANGES),
+        # Beides noetig: der Write ist atomar (tmp + os.replace), also braucht
+        # er auch Schreibrecht im VERZEICHNIS. Nur die Datei zu pruefen haette
+        # "Speichern" freigegeben und dann mit 500 quittiert.
+        "writable": bool(path) and os.access(path, os.W_OK)
+                    and os.access(os.path.dirname(path) or ".", os.W_OK),
+    }
+
+
+def _read_native_loudness(path: str, name: str) -> dict | None:
+    """The three numbers as they stand in the config file on disk."""
+    try:
+        block = _loudness_block(open(path, encoding="utf-8").readlines(), name)
+    except OSError:
+        return None
+    if block is None:
+        return None
+    lines, start, end, _ = block
+    out: dict[str, float] = {}
+    for ln in lines[start + 1:end]:
+        m = re.match(r"^\s*([A-Za-z_]+):\s*(-?[\d.]+)\s*(?:#.*)?$", ln)
+        if m and m.group(1) in _NATIVE_LOUDNESS_RANGES:
+            out[m.group(1)] = float(m.group(2))
+    return out or None
+
+
+def _loudness_block(lines: list[str], name: str):
+    """Locate the ``<name>:`` mapping in a YAML file by indentation.
+
+    Returns ``(lines, start_idx, end_idx, indent)`` where end_idx is the first
+    line that dedents back out of the block."""
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(\s*)" + re.escape(name) + r":\s*(#.*)?$", ln)
+        if not m:
+            continue
+        indent = len(m.group(1))
+        end = len(lines)
+        for j in range(i + 1, len(lines)):
+            s = lines[j].strip()
+            if not s or s.startswith("#"):
+                continue
+            if len(lines[j]) - len(lines[j].lstrip()) <= indent:
+                end = j
+                break
+        return lines, i, end, indent
+    return None
+
+
+def _write_native_loudness(path: str, name: str, values: dict) -> list[str]:
+    """Write the three numbers back into the DSP config file.
+
+    A surgical line edit, NOT yaml.safe_load + dump: the config's comments carry
+    the measurement basis and the reason behind every single filter, and a
+    round-trip through PyYAML would silently delete all of them.
+
+    Atomic (tmp + os.replace) — opening the target for writing truncates it on
+    the spot, and a half-written DSP config is a mute speaker."""
+    block = _loudness_block(open(path, encoding="utf-8").readlines(), name)
+    if block is None:
+        raise HTTPException(500, f"filter {name!r} not found in {path}")
+    lines, start, end, _ = block
+    todo, changed = dict(values), []
+    for i in range(start + 1, end):
+        m = re.match(r"^(\s*)([A-Za-z_]+):\s*-?[\d.]+\s*$", lines[i])
+        if m and m.group(2) in todo:
+            key = m.group(2)
+            lines[i] = f"{m.group(1)}{key}: {todo.pop(key)}\n"
+            changed.append(key)
+    if todo:
+        raise HTTPException(500, f"keys not found in {name!r}: {sorted(todo)}")
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    return changed
+
+
+class NativeLoudnessReq(BaseModel):
+    reference_level: float | None = None
+    low_boost: float | None = None
+    high_boost: float | None = None
+
+
+@app.post("/api/loudness/native")
+def set_native_loudness(req: NativeLoudnessReq):
+    """Live-patch the native Loudness filter. Volatile — reverts on reload.
+
+    That is the point: loudness is tuned by ear, so this is the fast path
+    (change, listen, change). Committing it to the file is a separate,
+    explicit action, see /api/loudness/native/save."""
+    cfg = _dsp.get_config()
+    if not cfg:
+        raise HTTPException(500, "DSP not reachable")
+    name = _native_loudness_name(cfg)
+    if not name:
+        raise HTTPException(404, "no native Loudness filter in the running config")
+    params = dict((cfg["filters"][name] or {}).get("parameters") or {})
+    for key, (lo, hi) in _NATIVE_LOUDNESS_RANGES.items():
+        val = getattr(req, key)
+        if val is None:
+            continue
+        if not lo <= float(val) <= hi:
+            raise HTTPException(400, f"{key} must be {lo}..{hi}")
+        params[key] = round(float(val), 1)
+    _dsp.patch_filters({name: {"parameters": params}})
+    return {"ok": True, "name": name,
+            "now": _loudness_boost_now(params, _dsp.get_volume_db())}
+
+
+@app.post("/api/loudness/native/save")
+def save_native_loudness():
+    """Persist the RUNNING values into the DSP config file.
+
+    Keeps the invariant the 15.09. rework was about: the config file is the
+    truth. The old design hid a permanent base_gain in the loudness module
+    where the file claimed 0 — anyone reading the file reasoned wrongly."""
+    state = _native_loudness_state()
+    if not state:
+        raise HTTPException(404, "no native Loudness filter in the running config")
+    if not state.get("path"):
+        raise HTTPException(500, "DSP config path unknown")
+    if not state["writable"]:
+        raise HTTPException(
+            403, f"{state['path']} is not writable by this service — "
+                 "chown it to the web user or save it by hand")
+    values = {k: state[k] for k in _NATIVE_LOUDNESS_RANGES}
+    changed = _write_native_loudness(state["path"], state["name"], values)
+    log.info("native loudness saved to %s: %s", state["path"], values)
+    return {"ok": True, "path": state["path"], "saved": values, "keys": changed}
+
+
 @app.get("/api/loudness")
 def get_loudness():
     """Effective loudness voicing — DEFAULT_BASE + profile (which filters +
     max_boost) + overrides, i.e. exactly what the bridge runs. Per filter:
     base_gain = 'Bass laut' (gain at high volume), quiet = base+max_boost =
-    'Bass leise' (gain at the lowest volume)."""
+    'Bass leise' (gain at the lowest volume).
+
+    ``native`` is filled when the speaker has moved its loudness into
+    CamillaDSP's own filter; then the bridge-side voicing above is off and the
+    UI renders the native panel instead."""
     p = _get_profile()
     # Whether the bridge is currently holding loudness still. Surfaced so the
     # panel can say so: a suspended loudness is otherwise completely invisible,
     # and "my bass went away" is a miserable thing to debug from the kitchen.
     suspended = settings_overrides.eq_session_active()
+    native = _native_loudness_state()
     if not p.audio.loudness.enabled or not p.audio.loudness.filters:
         return {"enabled": False, "filters": [], "curve": "smoothstep",
                 "suspended": suspended,
                 "knee_low": loudness.DEFAULT_KNEE_LOW,
-                "knee_high": loudness.DEFAULT_KNEE_HIGH}
+                "knee_high": loudness.DEFAULT_KNEE_HIGH,
+                "native": native}
     filters, curve, knee_low, knee_high = loudness.build_loudness(
         p, settings_overrides.load())
     return {
@@ -590,6 +753,7 @@ def get_loudness():
             "max_boost": round(f.max_boost, 1),
             "quiet": round(f.base_gain + f.max_boost, 1),
         } for f in filters],
+        "native": native,
     }
 
 
@@ -643,9 +807,13 @@ def set_loudness(req: LoudnessReq):
     return {"ok": True, "overrides": out["loudness"]}
 
 
-@app.get("/ui/advanced/loudness", response_class=HTMLResponse)
-def ui_advanced_loudness(request: Request):
-    return templates.TemplateResponse(request, "_advanced_loudness.html",
+@app.get("/ui/loudness", response_class=HTMLResponse)
+def ui_loudness(request: Request):
+    """Loudness-Panel. Sitzt seit 16.09.2026 auf /eq statt auf /advanced —
+    die feste Entzerrung und die pegelabhaengige Anhebung ergeben zusammen den
+    Klang und gehoeren damit auf dieselbe Seite. Deshalb auch kein "advanced"
+    mehr im Pfad."""
+    return templates.TemplateResponse(request, "_loudness.html",
                                       {"l": get_loudness()})
 
 
@@ -758,7 +926,7 @@ def get_eq_bands():
     cfg = _dsp.get_config()
     if not cfg:
         return {"bands": [], "samplerate": 48000}
-    tunable = _tunable_filters()
+    owned = _bridge_loudness_names()
     bands = []
     for name, body in (cfg.get("filters") or {}).items():
         if not isinstance(body, dict) or body.get("type") != "Biquad":
@@ -768,9 +936,28 @@ def get_eq_bands():
             continue
         bands.append({"name": name, "type": p.get("type"), "freq": p.get("freq"),
                       "gain": p.get("gain"), "q": p.get("q"),
-                      "loudness": name in tunable})
+                      "loudness": name in owned})
     sr = (cfg.get("devices") or {}).get("samplerate", 48000)
     return {"bands": bands, "samplerate": sr}
+
+
+def _bridge_loudness_names() -> set[str]:
+    """Names of the filters the BRIDGE patches per volume — i.e. the bands a
+    user must not edit while the bridge is running.
+
+    Derived from the profile, deliberately not from a hardcoded list: the
+    previous constant named `bass_shelf`/`timpani_body` and silently stopped
+    matching anything the moment those filters were renamed, which left the EQ
+    editor warning about a mechanism that no longer touched any band.
+    Empty when the speaker uses CamillaDSP's native Loudness filter (that one
+    reads the fader and never patches a Biquad)."""
+    try:
+        p = _get_profile()
+    except Exception:
+        return set()
+    if not p.audio.loudness.enabled:
+        return set()
+    return {f.name for f in p.audio.loudness.filters}
 
 
 @app.post("/api/eq/band")
@@ -1318,13 +1505,6 @@ def ui_advanced_system(request: Request):
 def ui_advanced_snapcast(request: Request):
     return templates.TemplateResponse(request, "_advanced_snapcast.html", {
         "diag":    diag(),
-    })
-
-
-@app.get("/ui/advanced/filters", response_class=HTMLResponse)
-def ui_advanced_filters(request: Request):
-    return templates.TemplateResponse(request, "_advanced_filters.html", {
-        "filters": get_filters().get("filters", []),
     })
 
 
