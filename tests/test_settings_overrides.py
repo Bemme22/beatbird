@@ -2,6 +2,8 @@
 (identity-split phase 4). Kept dependency-free so it runs in CI without the
 webserver's FastAPI stack."""
 
+import json
+
 from beatbird import settings_overrides as so
 
 
@@ -121,3 +123,90 @@ def test_merge_palette_survives_a_partial_hand_written_request():
     out = so.merge_palette(cur, {"a": "#e0913f"})
     assert out["a"] == "#e0913f"
     assert len(out) == 6 and out["d"] == "#6c5b37"
+
+
+# ─── EQ editor session — expiring, transient, not an override ─────────────────
+#
+# Replaces the old `eq_editing: true` override, which only ever cleared on the
+# browser's goodbye and was copied into the read-only base by
+# beatbird-persist-overrides. Everything below is about it ending on its own.
+
+
+def _sess(tmp_path):
+    return str(tmp_path / "eq-session.json")
+
+
+def test_no_session_file_means_not_suspended(tmp_path):
+    assert so.eq_session_active(_sess(tmp_path)) is False
+    assert so.eq_session_expiry(_sess(tmp_path)) is None
+
+
+def test_open_then_active(tmp_path):
+    p = _sess(tmp_path)
+    so.eq_session_open(path=p, now=1000.0)
+    assert so.eq_session_active(p, now=1000.0) is True
+
+
+def test_session_expires_without_anyone_writing(tmp_path):
+    """The whole point: the browser dies, nothing touches the file again, and
+    the suspension lapses anyway."""
+    p = _sess(tmp_path)
+    so.eq_session_open(ttl_s=300.0, path=p, now=1000.0)
+    assert so.eq_session_active(p, now=1299.0) is True    # still inside
+    assert so.eq_session_active(p, now=1301.0) is False   # lapsed on its own
+
+
+def test_heartbeat_extends(tmp_path):
+    p = _sess(tmp_path)
+    so.eq_session_open(ttl_s=300.0, path=p, now=1000.0)
+    so.eq_session_open(ttl_s=300.0, path=p, now=1200.0)   # heartbeat
+    assert so.eq_session_active(p, now=1400.0) is True    # past the first expiry
+
+
+def test_close_ends_it_immediately(tmp_path):
+    p = _sess(tmp_path)
+    so.eq_session_open(path=p, now=1000.0)
+    so.eq_session_close(p)
+    assert so.eq_session_active(p, now=1000.0) is False
+
+
+def test_close_without_a_session_is_not_an_error(tmp_path):
+    so.eq_session_close(_sess(tmp_path))   # must not raise
+
+
+def test_absurd_expiry_is_ignored(tmp_path):
+    """No RTC on these Pis: the wall clock jumps at the first NTP sync. A
+    backwards jump would otherwise strand the expiry far in the future and
+    rebuild the stuck-forever bug this design replaces."""
+    p = _sess(tmp_path)
+    with open(p, "w") as f:
+        json.dump({"expires_at": 1000.0 + so.EQ_SESSION_MAX_TTL_S + 60}, f)
+    assert so.eq_session_active(p, now=1000.0) is False
+
+
+def test_expiry_just_inside_the_cap_is_honoured(tmp_path):
+    p = _sess(tmp_path)
+    with open(p, "w") as f:
+        json.dump({"expires_at": 1000.0 + so.EQ_SESSION_MAX_TTL_S - 60}, f)
+    assert so.eq_session_active(p, now=1000.0) is True
+
+
+def test_garbage_file_reads_as_closed(tmp_path):
+    """Fail open — a suspension is the dangerous state to get stuck in."""
+    p = _sess(tmp_path)
+    for junk in ("not json at all", "{}", '{"expires_at": "soon"}', "[]"):
+        with open(p, "w") as f:
+            f.write(junk)
+        assert so.eq_session_active(p, now=1000.0) is False, junk
+
+
+def test_heartbeat_ttl_leaves_room_for_missed_beats():
+    """The page beats at TTL/3, so two consecutive misses still hold."""
+    assert so.EQ_SESSION_TTL_S / 3 * 2 < so.EQ_SESSION_TTL_S
+
+
+def test_session_is_not_part_of_the_persisted_override_schema():
+    """It must never ride along in the file beatbird-persist-overrides copies
+    into the read-only base."""
+    assert "expires_at" not in so.empty()
+    assert so.EQ_SESSION_PATH != so.OVERRIDES_PATH

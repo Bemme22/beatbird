@@ -155,13 +155,31 @@
   }
 
   // ── loudness suspend lifecycle ────────────────────────────────────────────────
+  // The suspend is a SESSION, not a switch: the server expires it on its own,
+  // and this page keeps it alive while it is open. Unloading still releases it
+  // immediately (the fast path), but nothing depends on that arriving — a
+  // killed tab, a locked phone or a dropped connection simply stops the
+  // heartbeat and the loudness comes back by itself a few minutes later.
+  let hbTimer = null;
+
   function suspend(on) {
     const body = JSON.stringify({ active: on });
-    if (!on && navigator.sendBeacon) { navigator.sendBeacon('/api/eq/suspend', new Blob([body], { type: 'application/json' })); return; }
-    fetch('/api/eq/suspend', { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => {});
+    if (!on && navigator.sendBeacon) { navigator.sendBeacon('/api/eq/suspend', new Blob([body], { type: 'application/json' })); return Promise.resolve(); }
+    return fetch('/api/eq/suspend', { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      .then(r => r.json()).catch(() => null);
   }
-  window.addEventListener('pagehide', () => suspend(false));
-  window.addEventListener('beforeunload', () => suspend(false));
+
+  function startHeartbeat(ttlSeconds) {
+    // Refresh at a third of the server's TTL, so two missed beats in a row
+    // (a backgrounded tab, a blip) still don't drop the session. Paced off the
+    // value the server reports rather than a second copy of the constant here.
+    const everyMs = Math.max(15, (ttlSeconds || 300) / 3) * 1000;
+    if (hbTimer) clearInterval(hbTimer);
+    hbTimer = setInterval(() => suspend(true), everyMs);
+  }
+
+  window.addEventListener('pagehide', () => { if (hbTimer) clearInterval(hbTimer); suspend(false); });
+  window.addEventListener('beforeunload', () => { if (hbTimer) clearInterval(hbTimer); suspend(false); });
 
   async function load() {
     const r = await fetch('/api/eq/bands'); const d = await r.json();
@@ -169,7 +187,8 @@
     if (!bands.length) { document.getElementById('bands').innerHTML = '<p class="legend">Keine tonalen Bänder im laufenden DSP — oder DSP nicht erreichbar.</p>'; document.getElementById('suspnote').style.display = 'none'; return; }
     renderBands(); draw();
   }
-  suspend(true);   // pause loudness for the editing session
+  // Pause loudness for the editing session, then keep it paused by beating.
+  suspend(true).then(d => startHeartbeat(d && d.ttl_s));
   load();
 </script>
 {% endblock %}

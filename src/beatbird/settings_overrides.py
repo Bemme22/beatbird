@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -38,9 +39,13 @@ def empty() -> dict:
     #            wins over the profile's resolved friendly_name. None = use the
     #            profile/derived name. Drives the BlueZ alias, web title + the
     #            HA device name.
-    # eq_editing: True while the web EQ editor is open. The bridge suspends its
-    #            per-volume loudness patching so manual freq/gain/q edits to the
-    #            production filters aren't overwritten underneath the user.
+    # eq_editing: LEGACY, ignored since 2026-09-16. The EQ-editor session moved
+    #            out of this file to eq-session.json (see the section at the
+    #            bottom) because it is transient state that must expire and must
+    #            NOT be persisted. Deliberately still listed here: an old value
+    #            may sit in a speaker's file — or, worse, in its read-only base
+    #            via beatbird-persist-overrides — and nothing must start
+    #            honouring it again.
     return {"palette": None, "idle": None, "loudness": None,
             "dsp_config": None, "friendly_name": None, "eq_editing": None}
 
@@ -180,3 +185,98 @@ def mtime(path: str = OVERRIDES_PATH) -> Optional[float]:
         return os.path.getmtime(path)
     except OSError:
         return None
+
+
+# ─── EQ editor session — transient, expiring, NOT an override ───────────────
+#
+# While the web EQ editor is open the bridge must stop patching the loudness
+# filters per volume change, or it overwrites the freq/gain/q the user is
+# editing. That "is the editor open" fact used to live in the overrides file
+# as `eq_editing: true`, which was wrong in three separate ways:
+#
+#   * it only ever cleared on the browser's pagehide/beforeunload. A killed
+#     tab, a locked phone or a dropped connection left it set, and the bridge
+#     then suspended loudness FOREVER with nothing in the UI to say so.
+#   * `beatbird-persist-overrides` copies that file verbatim into the
+#     read-only base, so hitting "dauerhaft sichern" while it was stuck burned
+#     the suspension in across reboots.
+#   * every write to the overrides file makes the bridge re-run
+#     _apply_overrides, which logs unconditionally — so a heartbeat through
+#     that path would have become a steady log spammer, the same self-inflicted
+#     pattern as the wifi telemetry.
+#
+# So it lives here instead: its own tiny file, carrying an absolute expiry, in
+# a directory that is tmpfs on the overlayroot speakers (gone on reboot for
+# free). The browser refreshes it while the editor is open; when the browser
+# stops, it expires on its own. Nothing to leak, nothing to persist.
+EQ_SESSION_PATH = "/var/lib/beatbird/eq-session.json"
+
+# How long one heartbeat buys. The browser refreshes well inside this, so the
+# only thing the value really sets is "how long a suspension outlives a dead
+# browser" — long enough to survive a phone throttling background timers,
+# short enough that nobody notices the loudness was off.
+EQ_SESSION_TTL_S = 300.0
+
+# Upper bound applied when READING. These Pis have no RTC, so the wall clock
+# jumps at the first NTP sync; a backwards jump would otherwise strand an
+# expiry far in the future and recreate exactly the stuck-forever bug this
+# replaces. An expiry further out than this cannot be honest — ignore it.
+EQ_SESSION_MAX_TTL_S = 900.0
+
+
+def eq_session_open(ttl_s: float = EQ_SESSION_TTL_S,
+                    path: str = EQ_SESSION_PATH,
+                    now: Optional[float] = None) -> float:
+    """Start or refresh the editing session. Idempotent — the heartbeat calls
+    exactly this. Returns the new absolute expiry."""
+    now = time.time() if now is None else now
+    expires_at = now + ttl_s
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="eq-session-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"expires_at": expires_at}, f)
+        os.replace(tmp, path)
+    except Exception:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+    return expires_at
+
+
+def eq_session_close(path: str = EQ_SESSION_PATH) -> None:
+    """End the session now. Best-effort: expiry is the real guarantee, this
+    is only the fast path for a browser that got to say goodbye."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def eq_session_expiry(path: str = EQ_SESSION_PATH,
+                      now: Optional[float] = None) -> Optional[float]:
+    """Absolute expiry of a live session, or None if there isn't one.
+    Returns None for a file that is missing, unreadable, malformed, already
+    expired, or claiming an implausibly distant expiry."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        expires_at = float(data["expires_at"])
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError, KeyError) as e:
+        log.warning("eq-session unreadable (%s) — treating as closed", e)
+        return None
+    now = time.time() if now is None else now
+    if expires_at <= now:
+        return None
+    if expires_at - now > EQ_SESSION_MAX_TTL_S:
+        log.warning("eq-session expiry %.0fs out (clock jump?) — ignoring",
+                    expires_at - now)
+        return None
+    return expires_at
+
+
+def eq_session_active(path: str = EQ_SESSION_PATH,
+                      now: Optional[float] = None) -> bool:
+    return eq_session_expiry(path, now) is not None

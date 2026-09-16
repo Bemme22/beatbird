@@ -270,8 +270,9 @@ class BeatBirdBridge:
         # patching is suspended so the flat config isn't re-EQ'd underneath.
         self._active_dsp_config = profile.audio.camilladsp_config
         self._dsp_flat_mode = False
-        # True while the web EQ editor is open (eq_editing override) — also
-        # suspends per-volume loudness patching so manual edits aren't stomped.
+        # True while a web EQ-editor session is live — also suspends per-volume
+        # loudness patching so manual edits aren't stomped. Recomputed every
+        # status tick from the expiring session file, see _poll_eq_session().
         self._eq_suspend_loudness = False
 
         # UI sound effects — short blips for boot, volume, play/pause,
@@ -1400,13 +1401,13 @@ class BeatBirdBridge:
                 log.warning("overrides: DSP config swap to %s failed "
                             "(missing file or DSP unreachable)", target)
 
-        # EQ editor open → suspend per-volume loudness patching so manual
-        # freq/gain/q edits to the production filters aren't stomped underneath.
-        was_eq = self._eq_suspend_loudness
-        self._eq_suspend_loudness = bool(data.get("eq_editing"))
-        if not initial and was_eq and not self._eq_suspend_loudness:
-            log.info("overrides: EQ editor closed — re-asserting loudness")
-            self._apply_loudness(self.current_volume)
+        # NOTE: the EQ-editor suspend is deliberately NOT read here any more.
+        # It is transient session state with an expiry, so it cannot ride along
+        # in a file whose changes are detected by mtime — an expiry passes
+        # without anyone writing anything. It lives in eq-session.json and is
+        # evaluated every status tick by _poll_eq_session(). A legacy
+        # `eq_editing` key in this file (possibly baked into the read-only base
+        # by beatbird-persist-overrides) is ignored on purpose.
 
         # Loudness voicing — the web UI tunes base_gain / max_boost / curve /
         # knees. Rebuild the definition from profile + override and re-apply at
@@ -1483,6 +1484,25 @@ class BeatBirdBridge:
             return
         self._overrides_mtime = m
         self._apply_overrides(settings_overrides.load())
+
+    def _poll_eq_session(self) -> None:
+        """Track whether the web EQ editor is still open, and resume loudness
+        the moment it is not.
+
+        Evaluated fresh every tick rather than on file change, because the
+        interesting event — the session expiring — happens without anyone
+        touching the file. That is the whole point: a browser that dies without
+        saying goodbye stops refreshing, and the suspension lapses on its own
+        instead of lasting until someone notices the bass is wrong."""
+        active = settings_overrides.eq_session_active()
+        if active == self._eq_suspend_loudness:
+            return
+        self._eq_suspend_loudness = active
+        if active:
+            log.info("EQ editor open — suspending loudness patching")
+        else:
+            log.info("EQ editor session ended — re-asserting loudness")
+            self._apply_loudness(self.current_volume)
 
     def _kick_cover_fetch(self, uri: str, url: str) -> None:
         """Daemon-thread cover processor + display.push_cover. Returns
@@ -2251,6 +2271,13 @@ class BeatBirdBridge:
                         self._poll_overrides()
                     except Exception as e:
                         log.error("overrides poll: %s", e)
+                    # Separate from the overrides poll above: this one has to
+                    # run even when no file changed, so an expiring editor
+                    # session releases the loudness suspend by itself.
+                    try:
+                        self._poll_eq_session()
+                    except Exception as e:
+                        log.error("eq session poll: %s", e)
                     # Time-of-day brightness + night standby (sends on change).
                     try:
                         self._apply_auto_dim()

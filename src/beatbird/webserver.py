@@ -570,14 +570,19 @@ def get_loudness():
     base_gain = 'Bass laut' (gain at high volume), quiet = base+max_boost =
     'Bass leise' (gain at the lowest volume)."""
     p = _get_profile()
+    # Whether the bridge is currently holding loudness still. Surfaced so the
+    # panel can say so: a suspended loudness is otherwise completely invisible,
+    # and "my bass went away" is a miserable thing to debug from the kitchen.
+    suspended = settings_overrides.eq_session_active()
     if not p.audio.loudness.enabled or not p.audio.loudness.filters:
         return {"enabled": False, "filters": [], "curve": "smoothstep",
+                "suspended": suspended,
                 "knee_low": loudness.DEFAULT_KNEE_LOW,
                 "knee_high": loudness.DEFAULT_KNEE_HIGH}
     filters, curve, knee_low, knee_high = loudness.build_loudness(
         p, settings_overrides.load())
     return {
-        "enabled": True, "curve": curve,
+        "enabled": True, "curve": curve, "suspended": suspended,
         "knee_low": knee_low, "knee_high": knee_high,
         "filters": [{
             "name": f.name, "freq": f.freq,
@@ -725,8 +730,10 @@ def set_dsp_config(req: DspConfigReq):
 # A graphical per-band editor over the running CamillaDSP tonal Biquad filters
 # with a computed frequency-response curve (front-end). Edits live-patch via
 # PatchConfig (volatile — revert on `reload camilladsp`). While the editor is
-# open the bridge suspends per-volume loudness patching (eq_editing override) so
-# manual edits to the loudness filters aren't overwritten underneath the user.
+# open the bridge suspends per-volume loudness patching so manual edits to the
+# loudness filters aren't overwritten underneath the user. That suspension is a
+# heartbeat-kept session with a server-side expiry (settings_overrides
+# .eq_session_*), not a flag the browser is trusted to switch back off.
 
 _EQ_TYPES = {"Peaking", "Lowshelf", "Highshelf"}   # tonal bands the editor exposes
 
@@ -794,15 +801,22 @@ def set_eq_band(req: EqBandReq):
 
 @app.post("/api/eq/suspend")
 def set_eq_suspend(req: EqSuspendReq):
-    """Open/close the EQ-editor session: writes the eq_editing override so the
-    bridge suspends (or resumes) per-volume loudness patching within ~5 s."""
-    out = settings_overrides.load()
-    out["eq_editing"] = True if req.active else None
+    """Open/refresh/close the EQ-editor session, so the bridge suspends (or
+    resumes) per-volume loudness patching within ~5 s.
+
+    `active: true` is BOTH "open" and "still here" — the editor heartbeats
+    through this same call, and the session expires on its own if those stop.
+    The response carries the TTL so the page can pace its heartbeat off the
+    server's number instead of a second copy of the constant."""
     try:
-        settings_overrides.save(out)
+        if req.active:
+            settings_overrides.eq_session_open()
+        else:
+            settings_overrides.eq_session_close()
     except Exception as e:
-        raise HTTPException(500, f"eq suspend save failed: {e}")
-    return {"ok": True, "active": req.active}
+        raise HTTPException(500, f"eq session update failed: {e}")
+    return {"ok": True, "active": req.active,
+            "ttl_s": settings_overrides.EQ_SESSION_TTL_S}
 
 
 @app.get("/eq", response_class=HTMLResponse)
