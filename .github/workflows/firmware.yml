@@ -43,9 +43,17 @@ jobs:
         # Only physically-existing speakers. beat-2 / zipp-2 envs are kept
         # in platformio.ini as placeholders and can be added here when the
         # hardware exists — keeping them out for now halves CI time.
+        #
+        # ⚠️ robinpi was missing here for as long as the env existed, which is
+        # exactly backwards: it is the only board with a DIFFERENT panel
+        # (AMOLED 1.75 / CO5300 instead of 1.43 / SH8601), so it is the one env
+        # the other two cannot stand in for. It is also the tightest on DRAM.
+        # A speaker that exists but has no pipeline fails silently — the
+        # firmware CI was already red for three months without anyone noticing.
         env:
           - zipp-mini-2
           - beat-1
+          - robinpi
     steps:
       - uses: actions/checkout@v4
         with:
