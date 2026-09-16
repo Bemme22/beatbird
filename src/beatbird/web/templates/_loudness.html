@@ -27,24 +27,46 @@
     (<code>{{ n.name }}</code>, Fader <code>{{ n.fader }}</code>).
     Er liest die Lautstärke selbst — egal ob sie vom Handy, vom Display-Knopf
     oder von Spotify kommt.
-    <br>Keine Anhebung bei <b>{{ n.reference_level }} dB</b>, voll bei
-    <b>{{ n.now.full_at_db if n.now else '—' }} dB</b> und darunter
-    (Rampe {{ n.ramp_db }} dB, linear).
+    {# Ohne lesbares Profil gibt es keine Lautstaerkekurve und damit kein
+       Prozent. Dann NUR dB zeigen — Jinja wuerde None sonst woertlich als
+       "unter None %" rendern, und eine erfundene Zahl waere noch schlechter. #}
+    <br>{% if n.now.reference_pct is not none %}Anhebung beginnt
+    <b class="num">unter {{ n.now.reference_pct }} %</b> und ist voll
+    <b class="num">ab {{ n.now.full_at_pct }} % abwärts</b>
+    <small>({{ n.reference_level }} → {{ n.now.full_at_db }} dB, Rampe
+    {{ n.ramp_db }} dB linear)</small>.{% else %}Anhebung beginnt unter
+    <b class="num">{{ n.reference_level }} dB</b> und ist voll ab
+    <b class="num">{{ n.now.full_at_db }} dB</b> abwärts
+    <small>(Rampe {{ n.ramp_db }} dB linear)</small>.{% endif %}
     <code>low_boost</code> wirkt unter 70 Hz, <code>high_boost</code> über 3500 Hz.
   </p>
 
-  {% if n.now %}
+  {# Prozent fuehrt, dB steht dahinter: der Speaker wird in Prozent bedient.
+     Bis 16.09.2026 stand hier nur dB — damit war nicht erkennbar, dass die
+     Loudness bei normaler Hoerlautstaerke gar nicht arbeitet.
+     BEIDE Varianten stehen im DOM, eine versteckt: patchNative() schaltet nur
+     `hidden` um, statt in JS HTML zusammenzubauen. Sonst muesste die Logik
+     "hebt sie hier ueberhaupt an?" ein zweites Mal existieren. #}
+  {% if n.now.volume_pct is not none %}
   <p class="l-now">
-    Gerade: Fader <b class="num">{{ n.now.volume_db }} dB</b> →
-    Anhebung <b class="num" id="l-now-low">{{ n.now.low_db }} dB</b> unten
-    <span class="num" id="l-now-high">({{ n.now.high_db }} dB oben)</span>
-    <small>— {{ (n.now.fraction * 100) | round | int }} % der Rampe</small>
+    <span id="l-now-active" {% if not n.now.fraction %}hidden{% endif %}>
+      Gerade: <b class="num l-now-vol">{{ n.now.volume_pct }} %</b> →
+      Anhebung <b class="num" id="l-now-low">{{ n.now.low_db }} dB</b> unten
+      <span class="num" id="l-now-high">({{ n.now.high_db }} dB oben)</span>
+      <small>— <span id="l-now-frac">{{ (n.now.fraction * 100) | round | int if n.now.fraction else 0 }}</span> % der Rampe</small>
+    </span>
+    <span id="l-now-inactive" {% if n.now.fraction %}hidden{% endif %}>
+      ⚠️ Gerade: <b class="num l-now-vol">{{ n.now.volume_pct }} %</b> —
+      <b>hier hebt die Loudness nichts an.</b>
+      <small>Sie beginnt erst unter <span class="l-refpct">{{ n.now.reference_pct }}</span> %.
+      Zum Einstellen leiser drehen, oder „ab wann" höher setzen.</small>
+    </span>
   </p>
   {% endif %}
 
   <div class="l-row">
     <label for="n-ref">ab wann <small>reference_level</small></label>
-    <span class="num l-val" id="n-ref-v">{{ n.reference_level }} dB</span>
+    <span class="num l-val" id="n-ref-v"><span id="n-ref-db">{{ n.reference_level }} dB</span><small> · ab <span class="l-refpct">{{ n.now.reference_pct }}</span> %</small></span>
     <input id="n-ref" type="range" min="-60" max="0" step="0.5"
            value="{{ n.reference_level }}" data-key="reference_level">
   </div>

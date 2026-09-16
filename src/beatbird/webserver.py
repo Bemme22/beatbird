@@ -630,23 +630,57 @@ def _native_loudness_name(cfg: dict) -> str | None:
     return None
 
 
+def _vol_pct(db: float | None) -> int | None:
+    """A fader dB value as the percentage the volume slider shows.
+
+    The loudness panel is the one place where the two units meet: its numbers
+    are dB on the CamillaDSP fader, but the speaker is *operated* in percent.
+    Showing dB alone hides the number that decides whether loudness does
+    anything at all — RobinPi sat at 80 % while its reference level (-25 dB)
+    is 70 %, so the filter was inert and the panel gave no way to see it."""
+    if db is None:
+        return None
+    try:
+        return db_to_pct(db, *_vol_params())
+    except Exception:
+        return None
+
+
 def _loudness_boost_now(params: dict, volume_db: float | None) -> dict:
     """How much the filter boosts *right now*, at the current fader position.
 
     Pure UI feedback, but the important kind: loudness is tuned by ear, and
     the first question at any volume is "is the lift even active here?".
-    Without this the user is adjusting a curve they cannot see."""
-    if volume_db is None:
-        return {}
+    Without this the user is adjusting a curve they cannot see.
+
+    Every key is always present, None where the volume is unknown — a key that
+    is sometimes absent renders as Jinja Undefined, and `Undefined is not none`
+    is True, so the template would take the wrong branch exactly when it has
+    nothing to show (same defect as the disk-key contract in _disk_free_root)."""
     ref = float(params.get("reference_level") or 0.0)
-    frac = max(0.0, min(1.0, (ref - volume_db) / LOUDNESS_RAMP_DB))
-    return {
-        "fraction": round(frac, 3),
-        "low_db": round(float(params.get("low_boost") or 0.0) * frac, 1),
-        "high_db": round(float(params.get("high_boost") or 0.0) * frac, 1),
-        "full_at_db": round(ref - LOUDNESS_RAMP_DB, 1),
-        "volume_db": round(volume_db, 1),
+    full_at = round(ref - LOUDNESS_RAMP_DB, 1)
+    out: dict = {
+        "full_at_db":    full_at,
+        # Volume-independent, so these stay meaningful even with no fader read.
+        "reference_pct": _vol_pct(ref),
+        "full_at_pct":   _vol_pct(full_at),
+        "fraction":      None,
+        "low_db":        None,
+        "high_db":       None,
+        "volume_db":     None,
+        "volume_pct":    None,
     }
+    if volume_db is None:
+        return out
+    frac = max(0.0, min(1.0, (ref - volume_db) / LOUDNESS_RAMP_DB))
+    out.update({
+        "fraction":   round(frac, 3),
+        "low_db":     round(float(params.get("low_boost") or 0.0) * frac, 1),
+        "high_db":    round(float(params.get("high_boost") or 0.0) * frac, 1),
+        "volume_db":  round(volume_db, 1),
+        "volume_pct": _vol_pct(volume_db),
+    })
+    return out
 
 
 def _native_loudness_state() -> dict | None:

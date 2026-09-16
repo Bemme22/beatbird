@@ -383,6 +383,25 @@
           var hi = document.getElementById('l-now-high');
           if (lo) lo.textContent = d.now.low_db + ' dB';
           if (hi) hi.textContent = '(' + d.now.high_db + ' dB oben)';
+          var fr = document.getElementById('l-now-frac');
+          if (fr && d.now.fraction != null) fr.textContent = Math.round(d.now.fraction * 100);
+          // Prozent kommt VOM SERVER — die Lautstaerkekurve (min_db/max_db/
+          // gamma, per Profil) wird bewusst nicht nach JS dupliziert, sonst
+          // haette der Speaker zwei Wahrheiten ueber dieselbe Umrechnung.
+          if (d.now.reference_pct != null) {
+            document.querySelectorAll('.l-refpct').forEach(function (e) {
+              e.textContent = d.now.reference_pct;
+            });
+          }
+          // Kippt die Anhebung bei dieser Lautstaerke an oder aus, wechselt
+          // die Anzeige — sonst behauptet sie weiter, es passiere nichts,
+          // waehrend man den Regler gerade darueber geschoben hat.
+          var on = document.getElementById('l-now-active');
+          var off = document.getElementById('l-now-inactive');
+          if (on && off && d.now.fraction != null) {
+            on.hidden = !(d.now.fraction > 0);
+            off.hidden = (d.now.fraction > 0);
+          }
         }
       }).catch(function () {});
     }, 120);
@@ -414,7 +433,10 @@
     var el = ev.target;
     if (!el.dataset || !el.dataset.key) return;
     if (!el.closest('#loudness-panel')) return;
-    var v = document.getElementById(el.id + '-v');
+    // Bevorzugt das reine dB-Feld: bei "ab wann" haengt im Label noch die
+    // Prozentangabe, und ein textContent auf das ganze Feld wuerde sie
+    // loeschen (sie kommt erst mit der naechsten Server-Antwort zurueck).
+    var v = document.getElementById(el.id + '-db') || document.getElementById(el.id + '-v');
     if (v) v.textContent = parseFloat(el.value).toFixed(1) + ' dB';
     patchNative();
   });
