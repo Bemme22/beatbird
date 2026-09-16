@@ -7,6 +7,7 @@
 #include "screens/center_stage.h"
 #include "screens/screen_standby.h"
 #include "led_status.h"
+#include "faces.h"
 
 #ifdef ARDUINO
   #include <Arduino.h>
@@ -83,6 +84,7 @@ void handle_line(const char *line)
     // Cheap prefix-check, no String allocation
     if (!strncmp(line, "PAL:",  4))     { handle_palette_line(line + 4); return; }
     if (!strncmp(line, "LED:",  4))     { handle_led_line(line + 4);     return; }
+    if (!strncmp(line, "FACE:", 5))     { Faces::handle_line(line + 5);  return; }
     if (!strncmp(line, "SYS:",  4))     { handle_system_line(line);      return; }
     if (!strncmp(line, "BOOT:", 5))     { handle_boot_line(line + 5);    return; }
     if (!strncmp(line, "WX:",   3))     { handle_weather_line(line);     return; }

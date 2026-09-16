@@ -66,6 +66,18 @@ display:
   #   brightness: 120        # 0..255 — cap it to the 5 V converter budget
   #   mapping: area          # area (one diffused cluster) | mirror (two strips)
   #   chain_join: inner      # mirror only: where the two bars are joined (inner | outer)
+  # Standby faces: one glanceable DECISION from Home Assistant per screen
+  # (ventilate / washing machine done / …), rotating beside the clock. HA
+  # publishes them retained as JSON on <topic>/<id>; the bridge caches and
+  # forwards them as FACE: lines (docs/protocol.md).
+  # Density belongs here because reading distance is a property of the
+  # INSTALLATION — 3 m across the kitchen is one value per face, arm's length
+  # could be three.
+  # faces:
+  #   enabled: false
+  #   topic: beatbird/hints  # MQTT prefix HA publishes decisions to
+  #   max_faces: 4           # 1..4 — more than that is wallpaper, not a rotation
+  #   dwell_s: 8             # 2..120 seconds per face
   # For led-button (to be implemented):
   # led_pin: 18                          # GPIO pin (BCM numbering)
   # led_count: 12

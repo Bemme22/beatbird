@@ -147,6 +147,94 @@ Re-sends are idempotent — the firmware compares the wiring and only rebuilds
 the driver when pin, count or chip actually changed, so a flapping USB link
 does not blink the strip.
 
+### `FACE` — standby faces (a batch, on change)
+
+```
+FACE:id=luften|prio=40|big=-3.9|unit=K|top=LUEFTEN|bot=Taupunkt aussen 10.5 - innen 6.6
+FACE:id=waschmaschine|prio=70|big=2:14|unit=h|top=WAESCHE FERTIG|bot=0.62 kWh
+FACE:end|dwell=8
+```
+
+A *face* is one glanceable decision shown on the standby screen, drawn in the
+clock's own geometry: small label above (`top`), one big value (`big` + `unit`),
+small detail below (`bot`).
+
+| Key | Meaning | Limit |
+|-----|---------|-------|
+| `id` | stable identifier; one face per id | 16 chars |
+| `prio` | 0–100, higher first — decides rotation **order**, not exclusivity | |
+| `icon` | shape in the hero slot INSTEAD of a number: `wash` `bolt` `window` `alert` | one of those |
+| `big` | the far-readable value — **digits only**, see below | 10 chars |
+| `unit` | rendered small beside the value | 4 chars |
+| `top` | label above | 16 chars |
+| `bot` | detail line below, for arm's length | 34 chars |
+| `dwell` | seconds per face; only on the `end` line | 2–120 |
+
+At most **4** faces per batch; the firmware drops the rest. `id` and `prio` are
+consumed by the bridge and are *not* stored on the ESP32 — it addresses faces by
+index and renders them in the order received, which is already priority order.
+The limits above are firmware DRAM budgets multiplied by four entries and two
+staging sets, so they are tighter than they look: `bot` at 34 chars is the
+measured single-line width of the label (the example above is 32 and spans ~296
+of 320 px), and longer text would wrap against the round bezel.
+
+**When an icon beats a number.** Some things are events, not measurements:
+"washing machine done" is a state change, and the duration that produced it is
+history — a number there is something to decode, not something to act on. Such
+a face sends `icon=` and may omit `big` entirely. Icons are drawn as geometry
+(`src/ui/face_icon.cpp`), not as glyphs, so they cost no second font; the
+vocabulary is closed on both sides and a test pins the two lists together. A
+face carrying both is rendered as the icon — two things competing for the one
+far-readable slot is what the concept forbids.
+
+**Acknowledging.** Tapping a face sends `CMD:FACE_ACK:<index>`; tapping the
+clock still sends `CMD:WAKE`. The bridge resolves the index against the set it
+last pushed and clears the retained topic (empty payload), so the hint is gone
+for HA and for every other speaker — not just on the glass that was tapped.
+Without this a notice could only expire (2 h for a finished wash) or wait for
+the next cycle, i.e. keep telling you about laundry you already took out, which
+is how a notice becomes wallpaper. Acknowledging deliberately does NOT leave
+standby: dismissing a notice is not a request to start playing.
+
+**Faces wear a rim arc.** A thin accent ring just inside the bezel marks every
+face, and the clock never draws one. Without it a face was mistaken for the
+clock screen at a glance, which defeats the point of showing it at all.
+
+**Batch semantics.** Entries accumulate into a staging set and `FACE:end` swaps
+it in. So a face that disappeared from the set is genuinely gone, and a
+half-delivered batch leaves the previous set standing instead of a mixture of
+the two. An empty batch (`FACE:end` alone) clears the rotation. The bridge
+replays the last batch after an ESP32 reboot — unlike the palette, a face is not
+re-derivable, and a standing condition may not change for hours.
+
+**⚠️ The big value must be a number, never a word** — and that is enforced twice
+over. By eye: the panel is 0.095 mm/px, so `inter_clock` subtends ~11 arcmin at
+3 m while the 40 px player title manages ~3.2, below the ~5 arcmin that 20/20
+vision resolves; digits survive because they are ten known shapes read as
+patterns, arbitrary text does not. And by font: **`inter_clock` is a subset**
+(`0123456789:. °-+`, see `fonts/build_inter.py`), so a letter has no glyph at
+all and LVGL draws a hollow box — which on glass reads as a broken panel rather
+than a bad payload. The bridge therefore rejects an unrenderable `big` with a
+log line instead of forwarding it. `WASCHMASCHINE FERTIG` belongs in `top`.
+
+> **Symbols are not implemented.** The display concept allows "a number *or* a
+> symbol", but there is no symbol font in the big slot and a `:token:` would
+> render as boxes. Where a face has no natural number, prefer one that is real
+> information — a finished wash shows its duration, which beats a washer glyph
+> that only repeats the label. A geometric symbol renderer (like the player's
+> action icons) is the way in if a genuinely number-less face turns up.
+
+**Why the Pi sends decisions, not sensor values.** Every case that is actually
+wanted is a derived condition: a rate of change, a comparison of two sensors, a
+state transition, a deviation from expected. HA owns the history, the templates
+and the statistics; this protocol has no business computing dew points, and one
+HA-side rule then serves the whole fleet. Text is folded to ASCII digraphs and
+stripped of `|` on the Pi, so the firmware parser needs no escaping.
+
+Configured per speaker under `display.faces` (`enabled`, `topic`, `max_faces`,
+`dwell_s`) — reading distance is a property of the installation, so it belongs
+in the profile next to `status_led`. See `HA.md`, *Display concept*.
+
 ### Single-shot messages
 
 These are legacy from v1 and may still be emitted occasionally for UX
@@ -205,6 +293,8 @@ CMD:PREV
 CMD:STOP
 CMD:SOURCE:bluetooth    source picker selected (Phase 2)
 CMD:BT_PAIR         long press on single-button builds
+CMD:FACE_ACK:0      tap on a standby face — "noted, take it away" (index into
+                    the set last sent; the ESP32 stores no face ids)
 TEMP:22.5           QMI8658 head temperature (logged, unused)
 [hb] t=12345 ...    heartbeat line, ignored by bridge
 ```

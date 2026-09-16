@@ -57,7 +57,11 @@ RANGES = "0x20-0x7E,0xA0-0xFF,0x2013-0x2014,0x2018-0x201D,0x2022,0x2026"
 
 # Clock only needs digits, colon, a space (and °/. for safety). Subsetting keeps
 # the 140 px face tiny despite the size.
-CLOCK_SYMBOLS = "0123456789:. °"
+# '-' and '+' were added for standby faces (docs/protocol.md, FACE:): the big
+# slot carries signed values like a drying gain of -3.9 K, and a missing glyph
+# there renders as a hollow box on glass. Negative is the COMMON case in summer,
+# so this is not an edge. ~11 KB of flash per glyph, in a 16 MB part.
+CLOCK_SYMBOLS = "0123456789:. °-+"
 
 # name, weight, size, symbols(optional → subset), ranges(optional → full)
 INSTANCES = [

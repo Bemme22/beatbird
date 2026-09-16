@@ -15,6 +15,7 @@ import logging
 from typing import Callable
 
 from beatbird.config import Profile
+from beatbird.ha.faces import face_id_from_topic
 
 log = logging.getLogger("beatbird.mqtt")
 
@@ -26,11 +27,16 @@ class MqttBridge:
         mqtt_password: str = "",
         on_set_volume: Callable[[int], None] | None = None,
         on_set_playback: Callable[[str], None] | None = None,
+        on_face: Callable[[str, str], None] | None = None,
     ):
         self.profile = profile
         self.password = mqtt_password
         self.on_set_volume = on_set_volume
         self.on_set_playback = on_set_playback
+        # Standby faces: HA publishes one retained decision per face under
+        # display.faces.topic. Called with (face_id, raw_payload) — parsing
+        # lives in beatbird.ha.faces so this class stays transport-only.
+        self.on_face = on_face
 
         self.client = None
         self.available = False
@@ -47,6 +53,8 @@ class MqttBridge:
         self.topic_availability = f"{self.topic_base}/availability"
         self.topic_set_volume = f"{self.topic_base}/set/volume"
         self.topic_set_playback = f"{self.topic_base}/set/playback"
+        # Not under topic_base on purpose — see _on_connect.
+        self.faces_topic = profile.display.faces.topic.rstrip("/")
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -100,6 +108,13 @@ class MqttBridge:
             client.publish(self.topic_availability, "online", qos=1, retain=True)
             self._publish_discovery()
             client.subscribe(f"{self.topic_base}/set/#")
+            # Faces live outside our own topic_base: they are household-wide
+            # decisions published by HA, not per-speaker commands, so several
+            # speakers subscribe to the same tree. Retained messages mean the
+            # current set arrives right here on every (re)connect.
+            if self.on_face and self.profile.display.faces.enabled:
+                client.subscribe(self.faces_topic + "/+")
+                log.info("MQTT subscribed to faces: %s/+", self.faces_topic)
         else:
             self.available = False
             log.warning("MQTT connect failed: rc=%s", reason_code)
@@ -121,6 +136,16 @@ class MqttBridge:
         elif topic == self.topic_set_playback:
             if self.on_set_playback:
                 self.on_set_playback(payload)
+        elif self.on_face:
+            face_id = face_id_from_topic(topic, self.faces_topic)
+            if face_id:
+                # Never let one malformed face take down the message loop —
+                # this runs on paho's callback thread, and an exception here
+                # would cost us volume and playback commands too.
+                try:
+                    self.on_face(face_id, payload)
+                except Exception as e:            # noqa: BLE001 - see above
+                    log.warning("face %s: handler failed: %s", face_id, e)
 
     # ─── Publishing ─────────────────────────────────────────────────────────
 
@@ -143,6 +168,25 @@ class MqttBridge:
         "bt_connect", "bt_disconnect", "bt_handoff", "error",
         "amp_sleep", "amp_wake",
     ]
+
+    def clear_face(self, face_id: str) -> bool:
+        """Delete a retained hint by publishing an empty payload to its topic.
+
+        That empty-retained idiom is how the whole hint mechanism already
+        expresses "this no longer applies" (HA uses it when a wash cycle
+        starts), so acknowledging on the speaker removes the hint EVERYWHERE —
+        other speakers and HA included — rather than only on the glass that was
+        tapped. A local-only dismissal would leave the others showing it.
+        """
+        if not self.client:
+            return False
+        topic = f"{self.profile.display.faces.topic.rstrip('/')}/{face_id}"
+        try:
+            self.client.publish(topic, "", qos=1, retain=True)
+            return True
+        except Exception as e:                       # noqa: BLE001 — best effort
+            log.warning("clear_face %s: %s", face_id, e)
+            return False
 
     def publish_event(self, kind: str, message: str = "", **fields) -> None:
         if not (self.client and self.available):
