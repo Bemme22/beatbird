@@ -35,7 +35,7 @@
     </button>
   {% else %}
     <button class="secondary" disabled style="width:100%">
-      Wartet auf Phone… ({{ bt.discoverable_seconds_left or 60 }} s)
+      Wartet auf Phone…{% if bt.discoverable_seconds_left %} ({{ bt.discoverable_seconds_left }} s){% endif %}
     </button>
   {% endif %}
 

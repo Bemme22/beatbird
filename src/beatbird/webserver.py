@@ -850,6 +850,26 @@ def ui_advanced_dsp(request: Request):
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
+# When the pairing window we opened is due to close (monotonic). BlueZ tracks
+# its own DiscoverableTimeout but exposes only the boolean, so the remaining
+# time can't be read back — it's only knowable by whoever started the window.
+# None means "discoverable, but not by us" (the display can open one too), and
+# the UI then shows no number rather than inventing one: the card used to print
+# a fixed "60 s" that never counted down, which is worse than no number at all.
+_bt_discoverable_until: float | None = None
+
+
+def _note_discoverable(seconds: int) -> None:
+    global _bt_discoverable_until
+    _bt_discoverable_until = time.monotonic() + seconds
+
+
+def _discoverable_seconds_left() -> int | None:
+    if _bt_discoverable_until is None:
+        return None
+    left = _bt_discoverable_until - time.monotonic()
+    return int(left) if left > 0 else None
+
 
 def _validate_mac(mac: str) -> str:
     if not _MAC_RE.match(mac or ""):
@@ -885,6 +905,7 @@ def bt_discoverable(req: BtDiscoverableReq):
     seconds = max(5, min(600, req.seconds))
     if not bt.set_discoverable(True, timeout_s=seconds):
         raise HTTPException(500, "set discoverable failed")
+    _note_discoverable(seconds)
     return {"ok": True, "seconds": seconds}
 
 
@@ -1103,11 +1124,10 @@ def _bt_context() -> dict:
         "paired":       paired,
         "connected":    connected,
         "discoverable": bt.is_discoverable(),
-        # Time-left during a pairing window is not directly exposed by
-        # bluez — bluetoothctl just returns the boolean. Showing a fixed
-        # "wait" is good enough; the bridge closes the window after
-        # actual pair success anyway.
-        "discoverable_seconds_left": None,
+        # Real remaining seconds when we opened the window ourselves, None
+        # when something else did (the display can) — see the note on
+        # _bt_discoverable_until. The template omits the number for None.
+        "discoverable_seconds_left": _discoverable_seconds_left(),
     }
 
 
@@ -1262,6 +1282,7 @@ async def ui_vol(request: Request):
 def ui_bluetooth_pair(request: Request):
     try:
         bt.set_discoverable(True, timeout_s=60)
+        _note_discoverable(60)
     except Exception as e:
         log.error("ui_bluetooth_pair: %s", e)
     return templates.TemplateResponse(request, "_bluetooth.html", {
