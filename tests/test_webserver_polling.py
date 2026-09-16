@@ -163,3 +163,74 @@ def test_restarting_a_unit_invalidates_only_that_unit(clock, units):
     w._service_active("camilladsp")     # neu gelesen
     w._service_active("go-librespot")   # weiterhin aus dem Cache
     assert units["calls"] == 3
+
+
+# ─── Loudness: dB <-> Prozent ────────────────────────────────────────────────
+#
+# Das Panel rechnet in dB (CamillaDSP-Fader), bedient wird der Speaker aber in
+# Prozent. Bis 16.09.2026 stand nur dB da — mit der Folge, dass RobinPi bei
+# 80 % lief, waehrend seine Loudness erst unter 70 % ueberhaupt anfaengt: das
+# Feature war wirkungslos und das Panel gab keinen Hinweis darauf.
+
+class _Vol:
+    min_db, max_db, curve_gamma = -60.0, -10.0, 1.0
+
+
+class _AudioV:
+    volume = _Vol()
+
+
+class _ProfileV:
+    audio = _AudioV()
+
+
+@pytest.fixture
+def curve(monkeypatch):
+    """RobinPis Kurve: -60..-10 dB linear, also 1 dB = 2 %."""
+    monkeypatch.setattr(w, "_get_profile", lambda: _ProfileV())
+
+
+def test_reference_level_is_also_given_in_percent(curve):
+    now = w._loudness_boost_now({"reference_level": -25.0, "low_boost": 8.0}, -20.0)
+    assert now["reference_pct"] == 70          # -25 dB == 70 %
+    assert now["full_at_pct"] == 30            # -45 dB == 30 %
+    assert now["volume_pct"] == 80             # -20 dB == 80 %
+
+
+def test_the_robinpi_case_reports_zero_boost(curve):
+    """Der Fund vom 16.09.: bei 80 % liegt der Fader UEBER dem reference_level,
+    die Anhebung ist 0 — und genau das muss die UI sagen koennen."""
+    now = w._loudness_boost_now({"reference_level": -25.0, "low_boost": 8.0}, -20.0)
+    assert now["fraction"] == 0.0
+    assert now["low_db"] == 0.0
+
+
+def test_boost_ramps_in_below_the_reference(curve):
+    half = w._loudness_boost_now({"reference_level": -25.0, "low_boost": 8.0}, -35.0)
+    assert half["fraction"] == 0.5             # 10 von 20 dB der Rampe
+    assert half["low_db"] == 4.0
+    full = w._loudness_boost_now({"reference_level": -25.0, "low_boost": 8.0}, -50.0)
+    assert full["fraction"] == 1.0             # unterhalb voll, nicht ueber 1
+    assert full["low_db"] == 8.0
+
+
+def test_every_key_exists_even_without_a_fader_reading(curve):
+    """Vertrag wie bei _disk_free_root: ein manchmal fehlender Key wird in
+    Jinja zu Undefined, und `Undefined is not none` ist True — das Template
+    naehme dann den falschen Zweig, ausgerechnet wenn es nichts zu zeigen hat."""
+    now = w._loudness_boost_now({"reference_level": -25.0, "low_boost": 8.0}, None)
+    for k in ("fraction", "low_db", "high_db", "volume_db", "volume_pct"):
+        assert k in now and now[k] is None, k
+    # Lautstaerkeunabhaengiges bleibt trotzdem beziffert
+    assert now["reference_pct"] == 70 and now["full_at_pct"] == 30
+
+
+def test_percent_survives_a_broken_profile(monkeypatch):
+    """Ohne lesbares Profil gibt es keine Kurve — dann lieber kein Prozent als
+    eine erfundene Zahl (und auf keinen Fall eine Exception im Panel)."""
+    def _boom():
+        raise RuntimeError("no profile")
+    monkeypatch.setattr(w, "_get_profile", _boom)
+    assert w._vol_pct(-25.0) is None
+    now = w._loudness_boost_now({"reference_level": -25.0}, -20.0)
+    assert now["reference_pct"] is None and now["full_at_db"] == -45.0
