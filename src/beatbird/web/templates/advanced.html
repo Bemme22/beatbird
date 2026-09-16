@@ -26,7 +26,9 @@
 <article id="filters-card">
   <header><strong>Loudness — Live tuning</strong></header>
   <p style="margin:0 0 0.8rem;color:var(--pico-muted-color);font-size:0.85rem">
-    Patches CamillaDSP at runtime. Snaps back on DSP reload.
+    Patcht CamillaDSP zur Laufzeit — nicht persistent (weg bei DSP-Reload).
+    Solange du hier schiebst, hält die Loudness still; ein paar Minuten nach
+    der letzten Änderung übernimmt sie wieder. Dauerhaft tunen: Voicing unten.
   </p>
   <div id="filter-list" hx-get="/ui/advanced/filters" hx-trigger="load" hx-swap="innerHTML">
     <span style="color:var(--pico-muted-color)">Lade…</span>
@@ -130,6 +132,24 @@
     logBox.scrollTop = logBox.scrollHeight;
   };
   ev.onerror = () => { logBox.textContent += '(stream lost — reconnecting…)\n'; };
+
+  // Live-tuning slider. The filters it patches ARE the loudness filters, so
+  // the bridge would rewrite the gain on the very next volume change and the
+  // slider would appear to do nothing. Each change therefore also refreshes
+  // the same editing session the EQ editor uses: the manual value holds while
+  // you are listening to it, and the session expires by itself a few minutes
+  // after the last tweak — no flag left switched, nothing to clean up.
+  // Defined here (page level) so it survives the htmx swap of #filter-list.
+  function patchFilter(name, gain) {
+    fetch('/api/filter', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: name, gain: gain })
+    }).catch(() => {});
+    fetch('/api/eq/suspend', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active: true })
+    }).catch(() => {});
+  }
 
   // Voicing panel — defined here (page-level) so they survive the htmx
   // innerHTML swap of #loudness-panel. "leise" is base+max, so the UI sends
