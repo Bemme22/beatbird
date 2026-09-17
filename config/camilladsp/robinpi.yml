@@ -1,20 +1,55 @@
 ---
-# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v2, 15.09.2026.
+# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v3, 17.09.2026.
 # Single fullrange Mark Audio Pluvia 11, PR-loaded (Dayton DS175-PR), MONO.
 #
-# ── ARCHITEKTURWECHSEL 15.09.2026 ───────────────────────────────────────────
-# Die Bridge regelt ab hier NUR NOCH DIE LAUTSTÄRKE. Alles Klangliche steht in
-# dieser Datei. Vorher rechnete die Bridge die Loudness in Python und patchte
-# bass_shelf/timpani_body per PatchConfig — mit drei Folgen:
-#   * Web-EQ-Editor und Bridge besassen DIESELBEN zwei Filter. Entschaerft nur
-#     durch ein Lock (eq_editing) — und blieb der Editor offen, stand die
-#     Kompensation still (am 15.09. 12 Minuten lang unbemerkt).
-#   * Die Kurve hing an der UI-PROZENTZAHL statt am dB-Pegel, war also zwischen
-#     Speakern mit anderem curve_gamma nicht uebertragbar.
-#   * Ein permanenter base_gain (zuletzt 5 dB) lag im Loudness-Modul und war in
-#     DIESER Datei unsichtbar — hier stand 0. Wer die Datei las, rechnete falsch.
-# Jetzt getrennt wie bei KestrelPi (configs/G-resampler.yml):
-#   dauerhafte Entzerrung   -> statische Biquads (room_130, bass_voicing, …)
+# ── WAS v3 GEGENUEBER v2 AENDERT (und warum) ───────────────────────────────
+# Auftrag: "Tiefbass soll hervorkommen, Filmmusik", und die Box ist zu leise.
+# Beides hatte dieselbe Wurzel — die Pegelbilanz, nicht die Filterwahl.
+#
+# 1) TIEFBASS IST NACH UNTEN GEWANDERT. v2 machte OBERBASS: gegen die
+#    Hoerplatzmessung gerechnet lag sie bei 70-80 Hz +7…+8 dB ueber Mittelton,
+#    bei 40-45 Hz dagegen bei −1…−2 dB. Das ist "dick", nicht "tief".
+#    v3 nimmt bei 70-100 Hz rund 2 dB zurueck und gibt sie bei 40-50 Hz dazu
+#    (`deep_bass` @44 Hz statt `timpani_voicing` @70 Hz, Lowshelf 120→110 Hz
+#    und +5→+3 dB). Erwartung am Hoerplatz: 40 Hz −0,6 statt −0,9 · 45 Hz −1,1
+#    statt −2,4 · 80 Hz +4,7 statt +8,0.
+#    ⚠️ 44 Hz ist KEIN Zufallswert: f_b = 44,53 Hz (gemessen, zwei Verfahren).
+#    Genau dort arbeitet der PR, dort ist der Treiberhub am kleinsten — der
+#    Boost sitzt auf der Frequenz, die das Gehaeuse ohnehin am billigsten
+#    liefert. Ein Boost bei 30 Hz kostet den vierfachen Hub fuer denselben
+#    Pegel und kommt im Raum trotzdem nicht an (Hoerplatz 30 Hz: −20 dB).
+#
+# 2) DER SUBSONIC STEHT JETZT AUF 38 Hz (war 32). Die Regel "~10 Hz unter f_b"
+#    ergibt 35; 38 kauft zusaetzlich den Hub zurueck, den `deep_bass` ausgibt.
+#    Unterhalb 38 Hz ist am Hoerplatz ohnehin nichts (−13 dB bei 35 Hz), der
+#    Treiberhub steigt dort aber steil — das ist verschenkte Auslenkung.
+#    ⚠️ Steht BEWUSST HINTER dem Loudness-Filter, damit dessen Tiefbass-
+#    anhebung mit abgefangen wird (gleiche Reihenfolge wie bei KestrelPi).
+#
+# 3) HEADROOM −2 → −4 dB, und `volume.max_db` im Profil −10 → −2 dB.
+#    Das ist die eigentliche Antwort auf "zu leise". Rechnung bei 0-dBFS-
+#    Musikspitze und vollem Regler:
+#       v2:  max_db −10 + headroom −2  =  −12 dBFS am Amp  ≈  91 dB SPL @1m
+#       v3:  max_db  −2 + headroom −4  =   −6 dBFS am Amp  ≈  97 dB SPL @1m
+#    Der Amp gibt das her: Digital-Volume-Register 0x4C steht auf 0x30 = 0 dB
+#    und Analog Gain auf 31 = 0 dB (beides am 17.09. am Chip ausgelesen) —
+#    die Kette laeuft also bereits auf Unity, die Reserve lag ALLEIN im Fader.
+#    Hubkontrolle Worst Case (0-dBFS-SINUS, voller Regler): x_d max 3,8 mm
+#    gegen 4,0 mm linear / 7,0 mm mechanisch, PR 5,0 mm gegen 8,0 mm.
+#
+# 4) `loudness.reference_level` −25 → −18 dB. Mit max_db −2 entspricht −18 dB
+#    rund 72 % Reglerstellung: die Anhebung arbeitet damit im tatsaechlich
+#    genutzten Bereich. Bei −25 (v2) lag sie unterhalb davon und war im
+#    Hoerbereich wirkungslos — gefunden am 16.09., s. Testplan.
+#
+# ⚠️ Die Kette hat +7,8 dB Spitze bei 46 Hz. Mit headroom −4 heisst das:
+#    laute Basstransienten laufen die letzten ~4 dB in den Soft-Clip-Limiter.
+#    Das ist gewollt (dafuer ist er da) — aber wenn es bei Filmmusik pumpt,
+#    ist headroom die erste Schraube, nicht der EQ.
+#
+# ── ARCHITEKTUR (unveraendert seit 15.09.2026) ─────────────────────────────
+# Die Bridge regelt NUR NOCH DIE LAUTSTAERKE. Alles Klangliche steht hier:
+#   dauerhafte Entzerrung    -> statische Biquads (deep_bass, room_130, …)
 #   pegelabhaengige Anhebung -> nativer Loudness-Filter am Main-Fader
 # ⚠️ Setzt audio.loudness.enabled: false in profiles/robinpi.yml voraus.
 #
@@ -24,10 +59,13 @@
 # mono mixer (that would double-sum) — it voices both channels identically and
 # the amp collapses them to the one bridged output.
 #
-# ── Messgrundlage (alles am 06.09.2026, Doku: Vault "Einmessung - BauLog") ──
-#   Nahfeld    : f_b = 44,53 Hz (Sweep) / 44,61 Hz (RTA, 05.09.) — zwei Wege, 0,2 %
+# ── Messgrundlage ──────────────────────────────────────────────────────────
+#   Nahfeld    : f_b = 44,53 Hz (Sweep 06.09.) / 44,61 Hz (RTA 05.09.) — 0,2 %
 #   Anechoisch : 1 m on-axis, Gate 1,9 ms → 526 Hz–3 kHz flach ±1 dB
-#   Hoerplatz  : Kueche, 4 Positionen energetisch gemittelt
+#   Hoerplatz  : Kueche, 4 Positionen energetisch gemittelt, flache Messkette
+#                (reports/hoerplatz_kueche_20260906.png)
+#   Hubmodell  : Klumpenmodell aus T/S + gemessener PR-Masse, gegen die
+#                Datenblattempfindlichkeit auf 1,3 dB validiert
 #   A/B belegt : +3 dB @ 130 Hz kommen im Raummittel als +3,1…+4,0 dB an
 devices:
   samplerate: 48000
@@ -53,32 +91,38 @@ filters:
   #    ueber 3500 Hz (feste Eckfrequenzen des Filters, nicht einstellbar).
   #    Rampe: bei reference_level keine Anhebung, linear wachsend bis zur
   #    vollen Anhebung bei reference_level − 20 dB und darunter.
-  #    RobinPis Fader spannt −60…−10 dB (vol_max_db −10), normal gehoert wird
-  #    bei −32…−22 dB ⇒ ref −25 heisst: laut unbehelligt, leise angehoben.
   #    ⚠️ NACH GEHOER zu stellen, nicht nach Messung — bewusste Entscheidung
   #    (Loudness-Kompensation ist subjektiv; die Messung sagt dazu nichts).
   loudness:
     type: Loudness
     parameters:
       fader: Main
-      reference_level: -25.0
+      reference_level: -18.0
       low_boost: 8.0
       high_boost: 0.0
       attenuate_mid: false
 
-  # ── Headroom fuer die Anhebungen dahinter.
+  # ── Headroom fuer die Anhebungen dahinter (Kettenspitze +7,8 dB @46 Hz).
   headroom:
     type: Gain
-    parameters: {gain: -2.0, inverted: false}
+    parameters: {gain: -4.0, inverted: false}
 
-  # ── Subsonic: schuetzt den Treiber unterhalb der gemessenen Abstimmung.
-  #    f_b = 44,5 Hz gemessen ⇒ 32 Hz liegt bei 0,72·f_b, also genau dort, wo
-  #    der PR entkoppelt und der Treiberhub steil steigt.
-  #    ⚠️ Steht BEWUSST HINTER dem Loudness-Filter, damit dessen Tiefbass-
-  #    anhebung mit abgefangen wird (gleiche Reihenfolge wie bei KestrelPi).
+  # ── Subsonic: schuetzt den Treiber unterhalb der gemessenen Abstimmung und
+  #    kauft den Hub zurueck, den `deep_bass` darueber ausgibt.
   sub_protect:
     type: BiquadCombo
-    parameters: {type: ButterworthHighpass, freq: 32, order: 4}
+    parameters: {type: ButterworthHighpass, freq: 38, order: 4}
+
+  # ── Tiefbass-Fundament auf der Abstimmfrequenz. Hier traegt der PR, der
+  #    Treiberhub ist im Minimum ⇒ billigster Pegel des ganzen Gehaeuses.
+  deep_bass:
+    type: Biquad
+    parameters: {type: Peaking, freq: 44, gain: 5.5, q: 1.8}
+
+  # ── Grundton-Waerme, sparsamer als v2 (war +5 dB @120 Hz, q 0,6).
+  bass_voicing:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 110, gain: 3.0, q: 0.7}
 
   # ── Raumkorrektur Kueche: breites Tal 90–200 Hz im Raummittel (−4…−8 dB).
   #    ⭐ Per A/B-Sweep belegt, dass es EQ-bar ist und keine Ausloeschung.
@@ -86,18 +130,6 @@ filters:
   room_130:
     type: Biquad
     parameters: {type: Peaking, freq: 130, gain: 3.5, q: 1.2}
-
-  # ── Dauerhaftes Bass-Voicing. War bis 15.09. der `base_gain` der
-  #    Bridge-Loudness (10 dB, am 15.09. nach Gehoer auf 5 reduziert) und lag
-  #    damit ausserhalb dieser Datei. Frequenz und Q sind die Werte, die die
-  #    Bridge TATSAECHLICH geschrieben hat (120 Hz / q 0,6) — nicht die q 0,7,
-  #    die hier vorher als toter Platzhalter stand und nie geklungen hat.
-  bass_voicing:
-    type: Biquad
-    parameters: {type: Lowshelf, freq: 120, gain: 5.0, q: 0.6}
-  timpani_voicing:
-    type: Biquad
-    parameters: {type: Peaking, freq: 70, gain: 3.0, q: 1.0}
 
   # ── Baffle-step: bleibt auf 0 — das ist ein Messergebnis, kein Platzhalter.
   #    Am Hoerplatz ist vom Step nichts zu sehen; die wandnahe Aufstellung gibt
@@ -125,6 +157,6 @@ pipeline:
   # die Tiefbassanhebung begrenzt; dann Headroom, feste Entzerrung, Limiter zuletzt.
   - type: Filter
     channels: [0, 1]
-    names: [loudness, headroom, sub_protect, room_130,
-            bass_voicing, timpani_voicing, baffle_step, presence,
+    names: [loudness, headroom, sub_protect, deep_bass,
+            bass_voicing, room_130, baffle_step, presence,
             fullrange_limiter]
