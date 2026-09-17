@@ -1,72 +1,66 @@
 ---
-# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v3, 17.09.2026.
+# CamillaDSP — RobinPi (Rotkehlchen) — VOICING v4, 17.09.2026.
 # Single fullrange Mark Audio Pluvia 11, PR-loaded (Dayton DS175-PR), MONO.
 #
-# ── WAS v3 GEGENUEBER v2 AENDERT (und warum) ───────────────────────────────
-# Auftrag: "Tiefbass soll hervorkommen, Filmmusik", und die Box ist zu leise.
-# Beides hatte dieselbe Wurzel — die Pegelbilanz, nicht die Filterwahl.
+# ⚠️⚠️ DIESE CONFIG GILT FUER DEN PR MIT +10 g ZUSATZMASSE (verbaut 17.09.2026).
+#    Gemessenes f_b vor der Bemassung: 44,53 Hz. Danach gerechnet: 40,0 ± 0,5 Hz.
+#    Wird die Masse je wieder abgenommen, sitzen `deep_bass` (40 Hz) und
+#    `sub_protect` (34 Hz) UNTER der Abstimmung — dort entkoppelt der PR und
+#    der Boost erzeugt Hub statt Pegel. Dann zurueck auf die 44-Hz-Werte
+#    (git log dieser Datei, Stand "Voicing v3.1").
 #
-# 1) TIEFBASS IST NACH UNTEN GEWANDERT. v2 machte OBERBASS: gegen die
-#    Hoerplatzmessung gerechnet lag sie bei 70-80 Hz +7…+8 dB ueber Mittelton,
-#    bei 40-45 Hz dagegen bei −1…−2 dB. Das ist "dick", nicht "tief".
-#    v3 nimmt bei 70-100 Hz rund 2 dB zurueck und gibt sie bei 40-50 Hz dazu
-#    (`deep_bass` @44 Hz statt `timpani_voicing` @70 Hz, Lowshelf 120→110 Hz
-#    und +5→+3 dB). Erwartung am Hoerplatz: 40 Hz −0,6 statt −0,9 · 45 Hz −1,1
-#    statt −2,4 · 80 Hz +4,7 statt +8,0.
-#    ⚠️ 44 Hz ist KEIN Zufallswert: f_b = 44,53 Hz (gemessen, zwei Verfahren).
-#    Genau dort arbeitet der PR, dort ist der Treiberhub am kleinsten — der
-#    Boost sitzt auf der Frequenz, die das Gehaeuse ohnehin am billigsten
-#    liefert. Ein Boost bei 30 Hz kostet den vierfachen Hub fuer denselben
-#    Pegel und kommt im Raum trotzdem nicht an (Hoerplatz 30 Hz: −20 dB).
+# ── WEG HIERHER (drei Schritte an einem Tag) ───────────────────────────────
+# v3  : Tiefbass von 70 Hz (Oberbass) auf 44 Hz (Abstimmfrequenz) verlegt und
+#       die Pegelbilanz repariert (max_db -10 -> -2; der Amp lief laengst auf
+#       Unity, die Reserve lag allein im Fader).
+# v3.1: Hoerurteil "tiefe Streicher kommen nicht". Gegengerechnet war das
+#       keine Geschmacksfrage: an den Leersaiten lagen 13 dB zwischen
+#       A1 (55 Hz, +7,4) und D3 (147 Hz, -6,0) — DESSELBEN Cellos. Eine
+#       Basslinie ueber die Saiten wird so zur Lautstaerketreppe: die
+#       boomigen Toene tragen, die melodiefuehrenden verschwinden.
+#       ⭐ Die Antwort war NICHT mehr Bass, sondern weniger Spreizung:
+#         * `bass_voicing` (Lowshelf 110 Hz +3 dB) auf 0 — ein Shelf hebt
+#           ALLES darunter und war der Hauptgrund fuer das Droehnen 55-75 Hz.
+#         * `deep_bass` SCHMALER statt schwaecher (q 1,6 -> 2,3, +5,5 -> +6,5):
+#           der Zug bleibt auf 38-45 Hz und laeuft nicht mehr nach oben aus.
+#           Das erhaelt das "tolle Gefuehl" (41 Hz verliert 0,4 dB).
+#         * `room_130` breiter (q 1,2 -> 0,9, +3,5 -> +5,0) plus neuer
+#           `cello_body` bei 100 Hz — zusammen decken sie 90-200 Hz ab.
+#       Ergebnis an den Saiten: G2 -0,3 -> +2,3 · A2 +0,8 -> +3,5 ·
+#       D3 -6,0 -> -3,5 · A3 -0,5 -> +1,7 dB. Spreizung 12,7 -> 9,0 dB.
+#       ⭐ Nebengewinn: die Kette wurde BILLIGER (+7,8 -> +6,6 dB Spitze),
+#       deshalb headroom -4 -> -3 dB ⇒ 1 dB mehr Pegel, und der Treiberhub
+#       sank trotzdem (4,40 -> 3,49 mm im Worst Case).
+# v4  : PR mit +10 g bemasst, f_b 44,5 -> 40 Hz. In einem zu KLEINEN Gehaeuse
+#       (Vas 24,75 L in 11,6 L netto) ist das fast gratis: der Treiber hat
+#       oberhalb f_b Hub im Ueberfluss, die Arbeit unten macht ohnehin der PR.
+#       +6,9 dB bei 35 Hz, +4,1 dB bei 40 Hz, Kosten 50-100 Hz: 0,2-0,7 dB.
 #
-# 2) DER SUBSONIC STEHT JETZT AUF 38 Hz (war 32). Die Regel "~10 Hz unter f_b"
-#    ergibt 35; 38 kauft zusaetzlich den Hub zurueck, den `deep_bass` ausgibt.
-#    Unterhalb 38 Hz ist am Hoerplatz ohnehin nichts (−13 dB bei 35 Hz), der
-#    Treiberhub steigt dort aber steil — das ist verschenkte Auslenkung.
-#    ⚠️ Steht BEWUSST HINTER dem Loudness-Filter, damit dessen Tiefbass-
-#    anhebung mit abgefangen wird (gleiche Reihenfolge wie bei KestrelPi).
+# ⚠️ Was NICHT geht: 147 Hz bleiben bei -3,5 dB. Dort sitzt eine Ausloeschung
+#    (roh -10,1 dB im Raummittel), und die ist nicht entzerrbar.
+# ❌ Geprueft und verworfen: Schnitt auf die 50-Hz-Raummode (der Speaker steht
+#    in der Ecke, die Mode ist real). -3 dB @52 Hz Q2,0 holt die Spannweite
+#    40-80 Hz nur von 7,5 auf 6,9 dB, vertieft die Senke bei 45 Hz und kostet
+#    1,4 dB genau bei 40 Hz. Merksatz: liegen Mode und Senke eine Terz
+#    auseinander, ist ein Biquad zu breit fuer beide.
 #
-# 3) HEADROOM −2 → −4 dB, und `volume.max_db` im Profil −10 → −2 dB.
-#    Das ist die eigentliche Antwort auf "zu leise". Rechnung bei 0-dBFS-
-#    Musikspitze und vollem Regler:
-#       v2:  max_db −10 + headroom −2  =  −12 dBFS am Amp  ≈  91 dB SPL @1m
-#       v3:  max_db  −2 + headroom −4  =   −6 dBFS am Amp  ≈  97 dB SPL @1m
-#    Der Amp gibt das her: Digital-Volume-Register 0x4C steht auf 0x30 = 0 dB
-#    und Analog Gain auf 31 = 0 dB (beides am 17.09. am Chip ausgelesen) —
-#    die Kette laeuft also bereits auf Unity, die Reserve lag ALLEIN im Fader.
-#    Hubkontrolle Worst Case (0-dBFS-SINUS, voller Regler): x_d max 3,8 mm
-#    gegen 4,0 mm linear / 7,0 mm mechanisch, PR 5,0 mm gegen 8,0 mm.
-#
-# 4) `loudness.reference_level` −25 → −18 dB. Mit max_db −2 entspricht −18 dB
-#    rund 72 % Reglerstellung: die Anhebung arbeitet damit im tatsaechlich
-#    genutzten Bereich. Bei −25 (v2) lag sie unterhalb davon und war im
-#    Hoerbereich wirkungslos — gefunden am 16.09., s. Testplan.
-#
-# ⚠️ Die Kette hat +7,8 dB Spitze bei 46 Hz. Mit headroom −4 heisst das:
-#    laute Basstransienten laufen die letzten ~4 dB in den Soft-Clip-Limiter.
-#    Das ist gewollt (dafuer ist er da) — aber wenn es bei Filmmusik pumpt,
-#    ist headroom die erste Schraube, nicht der EQ.
-#
-# ── ARCHITEKTUR (unveraendert seit 15.09.2026) ─────────────────────────────
+# ── ARCHITEKTUR (seit 15.09.2026) ──────────────────────────────────────────
 # Die Bridge regelt NUR NOCH DIE LAUTSTAERKE. Alles Klangliche steht hier:
-#   dauerhafte Entzerrung    -> statische Biquads (deep_bass, room_130, …)
+#   dauerhafte Entzerrung    -> statische Biquads
 #   pegelabhaengige Anhebung -> nativer Loudness-Filter am Main-Fader
 # ⚠️ Setzt audio.loudness.enabled: false in profiles/robinpi.yml voraus.
 #
-# Amp: Louder Hat Plus 1X (TAS5825M @ 0x4c) in PBTL. The overlay sets
-# bridge_mode=1 + mixer_mode=1, so the CHIP sums L+R to mono and bridges
-# OUT_A||OUT_B into the single driver. Therefore this config does NOT add a
-# mono mixer (that would double-sum) — it voices both channels identically and
-# the amp collapses them to the one bridged output.
+# Amp: Louder Hat Plus 1X (TAS5825M @ 0x4c) in PBTL. Das Overlay setzt
+# bridge_mode=1 + mixer_mode=1, der CHIP summiert L+R zu Mono. Deshalb steht
+# hier KEIN Mono-Mixer (der wuerde doppelt summieren) — beide Kanaele werden
+# identisch entzerrt, der Amp faltet sie zusammen.
 #
 # ── Messgrundlage ──────────────────────────────────────────────────────────
 #   Nahfeld    : f_b = 44,53 Hz (Sweep 06.09.) / 44,61 Hz (RTA 05.09.) — 0,2 %
-#   Anechoisch : 1 m on-axis, Gate 1,9 ms → 526 Hz–3 kHz flach ±1 dB
-#   Hoerplatz  : Kueche, 4 Positionen energetisch gemittelt, flache Messkette
-#                (reports/hoerplatz_kueche_20260906.png)
+#   Anechoisch : 1 m on-axis, Gate 1,9 ms -> 526 Hz-3 kHz flach ±1 dB
+#   Hoerplatz  : Kueche (Eckaufstellung), 4 Positionen energetisch gemittelt
 #   Hubmodell  : Klumpenmodell aus T/S + gemessener PR-Masse, gegen die
 #                Datenblattempfindlichkeit auf 1,3 dB validiert
-#   A/B belegt : +3 dB @ 130 Hz kommen im Raummittel als +3,1…+4,0 dB an
 devices:
   samplerate: 48000
   chunksize: 1024
@@ -85,14 +79,6 @@ devices:
     format: S32_LE
 
 filters:
-  # ── Pegelabhaengige Anhebung — ersetzt die Bridge-Loudness vollstaendig.
-  #    Haengt am Main-Fader, den die Bridge per SetVolume stellt: ein Wert, ein
-  #    Ort, kein Umweg ueber Prozent. low_boost wirkt unter 70 Hz, high_boost
-  #    ueber 3500 Hz (feste Eckfrequenzen des Filters, nicht einstellbar).
-  #    Rampe: bei reference_level keine Anhebung, linear wachsend bis zur
-  #    vollen Anhebung bei reference_level − 20 dB und darunter.
-  #    ⚠️ NACH GEHOER zu stellen, nicht nach Messung — bewusste Entscheidung
-  #    (Loudness-Kompensation ist subjektiv; die Messung sagt dazu nichts).
   loudness:
     type: Loudness
     parameters:
@@ -102,61 +88,54 @@ filters:
       high_boost: 0.0
       attenuate_mid: false
 
-  # ── Headroom fuer die Anhebungen dahinter (Kettenspitze +7,8 dB @46 Hz).
   headroom:
     type: Gain
-    parameters: {gain: -4.0, inverted: false}
+    parameters: {gain: -3.0, inverted: false}
 
-  # ── Subsonic: schuetzt den Treiber unterhalb der gemessenen Abstimmung und
-  #    kauft den Hub zurueck, den `deep_bass` darueber ausgibt.
+  # ~6 Hz unter der neuen Abstimmung — dieselbe Regel wie bei v3 (38 bei 44,5).
   sub_protect:
     type: BiquadCombo
-    parameters: {type: ButterworthHighpass, freq: 38, order: 4}
+    parameters: {type: ButterworthHighpass, freq: 34, order: 4}
 
-  # ── Tiefbass-Fundament auf der Abstimmfrequenz. Hier traegt der PR, der
-  #    Treiberhub ist im Minimum ⇒ billigster Pegel des ganzen Gehaeuses.
+  # Sitzt auf der NEUEN Abstimmfrequenz: dort trägt der PR und der Treiberhub
+  # ist im Minimum. Q etwas breiter als v3, weil die Flanke des tieferen
+  # Hochpasses weiter weg liegt.
   deep_bass:
     type: Biquad
-    parameters: {type: Peaking, freq: 44, gain: 5.5, q: 1.8}
+    parameters: {type: Peaking, freq: 40, gain: 6.5, q: 2.3}
 
-  # ── Grundton-Waerme, sparsamer als v2 (war +5 dB @120 Hz, q 0,6).
+  # Auf 0 seit v3.1: ein Lowshelf hebt ALLES unterhalb seiner Eckfrequenz, also
+  # auch die 55–75 Hz, die ohnehin von der Raummode und der Flanke des
+  # deep_bass getragen werden — er war die Ursache des Droehnens, das die
+  # tiefen Streicher zugedeckt hat. Bleibt als Regler stehen (Hausbrauch wie
+  # baffle_step und presence), damit die Schraube da ist, wenn sie fehlt.
   bass_voicing:
     type: Biquad
-    parameters: {type: Lowshelf, freq: 110, gain: 3.0, q: 0.7}
+    parameters: {type: Lowshelf, freq: 110, gain: 0, q: 0.7}
 
-  # ── Raumkorrektur Kueche: breites Tal 90–200 Hz im Raummittel (−4…−8 dB).
-  #    ⭐ Per A/B-Sweep belegt, dass es EQ-bar ist und keine Ausloeschung.
-  #    ⚠️ Bewusst NICHT flach gezogen — es bleiben ~3 dB Senke stehen.
+  cello_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 100, gain: 2.0, q: 1.6}
+
   room_130:
     type: Biquad
-    parameters: {type: Peaking, freq: 130, gain: 3.5, q: 1.2}
+    parameters: {type: Peaking, freq: 130, gain: 5.0, q: 0.9}
 
-  # ── Baffle-step: bleibt auf 0 — das ist ein Messergebnis, kein Platzhalter.
-  #    Am Hoerplatz ist vom Step nichts zu sehen; die wandnahe Aufstellung gibt
-  #    zurueck, was die schmale Front verliert. Bei freier Aufstellung neu bewerten.
   baffle_step:
     type: Biquad
     parameters: {type: Highshelf, freq: 480, gain: 0, q: 0.7}
 
-  # ── Praesenz: am Hoerplatz liegt 4 kHz um 8,7 dB unter dem Mittelton,
-  #    anechoisch dagegen bei 0 — das ist BUENDELUNG, kein Wandlerfehler.
   presence:
     type: Biquad
     parameters: {type: Peaking, freq: 4000, gain: 0, q: 0.7}
 
-  # ── Soft clip: faengt Spitzen ab, statt hart zu clippen.
-  #    ⚠️ GetClippedSamples ist bei soft_clip: true blind — im Zweifel
-  #    GetSignalLevels lesen, nicht den Clipping-Zaehler.
   fullrange_limiter:
     type: Limiter
     parameters: {clip_limit: -1.0, soft_clip: true}
 
 pipeline:
-  # Same chain on both channels — the amp sums them (mixer_mode=1) to mono.
-  # Reihenfolge: Loudness ganz vorn (wie KestrelPi), damit der Subsonic dahinter
-  # die Tiefbassanhebung begrenzt; dann Headroom, feste Entzerrung, Limiter zuletzt.
   - type: Filter
     channels: [0, 1]
     names: [loudness, headroom, sub_protect, deep_bass,
-            bass_voicing, room_130, baffle_step, presence,
+            bass_voicing, cello_body, room_130, baffle_step, presence,
             fullrange_limiter]
