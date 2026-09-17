@@ -427,18 +427,53 @@
       }, 600); })
       .catch(function (e) { alert('Fehler: ' + e); });
   }
-  // Delegiert, damit es den htmx-Swap ueberlebt: die Regler existieren beim
-  // Laden der Seite noch gar nicht.
-  document.addEventListener('input', function (ev) {
-    var el = ev.target;
-    if (!el.dataset || !el.dataset.key) return;
-    if (!el.closest('#loudness-panel')) return;
-    // Bevorzugt das reine dB-Feld: bei "ab wann" haengt im Label noch die
-    // Prozentangabe, und ein textContent auf das ganze Feld wuerde sie
-    // loeschen (sie kommt erst mit der naechsten Server-Antwort zurueck).
-    var v = document.getElementById(el.id + '-db') || document.getElementById(el.id + '-v');
-    if (v) v.textContent = parseFloat(el.value).toFixed(1) + ' dB';
-    patchNative();
-  });
+  // ── Loudness-Regler verdrahten ───────────────────────────────────────────
+  // Hier stand bis 17.09.2026 ein DELEGIERTER Listener am `document`. Er war
+  // auf dieser Seite nachweislich tot: am Morgen des 17.09. hat der Browser
+  // vier POST /api/eq/band gesendet (die Band-Regler daneben funktionierten
+  // also), aber NULL POST /api/loudness/native — die Tasten am Loudness-Panel
+  // taten schlicht nichts, ohne Fehlermeldung.
+  //
+  // Warum die Delegation nicht griff, liess sich aus der Ferne nicht klaeren;
+  // was sich klaeren liess, ist der Unterschied zum funktionierenden Fall:
+  // die Baender werden DIREKT am Element verdrahtet (renderBands unten). Also
+  // dasselbe hier, statt einen Mechanismus zu behalten, der am selben Dokument
+  // beweisbar nicht zieht. Ein Regler, der lautlos nichts tut, ist die
+  // schlimmste Sorte Fehler — er sieht wie eine Geschmacksfrage aus.
+  function wireLoudness(root) {
+    (root || document).querySelectorAll('#loudness-panel input[data-key]')
+      .forEach(function (el) {
+        if (el.dataset.wired) return;      // htmx swapt das Panel mehrfach ein
+        el.dataset.wired = '1';
+        el.addEventListener('input', function () {
+          // Bevorzugt das reine dB-Feld: bei "ab wann" haengt im Label noch
+          // die Prozentangabe, und ein textContent auf das ganze Feld wuerde
+          // sie loeschen (sie kaeme erst mit der naechsten Server-Antwort).
+          var v = document.getElementById(el.id + '-db')
+               || document.getElementById(el.id + '-v');
+          if (v) v.textContent = parseFloat(el.value).toFixed(1) + ' dB';
+          patchNative();
+        });
+      });
+  }
+  // Ausloeser bewusst ein MutationObserver statt `htmx:afterSwap`: der Panel-
+  // Inhalt kommt per htmx (hx-trigger="load", htmx selbst laedt mit `defer`),
+  // und genau an dieser Reihenfolge ist die vorige Fassung gescheitert. Der
+  // Observer sieht den Inhalt, egal WER ihn eingesetzt hat und WANN — auch
+  // bei htmx.ajax() aus revertNative()/resetLoudness().
+  // Er uebernimmt zusaetzlich stepperize(), falls base.html mit seinem
+  // afterSwap-Haken zu spaet kommt; das Doppel-Wrappen verhindert dort das
+  // `data-stepped`-Flag.
+  (function () {
+    var panel = document.getElementById('loudness-panel');
+    if (!panel) return;
+    function arm() {
+      if (window.stepperize) window.stepperize(panel);
+      wireLoudness(panel);
+    }
+    new MutationObserver(arm).observe(panel, { childList: true, subtree: true });
+    arm();                              // falls der Swap schon durch ist
+    window.addEventListener('load', arm);   // und einmal, wenn alles steht
+  })();
 </script>
 {% endblock %}
