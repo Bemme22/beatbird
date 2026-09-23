@@ -72,6 +72,8 @@ class SnapcastClient:
         """One status snapshot for this Pi. Returns a dict with:
             playing:    bool, True if our group's stream is 'playing'
             volume_pct: int, our snapclient's per-client volume (0..100)
+            muted:      bool, per-client mute flag
+            client_id:  str, snapserver client id (needed for SetVolume)
             group_name: str, snapcast group name (MA uses ma_<MAC> per client)
             stream_id:  str, e.g. "default"
             title:      str, track title (from MA-side stream metadata) or ""
@@ -118,7 +120,8 @@ class SnapcastClient:
                     continue
                 stream_id = g.get("stream_id") or ""
                 stream = stream_by_id.get(stream_id) or {}
-                vol_pct = (((c.get("config") or {}).get("volume") or {}).get("percent")) or 0
+                vol = (c.get("config") or {}).get("volume") or {}
+                vol_pct = vol.get("percent") or 0
                 # Prefer metadata from THIS stream if present, else fall
                 # back to the first stream that had any metadata.
                 own_title, own_artist = stream_meta(stream)
@@ -127,6 +130,8 @@ class SnapcastClient:
                 return {
                     "playing":    stream.get("status") == "playing" and bool(c.get("connected")),
                     "volume_pct": int(vol_pct),
+                    "muted":      bool(vol.get("muted")),
+                    "client_id":  c.get("id") or "",
                     "group_name": g.get("name") or "",
                     "stream_id":  stream_id,
                     "title":      title,
@@ -134,10 +139,48 @@ class SnapcastClient:
                 }
         return None
 
+    def set_volume(self, client_id: str, pct: int, muted: bool = False) -> bool:
+        """Write our per-client volume back to the server, so the MA / HA
+        slider follows a change made on the speaker (rotary, web, Spotify).
+        Returns True if the server acknowledged."""
+        if not client_id:
+            return False
+        resp = self._rpc("Client.SetVolume", {
+            "id": client_id,
+            "volume": {"muted": bool(muted), "percent": max(0, min(100, int(pct)))},
+        })
+        return bool(resp and "result" in resp)
+
     def is_playing_for_us(self) -> bool:
         """Legacy convenience wrapper — prefer get_state() now."""
         s = self.get_state()
         return bool(s and s.get("playing"))
+
+
+def reconcile_volume(server_pct: int, last_server_pct: int | None,
+                     dsp_pct: int, tolerance: int = 2) -> tuple[str, int]:
+    """Decide which side of the Snapcast ↔ CamillaDSP volume pair moved.
+
+    snapclient runs with ``--mixer none``, so the per-client volume on the
+    server is only a *register* — the audible level lives in CamillaDSP
+    alone. This keeps the two in step, same pattern as the Spotify sync:
+
+      * first observation     → ("push", dsp_pct)   CamillaDSP is the truth,
+                                                     show it in MA/HA
+      * server value changed  → ("adopt", server)    MA/HA slider moved
+      * server ≠ DSP (≥ tol)  → ("push", dsp_pct)    rotary/web/Spotify moved
+      * otherwise             → ("none", server)
+
+    ``tolerance`` absorbs the pct → dB → pct round-trip (0.1-dB rounding in
+    pct_to_db), which would otherwise ping-pong one percent forever.
+    """
+    if last_server_pct is None:
+        return "push", dsp_pct
+    if server_pct != last_server_pct:
+        return "adopt", server_pct
+    if abs(server_pct - dsp_pct) >= tolerance:
+        return "push", dsp_pct
+    return "none", server_pct
 
 
 def get_local_wlan_mac() -> str:
