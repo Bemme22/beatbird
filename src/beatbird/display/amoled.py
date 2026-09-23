@@ -15,12 +15,16 @@ Protocol (ESP32 → Pi):
   CMD:SOURCE:bluetooth    (source picker selected)
   TEMP:XX.X         (QMI8658 head temperature)
   [hb] …            (heartbeat — ignored)
+  E (…) i2c.master… / […][E][Wire.cpp…]   (ESP-IDF / Arduino error log lines —
+                    watched: a burst means the touch controller hangs, see
+                    EspErrorWatch)
 """
 
 from __future__ import annotations
 
 import glob
 import logging
+import re
 import time
 
 import serial
@@ -35,6 +39,61 @@ from beatbird.display.base import (
 )
 
 log = logging.getLogger("beatbird.display.amoled")
+
+# ESP-IDF ("E (1234) i2c.master: …") and Arduino ("[1234][E][Wire.cpp:516] …")
+# error lines that concern the I²C bus. The touch controller is the only I²C
+# peripheral the display firmware polls continuously, so a stream of these
+# means touch is dead while everything else (render, heartbeat) keeps working.
+_ERR_MARK = re.compile(r"^E \(\d+\)|\[E\]")
+_I2C_MARK = re.compile(r"i2c|Wire\.cpp", re.IGNORECASE)
+
+
+def is_i2c_error(raw: str) -> bool:
+    return bool(_ERR_MARK.search(raw) and _I2C_MARK.search(raw))
+
+
+class EspErrorWatch:
+    """Decides when a stream of I²C error lines warrants an ESP32 reset.
+
+    Found 2026-09-23 on Zipp Mini 2: the touch controller stopped ACKing on
+    05.09. and stayed dead for 18 days. The ESP kept rendering and kept
+    sending `[hb]`, so the heartbeat watchdog never fired, and Pi reboots
+    don't power-cycle it (the USB port keeps power). The only signal were
+    these error lines — which the bridge logged at DEBUG as "unknown RX".
+
+    Pure logic (clock passed in) so it can be tested without a serial port.
+    """
+
+    def __init__(self, threshold: int = 15, window_s: float = 300.0,
+                 min_interval_s: float = 900.0, max_resets: int = 4,
+                 budget_window_s: float = 6 * 3600.0):
+        self.threshold = threshold
+        self.window_s = window_s
+        self.min_interval_s = min_interval_s
+        self.max_resets = max_resets
+        self.budget_window_s = budget_window_s
+        self._errors: list[float] = []
+        self._resets: list[float] = []
+        self.exhausted_logged = False
+
+    def feed(self, now: float) -> bool:
+        """Record one error line at `now`; True = reset the ESP now."""
+        self._errors = [t for t in self._errors if now - t <= self.window_s]
+        self._errors.append(now)
+        if len(self._errors) < self.threshold:
+            return False
+        self._resets = [t for t in self._resets if now - t <= self.budget_window_s]
+        if self._resets and now - self._resets[-1] < self.min_interval_s:
+            return False
+        if len(self._resets) >= self.max_resets:
+            return False
+        self._resets.append(now)
+        self._errors.clear()
+        return True
+
+    def budget_exhausted(self, now: float) -> bool:
+        live = [t for t in self._resets if now - t <= self.budget_window_s]
+        return len(live) >= self.max_resets
 
 
 def _find_port(preferred: str = "auto") -> str | None:
@@ -69,6 +128,7 @@ class AmoledDisplay(DisplayInterface):
         text_secondary: str | None = None,
         accent_alert: str | None = None,
         status_led: dict | None = None,
+        reset_on_start: bool = True,
     ):
         self.serial_device_hint = serial_device
         self.baud = baud
@@ -123,6 +183,14 @@ class AmoledDisplay(DisplayInterface):
         # the OTA updater (bin/beatbird-firmware-update) to skip flashing
         # when the running version already matches the latest release tag.
         self.firmware_version: str | None = None
+        # I²C error watch → ESP reset (touch controller hang, see EspErrorWatch).
+        self._esp_errors = EspErrorWatch()
+        self._last_i2c_warn = 0.0
+        # Reset the ESP once when the bridge starts: Pi reboots and bridge
+        # restarts don't power-cycle it, so without this a wedged peripheral
+        # survives every update. One ~3 s display blink per bridge start.
+        self._reset_on_start = reset_on_start
+        self._start_reset_done = False
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -145,6 +213,36 @@ class AmoledDisplay(DisplayInterface):
         self._palette_sent = False
         self._last_hb_received = 0.0
 
+    def hard_reset(self, reason: str) -> bool:
+        """Reset the ESP32-S3 through its USB-Serial-JTAG: RTS=1 with DTR=0
+        pulls EN low (same sequence as `esptool --after hard_reset`). The CDC
+        device disappears and re-enumerates; the normal reconnect path picks
+        it up and the firmware's `[boot]` line triggers the config re-push."""
+        if not self.ser or not self.ser.is_open:
+            return False
+        log.warning("resetting display ESP32 (%s)", reason)
+        try:
+            self.ser.dtr = False
+            self.ser.rts = True
+            time.sleep(0.2)
+            self.ser.rts = False
+            time.sleep(0.2)
+        except (serial.SerialException, OSError) as e:
+            log.error("ESP32 reset failed: %s", e)
+            return False
+        finally:
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+            self._palette_sent = False
+            self._last_hb_received = 0.0
+            # Give USB re-enumeration + firmware boot a head start before
+            # the reconnect cadence (_reconnect_delay) tries again.
+            self._last_connect_attempt = time.monotonic()
+        return True
+
     def _try_connect(self) -> bool:
         now = time.monotonic()
         if now - self._last_connect_attempt < self._reconnect_delay:
@@ -162,6 +260,10 @@ class AmoledDisplay(DisplayInterface):
             log.info("connected to %s", port)
             self._palette_sent = False
             self._last_hb_received = time.monotonic()
+            if self._reset_on_start and not self._start_reset_done:
+                self._start_reset_done = True
+                self.hard_reset("bridge start — clears peripheral hangs a Pi reboot can't")
+                return False
             self._push_profile_config()
             return True
         except serial.SerialException as e:
@@ -566,6 +668,20 @@ class AmoledDisplay(DisplayInterface):
             # "cover_rx: got <received>/<expected>". INFO so it surfaces
             # in journalctl alongside the matching "cover pushed:" line.
             log.info("display %s", raw)
+        elif is_i2c_error(raw):
+            now = time.monotonic()
+            if now - self._last_i2c_warn > 600:
+                self._last_i2c_warn = now
+                log.warning("display ESP32 I2C error (touch?): %s", raw)
+            if self._esp_errors.feed(now):
+                self.hard_reset(f"≥{self._esp_errors.threshold} I2C errors in "
+                                f"{self._esp_errors.window_s:.0f} s — touch controller hang")
+            elif (self._esp_errors.budget_exhausted(now)
+                  and not self._esp_errors.exhausted_logged):
+                self._esp_errors.exhausted_logged = True
+                log.error("display ESP32 still reports I2C errors after %d resets "
+                          "— likely hardware (touch cable/controller), giving up",
+                          self._esp_errors.max_resets)
         elif raw.startswith("FW:"):
             # Firmware version self-report on boot. Stored so the updater can
             # skip flashing if the running version already matches the latest
