@@ -104,134 +104,22 @@ EOF
 enable_service wifi-powersave-off.service
 
 # ─── WiFi keepalive + self-healing watchdog + telemetry ─────────────────────
-# Three jobs in one daemon:
+# Three jobs in one daemon (script: config/wifi/beatbird-wifi-watchdog):
 #  1. Pings the gateway every 30 s to keep the USB dongle warm (idle-disconnect
 #     workaround) and detect link failure early.
-#  2. After 5 consecutive ping failures, bounces NetworkManager / wpa_supplicant
-#     and as a last resort cycles the wlan interface.
+#  2. After 5 consecutive failures, recovers in escalating stages:
+#     reconnect → radio reset (USB re-authorize / driver reload) → reboot,
+#     saving the journal tail to /boot/firmware before the reboot.
 #  3. Telemetry — every iteration emits a one-line snapshot
 #     (rssi/rate/bssid/ping) under journal tag "beatbird-wifi". This is the
 #     post-mortem trail for "speaker vanished but the display showed no
 #     error" — we can see if RSSI was already at -82 dBm or if the BSSID
 #     flipped (AP roam — TCP/UDP sessions don't survive that).
+# ⚠️ beatbird-update does NOT refresh /usr/local/sbin — rerun this role (or
+# install the file into the overlayroot base) after changing the script.
 log_step "WiFi keepalive + watchdog + telemetry"
 ensure_pkg iw iproute2
-install -m 755 -o root -g root /dev/stdin /usr/local/sbin/beatbird-wifi-watchdog <<'EOF'
-#!/usr/bin/env bash
-# beatbird-wifi-watchdog — keepalive + recovery + RSSI telemetry.
-# `journalctl -t beatbird-wifi --since "1 hour ago"` shows just the WiFi trail.
-set -uo pipefail
-
-FAIL_THRESHOLD=5
-SLEEP_S=30
-fails=0
-last_bssid=""
-last_rssi=""
-
-pick_iface() {
-  # Prefer a wlan* with carrier up. Falls back to whatever wlan* exists.
-  local i iface
-  for i in /sys/class/net/wlan*; do
-    [[ -e "$i" ]] || continue
-    iface=$(basename "$i")
-    if [[ "$(cat "$i/operstate" 2>/dev/null)" == "up" ]]; then
-      echo "$iface"; return
-    fi
-  done
-  for i in /sys/class/net/wlan*; do
-    [[ -e "$i" ]] && { basename "$i"; return; }
-  done
-  echo "wlan0"
-}
-
-pick_gw() {
-  # Echo the current default gateway, or empty. NO bogus fallback: a missing
-  # default route means we have no IPv4 lease, which is itself the failure we
-  # want to catch — pinging a guessed gateway (wrong subnet) would just mask it.
-  ip route show default 2>/dev/null | awk '/default/ {print $3; exit}'
-}
-
-# Echo the iface's IPv4 address, or empty if it has none (DHCP lease lost).
-ipv4_of() {
-  ip -4 -o addr show "$1" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1
-}
-
-# Parse `iw dev <iface> link` → echo "rssi rate bssid"
-wifi_link() {
-  iw dev "$1" link 2>/dev/null | awk '
-    /Connected to/ { bssid=$3 }
-    /signal:/      { rssi=$2 }
-    /tx bitrate:/  { rate=$3$4 }
-    END { printf "%s %s %s\n", (rssi?rssi:"?"), (rate?rate:"?"), (bssid?bssid:"?") }
-  '
-}
-
-GW="$(pick_gw)"
-echo "wifi-watchdog: starting iface=$(pick_iface) gw=$GW"
-
-while true; do
-  IFACE="$(pick_iface)"
-  read -r rssi rate bssid <<<"$(wifi_link "$IFACE")"
-
-  # Re-evaluate per iteration: a lease can vanish while associated.
-  ipv4="$(ipv4_of "$IFACE")"
-  GW="$(pick_gw)"
-
-  if [[ -z "$ipv4" || -z "$GW" ]]; then
-    # Associated but no IPv4 address / no default route. This is THE recurring
-    # failure: .local then resolves only to fe80:: (no A record) and the box is
-    # unreachable. Don't bother pinging — count it straight as a failure.
-    fails=$((fails + 1))
-    ping_status="no-ipv4($fails/$FAIL_THRESHOLD)"
-  elif ping -c1 -W2 "$GW" >/dev/null 2>&1; then
-    ping_status="ok"
-    fails=0
-  else
-    fails=$((fails + 1))
-    ping_status="fail($fails/$FAIL_THRESHOLD)"
-  fi
-
-  echo "wifi: iface=$IFACE rssi=${rssi}dBm rate=$rate bssid=$bssid ipv4=${ipv4:-none} gw=${GW:-none} ping=$ping_status"
-
-  if [[ -n "$last_bssid" && "$bssid" != "$last_bssid" && "$bssid" != "?" && "$last_bssid" != "?" ]]; then
-    echo "wifi: ROAM bssid $last_bssid -> $bssid (rssi was ${last_rssi}, now ${rssi})"
-  fi
-  last_bssid="$bssid"
-  last_rssi="$rssi"
-
-  if [[ "$fails" -ge "$FAIL_THRESHOLD" ]]; then
-    echo "wifi-watchdog: threshold hit — dumping full state before recovery"
-    iw dev "$IFACE" station dump 2>&1 || true
-    ip -4 addr show "$IFACE" 2>&1 || true
-    ip route 2>&1 || true
-    echo "wifi-watchdog: attempting recovery"
-    if systemctl is-active --quiet NetworkManager; then
-      # Force a full reconnect + fresh DHCP on the beatbird connection, not just
-      # a daemon bounce (which can come back up still leaseless).
-      nmcli connection down beatbird >/dev/null 2>&1 || true
-      systemctl restart NetworkManager
-      sleep 8
-      nmcli connection up beatbird >/dev/null 2>&1 || true
-    elif systemctl is-active --quiet wpa_supplicant; then
-      systemctl restart wpa_supplicant
-      sleep 8
-      # wpa-only stacks rely on dhclient/dhcpcd — nudge whichever is present.
-      command -v dhclient >/dev/null 2>&1 && { dhclient -r "$IFACE" 2>/dev/null; dhclient "$IFACE" 2>/dev/null; } || \
-      command -v dhcpcd   >/dev/null 2>&1 && dhcpcd -n "$IFACE" 2>/dev/null || true
-    else
-      ip link set "$IFACE" down; sleep 2; ip link set "$IFACE" up
-    fi
-    # Re-assert power-save off: a fresh connection may have it back on, which is
-    # what eats DHCP/multicast and caused the loss in the first place.
-    iw dev "$IFACE" set power_save off 2>/dev/null || true
-    sleep 30
-    fails=0
-    GW="$(pick_gw)"
-  fi
-
-  sleep "$SLEEP_S"
-done
-EOF
+install -m 755 -o root -g root "$REPO_DIR/config/wifi/beatbird-wifi-watchdog"   /usr/local/sbin/beatbird-wifi-watchdog
 
 cat > /etc/systemd/system/wifi-keepalive.service <<'EOF'
 [Unit]
@@ -252,3 +140,11 @@ SyslogIdentifier=beatbird-wifi
 WantedBy=multi-user.target
 EOF
 enable_service wifi-keepalive.service
+
+# ─── Hardware watchdog ───────────────────────────────────────────────────────
+# The WiFi watchdog's reboot stage needs a running userspace; this covers a
+# hung kernel / PID 1. Takes effect on the next boot (or daemon-reexec).
+log_step "Hardware watchdog (bcm2835-wdt, 15 s)"
+install -d /etc/systemd/system.conf.d
+install -m 644 "$REPO_DIR/config/systemd/beatbird-hw-watchdog.conf"   /etc/systemd/system.conf.d/beatbird-hw-watchdog.conf
+log_ok "RuntimeWatchdogSec=15 (active after reboot)"

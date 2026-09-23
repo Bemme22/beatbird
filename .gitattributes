@@ -13,3 +13,5 @@
 *.conf   text eol=lf
 *.tpl    text eol=lf
 Makefile text eol=lf
+# Extension-less scripts installed to /usr/local/sbin.
+config/wifi/*  text eol=lf
