@@ -123,11 +123,11 @@ display:
     auto_dim:
       enabled: true
       idle_day: 0
-      idle_evening: 40
+      idle_evening: 32     # war 40 -- nach Palette-Fix (20.09.) noch etwas zu hell zurueckgemeldet
       idle_night: 0
-      active_day: 40
-      active_evening: 40
-      active_night: 12
+      active_day: 32
+      active_evening: 32
+      active_night: 10      # war 12, gleiche ~20%-Absenkung
     chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
   # ── Standby-Faces: HA-Entscheidungen neben der Uhr ──────────────────────
   # RobinPi steht in der Küche, Ableseabstand ~3 m ⇒ eine Ansicht trägt genau
@@ -175,7 +175,7 @@ sources:
     # server IP comes from BEATBIRD_SNAPCAST_SERVER (secrets/snapcast.host).
     enabled: true
     server: 192.168.1.10
-    latency_ms: 30
+    latency_ms: 80        # am 23.09.2026 am Geraet nachgestellt (30 ms lief versetzt)
 
 # Weather — coords live in secrets/location.coords (gitignored).
 # ⚠️ This block was missing since the profile was written, and the default is
