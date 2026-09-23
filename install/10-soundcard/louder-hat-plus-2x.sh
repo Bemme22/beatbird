@@ -65,7 +65,7 @@ fi
 set_q() { amixer -c "$CARD" -q sset "$1" "$2" 2>/dev/null || true; }
 
 # Stereo amp — primary 0x4C, prefix '2.0'
-set_q '2.0 Digital'             103     # ~-6 dB
+set_q '2.0 Digital'             103     # = 0 dB (register 0x30) — the old "~-6 dB" note was wrong; read back via i2cget on RobinPi 2026-09-23, same tas58xx driver
 set_q '2.0 Analog Gain'          25     # ~-3 dB from max (safe @ 24V PVDD)
 set_q '2.0 Channel Left Gain'     0     # 0 dB
 set_q '2.0 Channel Right Gain'    0     # 0 dB

@@ -1,8 +1,8 @@
 # BeatBird — Project Status
 
-> Last updated: 2026-09-16 (previous refresh: 2026-06-04, 121 commits behind —
-> this pass re-derived the delta from `git log` + current config/profile state,
-> not from memory. If this drifts again, prefer `git log` over this file.)
+> Last updated: 2026-09-23 (previous: 2026-09-16, 2026-06-04). Re-derived from
+> `git log`, the CI history and the devices themselves. If this drifts again,
+> prefer `git log` over this file.
 
 ## Active speakers
 
@@ -10,8 +10,8 @@
 |---|---|---|---|
 | **Beat #1** | Pi Zero 2W · Louder Hat Plus 2X | AMOLED 1.43 | ✅ Production — native CamillaDSP Loudness + signal-adaptive Compressor in `beat.yml` (A/B'd by ear 2026-06-06) |
 | **Zipp Mini 2** | Pi Zero 2W · Louder Hat Plus 1X | AMOLED 1.43 | ✅ Production — still on the hand-rolled loudness patch-loop + soft-clip Limiter only (no Compressor yet, see Roadmap) |
-| **RobinPi** | Pi Zero 2W · Louder Hat Plus 1X (PBTL/mono) | AMOLED 1.75 (CO5300) | ✅ Built + voiced — `robinpi.yml` DSP config carries measured Voicing v1 (2026-09-06); profile-driven status LED strip; standby faces + Snapcast merged 2026-09-16 |
-| **LoungePi** | Pi 5 (1 GB) · 3× Louder Hat | — | 🔧 Bench, unchanged since June — TDM design dead-ended (Pi 4/5 can't do >2 ch/lane), redirected to Pi 5 multi-lane; blocked on chassis being physically wired (`docs/lounge-multilane.md`) |
+| **RobinPi** | Pi Zero 2W · Louder Hat Plus 1X (PBTL/mono) | AMOLED 1.75 (CO5300) | ✅ Production (kitchen) — Voicing v4 (PR mass-loaded, f_b 40 Hz; in `main` since PR #15), native CamillaDSP loudness, PBTL amp-init fix, Snapcast target for Music Assistant |
+| LoungePi | Pi 5 (1 GB) · 3× Louder Hat | — | ⏸️ **Not planned** (2026-09-23) — no Lounge speaker exists or is scheduled; profile + `docs/lounge-multilane.md` stay as reference, see Parked |
 | BeatPiMini | Pi Zero 2W · Louder Hat Plus 1X | — | 📐 Designed, not built — no movement since June (`docs/BeatPiMini-enclosure.md`) |
 
 Firmware releases are OTA'd via tagged `fw-v*` GitHub releases; latest tag is
@@ -30,14 +30,36 @@ device — check `make status` / the web dashboard on the speaker itself.)
   glanceable *decisions* (not raw sensor values) as retained MQTT JSON on
   `beatbird/hints/<id>`; the bridge caches/expires them and renders up to 4 as
   a standby rotation. Full grammar: `docs/protocol.md`.
-- **CI**: `python.yml` (ruff + pytest, 208 tests) on src/tests/profiles
-  changes; `firmware.yml` now builds **3** ESP32 envs (`zipp-mini-2`, `beat-1`,
-  `robinpi` — added 2026-09-16, PR #6; `beat-2`/`zipp-2` stay CI-excluded
-  placeholders), tag → release.
+- **CI**: `python.yml` (ruff + pytest, 267 tests) on src/tests/profiles
+  changes; `firmware.yml` builds **3** ESP32 envs (`zipp-mini-2`, `beat-1`,
+  `robinpi`; `beat-2`/`zipp-2` stay CI-excluded placeholders), tag → release.
+  ⚠️ `firmware.yml` runs on PRs **only for `firmware/**` changes** — a red
+  `main` stays invisible from Python PRs (happened 16.–23.09.: LVGL 9.6 via
+  `^9.2.2` overflowed robinpi's DRAM). Firmware libs are now **exact-pinned**
+  (lvgl 9.5.0, XPowersLib 0.3.3, SensorLib 0.4.1) — at 88 % DRAM, a `^` range
+  is a time bomb.
+- **Device drift**: `beatbird-update` pulls the repo only — it does NOT
+  re-render `/etc` configs or refresh `/usr/local/sbin` scripts. Every such
+  fix still needs a manual rollout (overlayroot: into the base + reboot).
 
 ---
 
-## Shipped since the last refresh (2026-06-04 → 2026-09-16, condensed)
+## Shipped 2026-09-16 → 2026-09-23
+
+- **Snapcast volume = CamillaDSP only** (PR #12) — `snapclient --mixer none`,
+  bridge syncs the per-client slider both ways (was two multiplying stages;
+  display ring jumped between them).
+- **WiFi watchdog escalates** (PR #13) — reconnect by device → radio reset
+  (USB re-authorize / module reload) → reboot with journal tail saved to
+  `/boot/firmware/beatbird-lastfail.log`; hardware watchdog
+  `RuntimeWatchdogSec=15`. The old stage-1 `nmcli … beatbird` never matched
+  any device's connection name.
+- **Firmware CI green again** (PR #14) — exact library pins.
+- **Repo ↔ device sync** (PR #15) — RobinPi Voicing v3/v4 + PBTL amp-init fix
+  (existed only on the dev PC), device-only profile values, Beat MQTT enabled.
+- All three speakers on the same `main`; Beat's and Zipp's working trees clean.
+
+## Shipped 2026-06-04 → 2026-09-16 (condensed)
 
 Full detail in `git log`; commit messages here are written for exactly this
 purpose (verbose, decision-carrying). Grouped by theme:
@@ -97,7 +119,7 @@ symptom is still reported on the Zipp, the fix is already prototyped
 (`zipp-mini-2-loud.yml` exists as the native-Loudness A/B variant) — just
 needs the same A/B-by-ear pass Beat got, then a Compressor added the same way.
 
-### 🔧 LoungePi — Pi 5 multi-lane (unchanged since June, still bench-blocked)
+### ⏸️ LoungePi — not planned (moved out of active, 2026-09-23)
 Design is settled (`docs/lounge-multilane.md`): 2-lane compromise, mid+sub on
 lane D0 (in-chip crossover, Beat-style), ribbon on lane D1 (crossover + all EQ
 in CamillaDSP). Register-level bring-up (TDM SAP_CTRL1/2, per-codec analog
