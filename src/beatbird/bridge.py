@@ -40,7 +40,9 @@ from beatbird.display.base import (
 from beatbird.ha.faces import FaceStore
 from beatbird.ha.mqtt import MqttBridge
 from beatbird.hardware.base import HardwareInterface
-from beatbird.sources.snapcast import SnapcastClient, get_local_wlan_mac
+from beatbird.sources.snapcast import (
+    SnapcastClient, get_local_wlan_mac, reconcile_volume,
+)
 from beatbird.sources.spotify import SpotifyClient
 from beatbird import system
 
@@ -487,6 +489,10 @@ class BeatBirdBridge:
         # Last observed snapcast play state — used to suppress redundant
         # source flips on every poll tick.
         self._snapcast_playing = False
+        # Snapcast ↔ CamillaDSP volume sync (see _sync_snapcast_volume).
+        # None = not yet observed → first tick pushes CamillaDSP to the server.
+        self._last_snap_pct: int | None = None
+        self._snap_muted = False
 
     # ─── Weather poller ──────────────────────────────────────────────────────
 
@@ -1621,8 +1627,8 @@ class BeatBirdBridge:
             playing, source flips to SNAPCAST and stays there.
           - last_playback_time refreshes on every tick while playing, so
             the idle-timeout doesn't trip on a long Snapcast session.
-          - Per-client volume (MA UI) is mirrored into the displayed
-            volume so the ring matches what MA shows.
+          - Per-client volume (MA/HA slider) is synced both ways with
+            CamillaDSP — see _sync_snapcast_volume.
           - Group name is shown as the title — for MA's `ma_<mac>` naming
             it's not pretty, but it identifies the stream.
         Audio routing itself is handled by snapclient.service — bridge
@@ -1640,6 +1646,8 @@ class BeatBirdBridge:
         if playing and self.source == Source.SPOTIFY and self.playback == Playback.PLAYING:
             return
 
+        self._sync_snapcast_volume(state)
+
         if playing:
             if self.source != Source.SNAPCAST or not self._snapcast_playing:
                 log.info("Snapcast source active (group=%s)", state["group_name"])
@@ -1656,13 +1664,6 @@ class BeatBirdBridge:
             if self.song_title != title or self.song_artist != artist:
                 self.song_title  = title
                 self.song_artist = artist
-            # Mirror per-client volume to the display so the ring tracks
-            # MA-side changes too. Only push when it actually changed.
-            v = max(0, min(100, int(state["volume_pct"])))
-            if v != self.current_volume:
-                self.current_volume = v
-                # Push to State without touching CDSP master — CDSP master
-                # is independent and stays under local rotary control.
         elif self._snapcast_playing:
             log.info("Snapcast source idle")
             if self.source == Source.SNAPCAST:
@@ -1671,6 +1672,53 @@ class BeatBirdBridge:
                 self.song_title = ""
                 self.song_artist = ""
         self._snapcast_playing = playing
+
+    def _sync_snapcast_volume(self, state: dict) -> None:
+        """Keep the Snapserver per-client volume and CamillaDSP in step.
+
+        snapclient runs with ``--mixer none`` (config/snapcast/), so the
+        MA/HA slider no longer attenuates anything by itself — it is adopted
+        into CamillaDSP here, through the profile's own curve. Before that,
+        snapclient's exp-10 software mixer and the CamillaDSP fader were two
+        multiplying stages, and this method's predecessor mirrored the
+        snapclient % into current_volume while _refresh_system wrote the
+        CamillaDSP % back → the display ring jumped between the two.
+        """
+        if not self.snapcast:
+            return
+        server_pct = max(0, min(100, int(state["volume_pct"])))
+        action, pct = reconcile_volume(
+            server_pct, self._last_snap_pct, self.current_volume)
+
+        if action == "adopt":
+            log.info("Snapcast volume → %d%% (syncing to CamillaDSP)", pct)
+            self._adopt_external_volume(pct)
+            self._last_snap_pct = pct
+        elif action == "push":
+            if self.snapcast.set_volume(state.get("client_id", ""), pct,
+                                        muted=bool(state.get("muted"))):
+                log.info("Volume %d%% → Snapcast (was %d%%)", pct, server_pct)
+                self._last_snap_pct = pct
+        else:
+            self._last_snap_pct = server_pct
+
+        muted = bool(state.get("muted"))
+        if muted != self._snap_muted:
+            log.info("Snapcast mute → %s (CamillaDSP Main)", muted)
+            self.dsp.set_mute(muted)
+            self._snap_muted = muted
+
+    def _adopt_external_volume(self, pct: int) -> None:
+        """Apply a volume that came from outside (MA/HA slider) to CamillaDSP
+        — like set_volume, but without the SFX tick and without echoing it
+        back to the source it came from."""
+        pct = max(0, min(100, pct))
+        db = pct_to_db(pct, self.vol_min_db, self.vol_max_db, self.vol_gamma)
+        self.dsp.set_volume_db(db)
+        self.current_volume = pct
+        self.current_volume_db = db
+        self._apply_loudness(pct)
+        self._save_persistent_state()
 
     def _handle_amp_thermal(self) -> None:
         """Back the volume off when a TAS amp reports over-temperature.

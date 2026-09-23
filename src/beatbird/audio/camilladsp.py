@@ -136,6 +136,10 @@ class CamillaDSP:
     def set_volume_db(self, db: float) -> None:
         self._cmd({"SetVolume": db})
 
+    def set_mute(self, muted: bool) -> None:
+        """Mute the Main fader (keeps its level, unlike SetVolume -inf)."""
+        self._cmd({"SetMute": bool(muted)})
+
     # ─── Signal level ────────────────────────────────────────────────────────
 
     def get_signal_level(self) -> int:
