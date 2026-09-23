@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Warm Funktional · deine Speaker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0b;color:#EDE4D0;font-family:"Inter",system-ui,sans-serif;padding:30px 22px 70px}
+  h1{font-size:1.45rem;font-weight:700;margin-bottom:5px}
+  .sub{color:#9a9484;font-size:.92rem;max-width:840px;line-height:1.55;margin-bottom:14px}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:28px;font-size:.82rem;color:#9a9484}
+  .legend b{color:#EDE4D0;font-weight:600}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:30px;max-width:1480px}
+  .card{background:#141414;border:1px solid #232323;border-radius:16px;padding:22px;
+        display:flex;flex-direction:column;align-items:center;text-align:center}
+  .disp{width:340px;height:340px;border-radius:50%;background:#000;position:relative;overflow:hidden;
+        box-shadow:0 0 0 2px #1d1d1d,0 16px 44px rgba(0,0,0,.6)}
+  .name{margin-top:17px;font-size:1.06rem;font-weight:700}
+  .name small{color:#9a9484;font-weight:500}
+  .desc{color:#9a9484;font-size:.83rem;line-height:1.5;margin-top:7px;max-width:320px}
+
+  /* theme tokens — set per speaker */
+  .beat{--acc:#3E9E6B;--glow:#6FD49A;--dim:#163E2C;--cream:#F1E9D6;--sec:#9c947f;--red:#E0503A}
+  .zipp{--acc:#2C95A8;--glow:#63C6D8;--dim:#123E47;--cream:#F1E9D6;--sec:#9c947f;--red:#E0503A}
+
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+  /* ── STANDBY ─────────────────────────────────────────── */
+  .tick{position:absolute;top:46px;left:50%;transform:translateX(-50%);width:44px;height:5px;
+        border-radius:3px;background:var(--acc)}
+  .clock{font-weight:800;font-size:104px;letter-spacing:-.03em;line-height:1;color:var(--cream)}
+  .clock .cl{color:var(--acc)}
+  .date{font-weight:600;font-size:12.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--sec);margin-top:8px}
+  .divr{width:158px;height:1px;background:#262626;margin:17px 0}
+  .wx{display:flex;align-items:center;gap:10px;font-weight:600;font-size:27px;color:var(--cream)}
+  .wxsub{font-weight:600;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--sec);margin-top:8px}
+  .idle{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);
+        font-weight:600;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--sec)}
+  .live{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);
+        width:5px;height:5px;border-radius:50%;background:var(--red);opacity:.9}
+
+  /* sun icon, accent-tinted */
+  .sun{position:relative;display:inline-block;width:28px;height:28px}
+  .sun i{position:absolute;left:50%;top:50%;width:50%;height:50%;border-radius:50%;
+         transform:translate(-50%,-50%);background:var(--acc)}
+  .sun b{position:absolute;left:50%;top:1px;width:2px;height:5px;border-radius:2px;
+         transform-origin:50% 13px;background:var(--acc)}
+
+  /* ── NOW PLAYING ─────────────────────────────────────── */
+  .arc{position:absolute;inset:0}
+  .npsrc{position:absolute;top:54px;left:50%;transform:translateX(-50%);
+         display:flex;align-items:center;gap:7px;font-weight:600;font-size:10.5px;
+         letter-spacing:.3em;text-transform:uppercase;color:var(--sec)}
+  .npsrc .dot{width:6px;height:6px;border-radius:50%;background:var(--red)}
+  .title{font-weight:800;font-size:31px;letter-spacing:-.01em;color:var(--cream);max-width:250px;line-height:1.05}
+  .artist{font-weight:500;font-size:16px;color:var(--sec);margin-top:7px}
+  .times{font-family:"JetBrains Mono",monospace;font-weight:500;font-size:13px;
+         letter-spacing:.05em;color:var(--sec);margin-top:18px}
+  .times b{color:var(--acc);font-weight:500}
+  .vol{position:absolute;bottom:50px;left:50%;transform:translateX(-50%);
+       font-weight:600;font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--sec)}
+  .vol span{color:var(--acc)}
+</style>
+</head>
+<body>
+  <h1>BeatBird — „Warm Funktional" an deinen Speakern</h1>
+  <p class="sub">Eine Sprache, zwei Identitäten. Tiefes Schwarz, cremefarbenes Typo-System, große
+    Uhr — der Akzent ist die <b>Gehäusefarbe</b> (Beat grün / Zipp petrol), <b>Rot</b> der geteilte
+    Pop (eure Naht / euer Zipper). Alles statisch + Mikro-Motion, kein Vollflächen-Redraw.</p>
+  <div class="legend">
+    <span><span class="sw" style="background:#3E9E6B"></span><b>Beat</b> Akzent grün</span>
+    <span><span class="sw" style="background:#2C95A8"></span><b>Zipp</b> Akzent petrol</span>
+    <span><span class="sw" style="background:#E0503A"></span><b>Rot</b> now-playing / live</span>
+    <span><span class="sw" style="background:#F1E9D6"></span>Creme — Typo</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- BEAT · STANDBY -->
+    <div class="card">
+      <div class="disp beat">
+        <div class="tick"></div>
+        <div class="scr">
+          <div class="clock">18<span class="cl">:</span>57</div>
+          <div class="date">Samstag · 7. Juni</div>
+          <div class="divr"></div>
+          <div class="wx"><span class="sun"><i></i><b style="transform:rotate(0)"></b><b style="transform:rotate(45deg)"></b><b style="transform:rotate(90deg)"></b><b style="transform:rotate(135deg)"></b><b style="transform:rotate(180deg)"></b><b style="transform:rotate(225deg)"></b><b style="transform:rotate(270deg)"></b><b style="transform:rotate(315deg)"></b></span>20°</div>
+          <div class="wxsub">Bewölkt · H 22°  L 13°</div>
+        </div>
+        <div class="idle">Insert Beats</div>
+        <div class="live"></div>
+      </div>
+      <div class="name">Beat · <small>Standby</small></div>
+      <div class="desc">Uhr füllt das Glas, grüner Akzent-Tick + Doppelpunkt, warmes Creme. Rotes Live-Pünktchen unten.</div>
+    </div>
+
+    <!-- BEAT · NOW PLAYING -->
+    <div class="card">
+      <div class="disp beat">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--red)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="3 977" stroke-dashoffset="-372" transform="rotate(-90 170 170)"/>
+        </svg>
+        <div class="npsrc"><span class="dot"></span>Spotify · Now Playing</div>
+        <div class="scr">
+          <div class="title">Once in a Lifetime</div>
+          <div class="artist">Talking Heads</div>
+          <div class="times"><b>2:14</b> &nbsp;—&nbsp; 3:52</div>
+        </div>
+        <div class="vol">Vol <span>45</span></div>
+      </div>
+      <div class="name">Beat · <small>Now Playing</small></div>
+      <div class="desc">Dünne Progress-Arc am Rand (grün gefüllt, dim Rest), <b>rote Spitze</b> = Position. Titel groß, Zeit als Mono.</div>
+    </div>
+
+    <!-- ZIPP · STANDBY -->
+    <div class="card">
+      <div class="disp zipp">
+        <div class="tick"></div>
+        <div class="scr">
+          <div class="clock">18<span class="cl">:</span>57</div>
+          <div class="date">Samstag · 7. Juni</div>
+          <div class="divr"></div>
+          <div class="wx"><span class="sun"><i></i><b style="transform:rotate(0)"></b><b style="transform:rotate(45deg)"></b><b style="transform:rotate(90deg)"></b><b style="transform:rotate(135deg)"></b><b style="transform:rotate(180deg)"></b><b style="transform:rotate(225deg)"></b><b style="transform:rotate(270deg)"></b><b style="transform:rotate(315deg)"></b></span>20°</div>
+          <div class="wxsub">Bewölkt · H 22°  L 13°</div>
+        </div>
+        <div class="idle">Insert Beats</div>
+        <div class="live"></div>
+      </div>
+      <div class="name">Zipp · <small>Standby</small></div>
+      <div class="desc">Identische Sprache — nur der Akzent wechselt auf Petrol. So werden die zwei zu Geschwistern.</div>
+    </div>
+
+    <!-- ZIPP · NOW PLAYING -->
+    <div class="card">
+      <div class="disp zipp">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="560 420" transform="rotate(-90 170 170)"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--red)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="3 977" stroke-dashoffset="-560" transform="rotate(-90 170 170)"/>
+        </svg>
+        <div class="npsrc"><span class="dot"></span>Bluetooth · Now Playing</div>
+        <div class="scr">
+          <div class="title">Teardrop</div>
+          <div class="artist">Massive Attack</div>
+          <div class="times"><b>3:18</b> &nbsp;—&nbsp; 5:30</div>
+        </div>
+        <div class="vol">Vol <span>62</span></div>
+      </div>
+      <div class="name">Zipp · <small>Now Playing</small></div>
+      <div class="desc">Petrol-Arc, rote Positionsspitze, gleiche Typo-Skala wie Beat. Quelle wechselt das Label, nicht die Sprache.</div>
+    </div>
+
+  </div>
+
+  <footer style="color:#666;font-size:.8rem;margin-top:42px;max-width:840px;line-height:1.6">
+    Browser ≈ Gerät (Inter ≈ Geräte-Grotesk, am Gerät echtes AMOLED-Schwarz). Mikro-Motion am Gerät:
+    Doppelpunkt-Blink, Akzent-Tick als Sekundenpuls, Arc-Spitze wandert, Live-Punkt atmet. Töne
+    feintunen wir am echten Petrol/Grün. Sag mir: trägt's? Dann wird's Theme im SDL-Sim.
+  </footer>
+</body>
+</html>

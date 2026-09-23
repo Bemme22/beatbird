@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Player Design-Vorschläge</title>
+<style>
+  :root{
+    --bg:#000; --accent:#2D6A4F; --glow:#52B788; --dim:#1B4332;
+    --textP:#F4EFE0; --textS:#A89E89; --alert:#C73E2C;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#0b0b0b; color:var(--textP);
+    font-family:"Segoe UI",system-ui,sans-serif; padding:28px 20px 60px;
+  }
+  h1{font-size:1.4rem;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--textS);font-size:.9rem;margin:0 0 26px;max-width:760px;line-height:1.5}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:30px;max-width:1180px}
+  .card{
+    background:#141414;border:1px solid #222;border-radius:14px;padding:20px;
+    display:flex;flex-direction:column;align-items:center;text-align:center;
+  }
+  .disp{width:300px;height:300px;border-radius:50%;background:#000;
+        box-shadow:0 0 0 2px #1c1c1c,0 14px 40px rgba(0,0,0,.6);overflow:hidden}
+  canvas{width:300px;height:300px;display:block}
+  .name{margin-top:16px;font-size:1.05rem;font-weight:600;letter-spacing:.02em}
+  .name .tag{font-size:.66rem;color:#0b0b0b;background:var(--glow);
+             border-radius:5px;padding:2px 7px;margin-left:8px;vertical-align:middle;font-weight:700}
+  .name .tag.med{background:var(--textS)}
+  .desc{color:var(--textS);font-size:.84rem;line-height:1.5;margin-top:8px;max-width:300px}
+  .desc b{color:var(--textP);font-weight:600}
+  footer{color:#666;font-size:.78rem;margin-top:40px;max-width:760px;line-height:1.5}
+</style>
+</head>
+<body>
+  <h1>BeatBird — Player Design-Vorschläge</h1>
+  <p class="sub">4 Richtungen, wie der aktive Player + die Musik-Reaktion aussehen könnte — live im
+    466&nbsp;px-Rund, eure Palette, simulierte Energie (~120&nbsp;BPM). Das „cheap/medium"-Tag
+    schätzt die ESP32-S3-Renderlast (Vollbild-Redraw pro Frame = teuer = Ruckelrisiko). Kein Code
+    geändert — nur zum Anschauen &amp; Aussuchen.</p>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>Mockup im Browser ≈ Gerät, aber nicht 1:1 (Schrift = Departure&nbsp;Mono am Gerät, hier
+    Monospace-Fallback; echtes Cover statt Platzhalter). Energie ist hier ein synthetischer
+    Beat-Envelope. Sag mir die Nummer(n), die dir gefallen — Mischen geht auch.</footer>
+
+<script>
+const PAL={accent:'#2D6A4F',glow:'#52B788',dim:'#1B4332',textP:'#F4EFE0',textS:'#A89E89',alert:'#C73E2C'};
+const W=466, C=W/2;
+const TITLE="Gorgone", ARTIST="CARPETMAN", SOURCE="SPOTIFY";
+
+// ── simulated music energy: slow LFO + per-beat kick decay, 0..1 ──────────────
+function energyAt(t){
+  const beat=60000/120, ph=(t%beat)/beat;
+  const kick=Math.exp(-ph*5.5);
+  const lfo=0.55+0.45*Math.sin(t*0.0006);
+  return Math.min(1,0.22+0.6*kick*(0.55+0.45*lfo));
+}
+// remap like the firmware's energy_dyn (quiet→~0, loud→~1.2)
+function eDyn(raw){let e=(raw-0.30)*2.3; return Math.max(0,Math.min(1.2,e));}
+
+// ── procedural "blurred album" background, cached ─────────────────────────────
+function makeCover(){
+  const o=document.createElement('canvas');o.width=W;o.height=W;const x=o.getContext('2d');
+  x.fillStyle='#0a0f0d';x.fillRect(0,0,W,W);
+  const blobs=[['#2f7a55',130,150,210],['#143028',340,320,260],['#6cc79a',310,120,150],
+               ['#4a3a22',150,360,190],['#1B4332',233,233,260]];
+  for(const[col,bx,by,r]of blobs){const g=x.createRadialGradient(bx,by,0,bx,by,r);
+    g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,W,W);}
+  return o;
+}
+const COVER=makeCover();
+
+function drawCover(ctx,darken){
+  ctx.save();ctx.filter='blur(16px)';ctx.drawImage(COVER,-10,-10,W+20,W+20);ctx.filter='none';
+  // darken + vignette
+  ctx.fillStyle=`rgba(0,0,0,${darken})`;ctx.fillRect(0,0,W,W);
+  const v=ctx.createRadialGradient(C,C,W*0.30,C,C,W*0.52);
+  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(0,0,0,0.7)');
+  ctx.fillStyle=v;ctx.fillRect(0,0,W,W);ctx.restore();
+}
+function dot(ctx,x,y,r,col,a){ctx.globalAlpha=a;ctx.fillStyle=col;ctx.beginPath();
+  ctx.arc(x,y,r,0,7);ctx.fill();ctx.globalAlpha=1;}
+function ringPos(i,n,R,off){const a=-Math.PI/2+(i/n)*2*Math.PI+off;return[C+Math.cos(a)*R,C+Math.sin(a)*R];}
+
+// progress dot-arc (static-ish), 60 dots over ~300°
+function drawProg(ctx,pct){
+  const n=60,lit=Math.round(pct*n);
+  for(let i=0;i<n;i++){const a=(-230+ (i/(n-1))*280)*Math.PI/180;
+    const x=C+Math.cos(a)*192,y=C+Math.sin(a)*192;
+    dot(ctx,x,y,2,i<lit?PAL.accent:'#3a3a3a',i<lit?1:.5);}
+}
+// volume dot-ring, 24 dots; wob = energy breathing amount (0=static)
+function drawVol(ctx,vol,E,t,wobAmt){
+  const n=24,lit=Math.round(vol/100*n);
+  for(let i=1;i<n;i++){const[x,y]=ringPos(i,n,218,0);
+    if(i<lit){const w=1+E*wobAmt*Math.sin(t*0.005+i*(6.2832/n));
+      dot(ctx,x,y,4*w,PAL.accent,Math.min(1,.8+E*.18));}
+    else dot(ctx,x,y,2,PAL.dim,.62);}
+}
+function text(ctx){
+  ctx.textAlign='center';
+  ctx.fillStyle=PAL.textP;ctx.font='600 34px "Departure Mono",ui-monospace,monospace';
+  ctx.fillText(TITLE,C,C-20);
+  ctx.fillStyle=PAL.textS;ctx.font='500 22px "Departure Mono",ui-monospace,monospace';
+  ctx.fillText(ARTIST,C,C+34);
+}
+function sourceLabel(ctx){
+  ctx.textAlign='center';ctx.fillStyle=PAL.dim;
+  ctx.font='600 15px "Departure Mono",ui-monospace,monospace';
+  ctx.fillText(SOURCE,C,70);
+  dot(ctx,C,46,5,PAL.glow,.9);
+}
+
+// ── the four variants ─────────────────────────────────────────────────────────
+const VARIANTS=[
+{
+  name:"1 — Ruhig", cost:"cheap", tag:'cheap',
+  desc:"<b>Album im Vordergrund</b>, kaum Bewegung. Vol-Ring nur bei Lautstärke-Änderung, sonst nichts animiert. Energie = nichts (oder ein flüsterleiser Atem-Punkt). Elegant, garantiert ruckelfrei.",
+  draw(ctx,t){
+    drawCover(ctx,0.32);
+    drawProg(ctx,0.42);
+    drawVol(ctx,61,0,t,0);            // static ring
+    text(ctx); sourceLabel(ctx);
+  }
+},
+{
+  name:"2 — Energie-Ring (getunt)", cost:"medium", tag:'med',
+  desc:"Die <b>alte, getunte Version</b>: die Vol-Punkte atmen <i>dezent</i> mit der Musik (±12&nbsp;%), eine Welle läuft sanft um den Ring. Vollbild-Redraw, aber gemäßigt → war am Gerät ok.",
+  draw(ctx,t){
+    const E=eDyn(energyAt(t));
+    drawCover(ctx,0.42);
+    drawProg(ctx,0.42);
+    drawVol(ctx,61,E,t,0.12);         // gentle breathing
+    text(ctx); sourceLabel(ctx);
+  }
+},
+{
+  name:"3 — Core-Puls", cost:"cheap", tag:'cheap',
+  desc:"Energie lebt <b>in der Mitte</b>: ein weicher Glow-Ring hinter dem Titel pulsiert mit dem Beat. Vol-Ring statisch. Kleinflächig → billig, und der Blick bleibt zentral.",
+  draw(ctx,t){
+    const E=eDyn(energyAt(t));
+    drawCover(ctx,0.5);
+    // central breathing halo (behind text)
+    const r=70+E*70;
+    const g=ctx.createRadialGradient(C,C+6,0,C,C+6,r);
+    g.addColorStop(0,`rgba(82,183,136,${0.10+0.22*E})`);
+    g.addColorStop(0.6,`rgba(45,106,79,${0.05+0.12*E})`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(C,C+6,r,0,7);ctx.fill();
+    // thin pulsing ring outline
+    ctx.strokeStyle=`rgba(82,183,136,${0.25+0.5*E})`;ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(C,C+6,48+E*10,0,7);ctx.stroke();
+    drawProg(ctx,0.42);
+    drawVol(ctx,61,0,t,0);
+    text(ctx); sourceLabel(ctx);
+  }
+},
+{
+  name:"4 — Komet", cost:"cheap", tag:'cheap',
+  desc:"Vol-Ring statisch, aber <b>ein heller Punkt umkreist</b> den Ring — Tempo &amp; Helligkeit nach Energie. Nur ein bewegtes Element (kleines Invalidate) → billig &amp; lebendig.",
+  draw(ctx,t){
+    const E=eDyn(energyAt(t));
+    drawCover(ctx,0.42);
+    drawProg(ctx,0.42);
+    drawVol(ctx,61,0,t,0);
+    // comet: bright dot + short trail orbiting
+    const n=24, head=(t*0.0009*(0.6+E))%1;
+    for(let k=0;k<5;k++){const fi=(head*n - k*0.8);
+      const a=-Math.PI/2+(fi/n)*2*Math.PI;
+      const x=C+Math.cos(a)*218,y=C+Math.sin(a)*218;
+      dot(ctx,x,y,4-k*0.5,PAL.glow,(0.9-k*0.18)*(0.5+0.5*E));}
+    text(ctx); sourceLabel(ctx);
+  }
+}
+];
+
+// ── build cards + run ─────────────────────────────────────────────────────────
+const grid=document.getElementById('grid');
+const ctxs=VARIANTS.map(v=>{
+  const card=document.createElement('div');card.className='card';
+  const disp=document.createElement('div');disp.className='disp';
+  const cv=document.createElement('canvas');cv.width=W;cv.height=W;disp.appendChild(cv);
+  const nm=document.createElement('div');nm.className='name';
+  nm.innerHTML=v.name+` <span class="tag ${v.tag==='med'?'med':''}">${v.cost}</span>`;
+  const ds=document.createElement('div');ds.className='desc';ds.innerHTML=v.desc;
+  card.append(disp,nm,ds);grid.appendChild(card);
+  const ctx=cv.getContext('2d');
+  // round clip
+  ctx.beginPath();ctx.arc(C,C,C,0,7);ctx.clip();
+  return ctx;
+});
+function frame(t){
+  for(let i=0;i<VARIANTS.length;i++){
+    const ctx=ctxs[i];ctx.clearRect(0,0,W,W);
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,W);
+    VARIANTS[i].draw(ctx,t);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

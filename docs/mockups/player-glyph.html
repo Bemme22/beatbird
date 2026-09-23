@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Glyph-Style Vorschläge</title>
+<style>
+  :root{--accent:#2D6A4F;--glow:#52B788;--dim:#1B4332;--textP:#F4EFE0;--textS:#A89E89;--alert:#C73E2C}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0b0b0b;color:var(--textP);font-family:"Segoe UI",system-ui,sans-serif;padding:28px 20px 60px}
+  h1{font-size:1.4rem;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--textS);font-size:.9rem;margin:0 0 26px;max-width:820px;line-height:1.55}
+  .row{display:flex;gap:14px;align-items:center;margin:0 0 22px;flex-wrap:wrap}
+  .row label{color:var(--textS);font-size:.82rem}
+  .row input[type=range]{width:160px}
+  .swatch{display:inline-flex;gap:6px;align-items:center;cursor:pointer;border:1px solid #2a2a2a;border-radius:7px;padding:5px 10px;font-size:.8rem;color:var(--textS)}
+  .swatch.active{border-color:var(--glow);color:var(--textP)}
+  .swatch i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:30px;max-width:1180px}
+  .card{background:#141414;border:1px solid #222;border-radius:14px;padding:20px;display:flex;flex-direction:column;align-items:center;text-align:center}
+  .disp{width:320px;height:320px;border-radius:50%;background:#000;box-shadow:0 0 0 2px #1c1c1c,0 14px 40px rgba(0,0,0,.6);overflow:hidden}
+  canvas{width:320px;height:320px;display:block}
+  .name{margin-top:16px;font-size:1.05rem;font-weight:600}
+  .name .tag{font-size:.66rem;color:#0b0b0b;background:var(--glow);border-radius:5px;padding:2px 7px;margin-left:8px;font-weight:700;vertical-align:middle}
+  .desc{color:var(--textS);font-size:.84rem;line-height:1.5;margin-top:8px;max-width:310px}
+  .desc b{color:var(--textP);font-weight:600}
+  footer{color:#666;font-size:.78rem;margin-top:40px;max-width:820px;line-height:1.55}
+</style>
+</head>
+<body>
+  <h1>BeatBird — Glyph-Style Vorschläge</h1>
+  <p class="sub">Nothing-Glyph-Sprache: <b>Dot-Matrix</b> statt Fotos, monochrom, segmentierte Licht-Elemente
+    die mit dem Beat pulsen, Pixel-Font, viel Schwarz. Text ist hier <i>echt</i> als Punktraster gerendert
+    (gesampelt), nicht nur Monospace. Energie = simulierter Beat (~120&nbsp;BPM).</p>
+
+  <div class="row">
+    <label>Akzentfarbe:</label>
+    <span class="swatch active" data-a="#2D6A4F" data-g="#52B788"><i style="background:#52B788"></i>BeatBird-Grün</span>
+    <span class="swatch" data-a="#D71921" data-g="#FF4438"><i style="background:#FF4438"></i>Nothing-Rot</span>
+    <span class="swatch" data-a="#8a8a8a" data-g="#F4EFE0"><i style="background:#F4EFE0"></i>Mono-Weiß</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>Mockup ≈ Gerät. Alle drei sind <b>render-billig</b>: der Dot-Matrix-Text ist statisch (nur bei
+    Track-Wechsel neu), animiert wird nur das kleine Energie-Element. Sag mir, welche trifft — oder was
+    noch fehlt (z. B. „G1 aber mit Halftone-Cover wie G2").</footer>
+
+<script>
+let ACC='#2D6A4F', GLOW='#52B788';
+const W=466,C=W/2;
+const TITLE="GORGONE", ARTIST="CARPETMAN", SOURCE="SPOTIFY";
+
+function energyAt(t){const beat=60000/120,ph=(t%beat)/beat,kick=Math.exp(-ph*5.5),
+  lfo=0.55+0.45*Math.sin(t*0.0006);return Math.min(1,0.20+0.62*kick*(0.55+0.45*lfo));}
+
+// ── dot-matrix text: render to offscreen, sample alpha on a grid ──────────────
+function sampleText(txt,fontPx,weight){
+  const off=document.createElement('canvas'),o=off.getContext('2d');
+  const font=`${weight} ${fontPx}px ui-monospace,"Courier New",monospace`;
+  o.font=font;const w=Math.ceil(o.measureText(txt).width)+4,h=Math.ceil(fontPx*1.25);
+  off.width=w;off.height=h;o.font=font;o.textBaseline='middle';o.fillStyle='#fff';o.fillText(txt,2,h/2);
+  const d=o.getImageData(0,0,w,h).data,pts=[],cell=Math.max(3,Math.round(fontPx/6.5));
+  for(let y=0;y<h;y+=cell)for(let x=0;x<w;x+=cell)if(d[(y*w+x)*4+3]>110)pts.push([x-w/2,y-h/2]);
+  return{pts,cell,w,h};
+}
+const cache={};
+function txt(key,s,px,wt){if(!cache[key])cache[key]=sampleText(s,px,wt);return cache[key];}
+function drawDots(ctx,sm,cx,cy,color,a,rs=0.46){ctx.globalAlpha=a;ctx.fillStyle=color;
+  const r=sm.cell*rs;for(const[x,y]of sm.pts){ctx.beginPath();ctx.arc(cx+x,cy+y,r,0,7);ctx.fill();}ctx.globalAlpha=1;}
+function rdot(ctx,x,y,r,col,a){ctx.globalAlpha=a;ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.globalAlpha=1;}
+
+// ── procedural cover + brightness map (for the halftone variant) ──────────────
+function makeCover(){const o=document.createElement('canvas');o.width=W;o.height=W;const x=o.getContext('2d');
+  x.fillStyle='#070b09';x.fillRect(0,0,W,W);
+  for(const[col,bx,by,r]of[['#2f7a55',150,160,210],['#143028',330,330,260],['#7fd9aa',300,130,150],['#5a4626',150,360,180]]){
+    const g=x.createRadialGradient(bx,by,0,bx,by,r);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,W,W);}
+  return x.getImageData(0,0,W,W).data;}
+const COVERD=makeCover();
+function bright(x,y){const i=((y|0)*W+(x|0))*4;return(COVERD[i]*0.3+COVERD[i+1]*0.6+COVERD[i+2]*0.1)/255;}
+
+// ─────────────────────────────────────────────────────────────────────────────
+const VARIANTS=[
+{
+  name:"G1 — Glyph-Segmente", tag:"cheap",
+  desc:"Reines Schwarz, alles Dot-Matrix. Der Außenrand ist in <b>Licht-Segmente</b> geteilt (wie die Nothing-Glyphs hinten am Phone) — eine Helligkeitswelle läuft mit dem Beat herum. Maximal Nothing.",
+  draw(ctx,t){
+    const E=energyAt(t), N=44, R=206;
+    for(let i=0;i<N;i++){
+      const a=-Math.PI/2+(i/N)*2*Math.PI;
+      const x=C+Math.cos(a)*R,y=C+Math.sin(a)*R;
+      // brightness wave travelling with the beat + global energy
+      const wave=0.5+0.5*Math.sin(i*0.5 - t*0.006);
+      const lit=Math.pow(wave,2)*E;
+      rdot(ctx,x,y,2.4+lit*2.6, lit>0.45?GLOW:ACC, 0.12+lit*0.88);
+    }
+    drawDots(ctx,txt('t1',TITLE,40,'700'),C,C-18,'#F4EFE0',1,0.5);
+    drawDots(ctx,txt('a1',ARTIST,22,'500'),C,C+30,ACC,0.95,0.5);
+    drawDots(ctx,txt('s',SOURCE,15,'600'),C,66,GLOW,0.8,0.5);
+  }
+},
+{
+  name:"G2 — Halftone-Cover", tag:"cheap",
+  desc:"Das Album als <b>Dot-Halftone</b> (Punkte größer wo's heller ist), monochrom in der Akzentfarbe — sehr Nothing. Titel als Dot-Matrix unten auf schwarzem Band. Energie lässt die Punkte sanft mitatmen.",
+  draw(ctx,t){
+    const E=energyAt(t), cell=12, R=C-6;
+    for(let y=cell/2;y<W;y+=cell)for(let x=cell/2;x<W;x+=cell){
+      const dx=x-C,dy=y-C;if(dx*dx+dy*dy>R*R)continue;
+      const b=bright(x,y);if(b<0.06)continue;
+      const r=(0.6+b*4.4)*(0.9+0.1*E*Math.sin(t*0.004+x*0.05));
+      const col=b>0.55?GLOW:ACC;rdot(ctx,x,y,Math.min(cell*0.5,r),col,0.35+b*0.6);
+    }
+    // bottom scrim + text
+    const g=ctx.createLinearGradient(0,300,0,W);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,0.92)');
+    ctx.fillStyle=g;ctx.fillRect(0,300,W,W-300);
+    drawDots(ctx,txt('t2',TITLE,34,'700'),C,398,'#F4EFE0',1,0.5);
+    drawDots(ctx,txt('a2',ARTIST,19,'500'),C,432,ACC,0.95,0.5);
+  }
+},
+{
+  name:"G3 — Dot-VU", tag:"cheap",
+  desc:"Dot-Matrix-Titel mittig, darunter ein <b>VU-Meter aus Punktsäulen</b> auf einem Bogen, das mit der Musik tanzt — der klassische Nothing-LED-Look. Sonst nur Schwarz und ein paar dünne Volume-Punkte.",
+  draw(ctx,t){
+    const E=energyAt(t);
+    drawDots(ctx,txt('t3',TITLE,40,'700'),C,C-44,'#F4EFE0',1,0.5);
+    drawDots(ctx,txt('a3',ARTIST,21,'500'),C,C+2,ACC,0.95,0.5);
+    drawDots(ctx,txt('s3',SOURCE,15,'600'),C,70,GLOW,0.8,0.5);
+    // VU: columns on a shallow bottom arc
+    const cols=21, span=Math.PI*0.92, start=Math.PI/2-span/2, Rarc=150, cy=C+58;
+    for(let c=0;c<cols;c++){
+      const a=start+(c/(cols-1))*span;
+      const bx=C+Math.cos(a)*Rarc, by=cy+Math.sin(a)*40;
+      const seed=0.5+0.5*Math.sin(c*1.7+t*0.005), h=Math.round((E*seed)*6);
+      for(let k=0;k<7;k++){
+        const yy=by-k*9; const on=k<h;
+        rdot(ctx,bx,yy,on?3:1.6, on?(k>=5?GLOW:ACC):'#222', on?0.95:0.5);
+      }
+    }
+  }
+}
+];
+
+// build + run
+const grid=document.getElementById('grid'),ctxs=[];
+VARIANTS.forEach(v=>{
+  const card=document.createElement('div');card.className='card';
+  const disp=document.createElement('div');disp.className='disp';
+  const cv=document.createElement('canvas');cv.width=W;cv.height=W;disp.appendChild(cv);
+  const nm=document.createElement('div');nm.className='name';nm.innerHTML=v.name+` <span class="tag">${v.tag}</span>`;
+  const ds=document.createElement('div');ds.className='desc';ds.innerHTML=v.desc;
+  card.append(disp,nm,ds);grid.appendChild(card);
+  const ctx=cv.getContext('2d');ctx.beginPath();ctx.arc(C,C,C,0,7);ctx.clip();ctxs.push(ctx);
+});
+function frame(t){for(let i=0;i<VARIANTS.length;i++){const ctx=ctxs[i];
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,W);VARIANTS[i].draw(ctx,t);}requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+
+// accent swatches
+document.querySelectorAll('.swatch').forEach(s=>s.addEventListener('click',()=>{
+  document.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'));
+  s.classList.add('active');ACC=s.dataset.a;GLOW=s.dataset.g;
+}));
+</script>
+</body>
+</html>

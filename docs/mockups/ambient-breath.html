@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Ambient-Atem (integriert)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0b;color:#EDE4D0;font-family:"Inter",system-ui,sans-serif;padding:30px 22px 70px}
+  h1{font-size:1.45rem;font-weight:700;margin-bottom:5px}
+  .sub{color:#9a9484;font-size:.92rem;max-width:880px;line-height:1.55;margin-bottom:26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:30px;max-width:1200px}
+  .card{background:#141414;border:1px solid #232323;border-radius:16px;padding:22px;
+        display:flex;flex-direction:column;align-items:center;text-align:center}
+  .disp{--acc:#3E9E6B;--glow:#6FD49A;--dim:#163E2C;--cream:#F1E9D6;--sec:#9c947f;--red:#E0503A;
+        width:340px;height:340px;border-radius:50%;background:#000;position:relative;overflow:hidden;
+        box-shadow:0 0 0 2px #1d1d1d,0 16px 44px rgba(0,0,0,.6)}
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .tick{position:absolute;top:46px;left:50%;transform:translateX(-50%);width:44px;height:5px;border-radius:3px;background:var(--acc)}
+  .clock{font-weight:800;font-size:104px;letter-spacing:-.03em;line-height:1;color:var(--cream)}
+  .clock .cl{color:var(--acc)}
+  .date{font-weight:600;font-size:12.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--sec);margin-top:8px}
+  .divr{width:158px;height:1px;background:var(--acc);opacity:.25;margin:17px 0}
+  .wx{display:flex;align-items:center;gap:10px;font-weight:600;font-size:27px;color:var(--cream)}
+  .wxsub{font-weight:600;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--sec);margin-top:8px}
+  .live{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);width:6px;height:6px;border-radius:50%;background:var(--red)}
+  .sun{position:relative;display:inline-block;width:28px;height:28px}
+  .sun i{position:absolute;left:50%;top:50%;width:50%;height:50%;border-radius:50%;transform:translate(-50%,-50%);background:var(--acc)}
+  .sun b{position:absolute;left:50%;top:1px;width:2px;height:5px;border-radius:2px;transform-origin:50% 13px;background:var(--acc)}
+  .arc{position:absolute;inset:0}
+  .npsrc{position:absolute;top:54px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:7px;
+         font-weight:600;font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;color:var(--sec)}
+  .npsrc .dot{width:6px;height:6px;border-radius:50%;background:var(--red)}
+  .title{font-weight:800;font-size:30px;color:var(--cream);max-width:250px;line-height:1.05}
+  .artist{font-weight:500;font-size:16px;color:var(--sec);margin-top:7px}
+  .times{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--sec);margin-top:16px}
+  .times b{color:var(--acc);font-weight:500}
+  .name{margin-top:16px;font-size:1.05rem;font-weight:700}
+  .desc{color:#9a9484;font-size:.83rem;line-height:1.5;margin-top:7px;max-width:330px}
+  footer{color:#666;font-size:.8rem;margin-top:40px;max-width:880px;line-height:1.6}
+  .hint{color:#b7ad97;font-size:.82rem;margin:-12px 0 22px}
+</style>
+</head>
+<body>
+  <h1>BeatBird — „das Ganze atmet" (integriert, kein Widget)</h1>
+  <p class="sub">Der Akzent glüht koordiniert in einem langsamen Lebenspuls — <b>Standby</b>: ruhiger
+    Ambient-Atem (~4&nbsp;s). <b>Player</b>: an die Musik gekoppelt (simulierter Beat, am Gerät der
+    LV-Pegel). Es bewegt sich nur die <i>Farbe/Helligkeit</i> der ohnehin kleinen Akzent-Elemente —
+    gemeinsam → wirkt wie ein lebendes Ganzes, ohne Vollflächen-Redraw.</p>
+  <p class="hint">Tipp: bewusst <b>subtil</b> gehalten — kurz hinschauen, dann „weglesen": es soll
+    leben, nicht blinken. Stärke ist frei justierbar.</p>
+
+  <div class="grid">
+
+    <!-- STANDBY · ambient breath -->
+    <div class="card">
+      <div class="disp" id="S">
+        <div class="tick" id="S-tick"></div>
+        <div class="scr">
+          <div class="clock">18<span class="cl" id="S-colon">:</span>57</div>
+          <div class="date" id="S-date">Samstag · 7. Juni</div>
+          <div class="divr" id="S-div"></div>
+          <div class="wx"><span class="sun" id="S-icon"><i></i><b style="transform:rotate(0)"></b><b style="transform:rotate(45deg)"></b><b style="transform:rotate(90deg)"></b><b style="transform:rotate(135deg)"></b><b style="transform:rotate(180deg)"></b><b style="transform:rotate(225deg)"></b><b style="transform:rotate(270deg)"></b><b style="transform:rotate(315deg)"></b></span>20°</div>
+          <div class="wxsub">Bewölkt · H 22°  L 13°</div>
+        </div>
+        <div class="live" id="S-live"></div>
+      </div>
+      <div class="name">Standby · Ambient-Atem</div>
+      <div class="desc">Sehr langsam (~4&nbsp;s): Akzent-Tick, Doppelpunkt, Trennlinie, Wetter-Icon und Live-Punkt glühen gemeinsam auf und ab. Der Ruhezustand „lebt" leise.</div>
+    </div>
+
+    <!-- PLAYER · music-coupled breath -->
+    <div class="card">
+      <div class="disp" id="P">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle id="P-glow" cx="170" cy="170" r="156" fill="none" stroke="var(--glow)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)" opacity="0.3"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)"/>
+          <circle id="P-tip" cx="170" cy="14" r="5" fill="var(--red)"/>
+        </svg>
+        <div class="npsrc"><span class="dot" id="P-srcdot"></span>Spotify · Now Playing</div>
+        <div class="scr">
+          <div class="title" id="P-title">Once in a Lifetime</div>
+          <div class="artist">Talking Heads</div>
+          <div class="times"><b id="P-elapsed">2:14</b> &nbsp;—&nbsp; 3:52</div>
+        </div>
+      </div>
+      <div class="name">Player · Musik-gekoppelt</div>
+      <div class="desc">Dieselbe Atem-Logik, aber vom Pegel getrieben: Arc-Glow, Doppelpunkt-Äquivalent, Titel-Helligkeit und rote Spitze schwingen mit der Musik — integriert, nicht als Balken.</div>
+    </div>
+
+  </div>
+
+  <footer>Am Gerät: nur kleine Elemente werden neu gezeichnet (Tick, Doppelpunkt, Linie, Icon,
+    Arc-Glow, Punkte) → lokal, kein Ruckeln. On-device-Smooth-Test machen wir trotzdem.
+    Sag mir: <b>trifft DAS</b> dein „integriert / das Ganze atmet"? Wenn ja: stärker/schwächer,
+    schneller/langsamer? Dann wird's das Bewegungs-Prinzip fürs ganze Theme.</footer>
+
+<script>
+  const ACC=[62,158,107], GLOW=[111,212,154], CREAM=[241,233,214], SEC=[156,148,127];
+  function mix(a,b,t){return 'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')';}
+
+  // standby refs
+  const Stick=document.getElementById('S-tick'), Scolon=document.getElementById('S-colon'),
+        Sdiv=document.getElementById('S-div'), Sicon=document.getElementById('S-icon'),
+        Slive=document.getElementById('S-live'), Sdate=document.getElementById('S-date');
+  // player refs
+  const Pglow=document.getElementById('P-glow'), Ptip=document.getElementById('P-tip'),
+        Ptitle=document.getElementById('P-title'), Psrcdot=document.getElementById('P-srcdot');
+
+  function energyAt(t){
+    const beat=60000/120, ph=(t%beat)/beat;
+    const kick=Math.exp(-ph*5.5);
+    const lfo=0.55+0.45*Math.sin(t*0.0006);
+    return Math.min(1,0.18+0.6*kick*(0.55+0.45*lfo));
+  }
+
+  function frame(t){
+    // ── Standby: slow ambient breath, ~4.2s ──
+    const a=0.5+0.5*Math.sin(t*2*Math.PI/4200);    // 0..1
+    const acol=mix(ACC,GLOW,a*0.55);
+    Stick.style.background=acol; Stick.style.opacity=(0.5+a*0.5).toFixed(2);
+    Scolon.style.color=acol;     Scolon.style.opacity=(0.55+a*0.45).toFixed(2);
+    Sdiv.style.opacity=(0.14+a*0.22).toFixed(2);
+    Sicon.style.opacity=(0.72+a*0.28).toFixed(2);
+    Slive.style.opacity=(0.45+a*0.5).toFixed(2);
+    Sdate.style.opacity=(0.78+a*0.22).toFixed(2);
+
+    // ── Player: music-coupled breath ──
+    const e=energyAt(t);
+    const pcol=mix(ACC,GLOW,e*0.7);
+    Pglow.setAttribute('opacity',(0.15+e*0.55).toFixed(2));
+    Pglow.setAttribute('stroke-width',(5+e*5).toFixed(1));
+    Pglow.setAttribute('stroke',pcol);
+    Ptip.setAttribute('r',(4+e*3).toFixed(1));
+    Ptip.style.filter='drop-shadow(0 0 '+(3+e*13).toFixed(0)+'px var(--red))';
+    Ptitle.style.opacity=(0.86+e*0.14).toFixed(2);
+    Psrcdot.style.opacity=(0.5+e*0.5).toFixed(2);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

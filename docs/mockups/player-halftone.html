@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Halftone-Cover (einstellbar)</title>
+<style>
+  :root{--accent:#2D6A4F;--glow:#52B788;--textP:#F4EFE0;--textS:#A89E89}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0b0b0b;color:var(--textP);font-family:"Segoe UI",system-ui,sans-serif;padding:26px 22px 60px;display:flex;gap:40px;flex-wrap:wrap}
+  h1{font-size:1.3rem;margin:0 0 4px}
+  .sub{color:var(--textS);font-size:.88rem;max-width:520px;line-height:1.55;margin:0 0 20px}
+  .disp{width:420px;height:420px;border-radius:50%;background:#000;box-shadow:0 0 0 2px #1c1c1c,0 16px 46px rgba(0,0,0,.6);overflow:hidden}
+  canvas{width:420px;height:420px;display:block}
+  .panel{min-width:300px;max-width:360px}
+  .ctl{margin:0 0 18px}
+  .ctl label{display:flex;justify-content:space-between;font-size:.84rem;color:var(--textS);margin-bottom:6px}
+  .ctl label b{color:var(--textP);font-variant-numeric:tabular-nums}
+  .ctl input[type=range]{width:100%}
+  .seg{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .seg button{background:#181818;border:1px solid #2a2a2a;color:var(--textS);border-radius:7px;padding:6px 11px;font-size:.8rem;cursor:pointer}
+  .seg button.on{border-color:var(--glow);color:var(--textP)}
+  .vals{margin-top:18px;background:#141414;border:1px solid #222;border-radius:10px;padding:12px 14px;font-size:.8rem;color:var(--textS);line-height:1.7;font-family:ui-monospace,monospace}
+  .vals b{color:var(--glow)}
+  .album{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .album button{width:34px;height:34px;border-radius:7px;border:2px solid #2a2a2a;cursor:pointer}
+  .album button.on{border-color:var(--glow)}
+</style>
+</head>
+<body>
+  <div>
+    <h1>Halftone-Cover</h1>
+    <p class="sub">Cover als Punktraster in den <b>eigenen Cover-Farben</b>, transparent als Hintergrund.
+      Titel/Artist mittig wie aktuell. Schieb die Regler bis es passt — die Werte unten baue ich
+      dann 1:1 in die Firmware (Sim).</p>
+    <div class="disp"><canvas id="cv" width="466" height="466"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="ctl"><label>Halftone-Deckkraft <b id="vOpa">55%</b></label>
+      <input id="opa" type="range" min="0" max="100" value="55"></div>
+    <div class="ctl"><label>Rasterweite (Punktabstand) <b id="vCell">12 px</b></label>
+      <input id="cell" type="range" min="7" max="22" value="12"></div>
+    <div class="ctl"><label>Punkt-Sättigung <b id="vSat">100%</b></label>
+      <input id="sat" type="range" min="0" max="150" value="100"></div>
+    <div class="ctl"><label>Text-Freistellung (Mitte abdunkeln) <b id="vScrim">60%</b></label>
+      <input id="scrim" type="range" min="0" max="100" value="60"></div>
+
+    <div class="ctl"><label>Energie-Puls</label>
+      <div class="seg"><button id="eOff">aus</button><button id="eOn" class="on">an (dezent)</button></div></div>
+    <div class="ctl"><label>Ringe (Vol + Progress)</label>
+      <div class="seg"><button id="rOn" class="on">an</button><button id="rOff">aus</button></div></div>
+
+    <div class="ctl"><label>Beispiel-Cover</label>
+      <div class="album" id="albums"></div></div>
+
+    <div class="vals" id="vals"></div>
+  </div>
+
+<script>
+const W=466,C=W/2;
+const ACC='#2D6A4F',GLOW='#52B788';
+const TITLE="Gorgone", ARTIST="Carpetman";
+const TITLE_Y=C-43, ARTIST_Y=C+32;   // current firmware offsets
+
+let opa=.55, cell=12, sat=1.0, scrim=.60, energyOn=true, ringsOn=true;
+
+// ── a few procedural "album covers" with distinct palettes ────────────────────
+function cover(blobs,base){const o=document.createElement('canvas');o.width=W;o.height=W;const x=o.getContext('2d');
+  x.fillStyle=base;x.fillRect(0,0,W,W);
+  for(const[col,bx,by,r]of blobs){const g=x.createRadialGradient(bx,by,0,bx,by,r);
+    g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,W,W);}
+  return x.getImageData(0,0,W,W).data;}
+const COVERS=[
+  cover([['#3aa06e',150,150,230],['#0e2a20',340,330,260],['#9be8c0',300,120,150],['#5a4626',150,360,170]],'#08120d'),
+  cover([['#e0563b',150,160,230],['#7a1f12',330,330,250],['#ffd089',300,130,150],['#2a1208',150,360,180]],'#160806'),
+  cover([['#3b6fe0',150,150,230],['#101a3a',330,330,260],['#a9c7ff',300,120,150],['#6a2bb0',160,360,180]],'#070a18'),
+  cover([['#bdbdbd',150,150,230],['#2a2a2a',330,330,260],['#ffffff',300,120,140],['#5a5a5a',150,360,180]],'#0c0c0c'),
+];
+let CD=COVERS[0];
+function px(x,y){const i=((y|0)*W+(x|0))*4;return[CD[i],CD[i+1],CD[i+2]];}
+
+// ── dot-matrix text sampler (for the labels) ──────────────────────────────────
+function sampleText(txt,fontPx,weight){
+  const off=document.createElement('canvas'),o=off.getContext('2d');
+  const font=`${weight} ${fontPx}px ui-monospace,"Courier New",monospace`;
+  o.font=font;const w=Math.ceil(o.measureText(txt).width)+4,h=Math.ceil(fontPx*1.25);
+  off.width=w;off.height=h;o.font=font;o.textBaseline='middle';o.fillStyle='#fff';o.fillText(txt,2,h/2);
+  const d=o.getImageData(0,0,w,h).data,pts=[],cl=Math.max(3,Math.round(fontPx/6.5));
+  for(let y=0;y<h;y+=cl)for(let x=0;x<w;x+=cl)if(d[(y*w+x)*4+3]>110)pts.push([x-w/2,y-h/2]);
+  return{pts,cell:cl};}
+const T1=sampleText(TITLE.toUpperCase(),38,'700'), A1=sampleText(ARTIST.toUpperCase(),20,'500');
+function drawDots(ctx,sm,cx,cy,color,a){ctx.globalAlpha=a;ctx.fillStyle=color;const r=sm.cell*0.48;
+  for(const[x,y]of sm.pts){ctx.beginPath();ctx.arc(cx+x,cy+y,r,0,7);ctx.fill();}ctx.globalAlpha=1;}
+
+function energyAt(t){const beat=60000/120,ph=(t%beat)/beat;return Math.min(1,0.2+0.7*Math.exp(-ph*5.5));}
+
+const ctx=document.getElementById('cv').getContext('2d');
+ctx.beginPath();ctx.arc(C,C,C,0,7);ctx.clip();
+
+function frame(t){
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,W);
+  const E=energyOn?energyAt(t):0, R=C-4;
+  // ── halftone cover ──
+  for(let y=cell/2;y<W;y+=cell)for(let x=cell/2;x<W;x+=cell){
+    const dx=x-C,dy=y-C,d2=dx*dx+dy*dy;if(d2>R*R)continue;
+    const[r0,g0,b0]=px(x,y);
+    const b=(r0*0.3+g0*0.6+b0*0.1)/255;if(b<0.05)continue;
+    // saturate toward the pixel colour
+    const gr=(r0+g0+b0)/3, rr=gr+(r0-gr)*sat, gg=gr+(g0-gr)*sat, bb=gr+(b0-gr)*sat;
+    const rad=(0.5+b*(cell*0.42))*(1+0.12*E*Math.sin(t*0.004+x*0.05));
+    // centre text-freistellung: fade halftone out near the text band
+    const distC=Math.sqrt(d2), centreFade=1-scrim*Math.max(0,1-distC/150);
+    ctx.globalAlpha=Math.min(1,opa*(0.25+0.85*b))*centreFade;
+    ctx.fillStyle=`rgb(${rr|0},${gg|0},${bb|0})`;
+    ctx.beginPath();ctx.arc(x,y,Math.min(cell*0.5,rad),0,7);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  // ── rings (static, as current) ──
+  if(ringsOn){
+    for(let i=1;i<24;i++){const a=-Math.PI/2+(i/24)*2*Math.PI,x=C+Math.cos(a)*218,y=C+Math.sin(a)*218;
+      const lit=i<15;ctx.fillStyle=lit?ACC:'#1B4332';ctx.globalAlpha=lit?.9:.55;
+      ctx.beginPath();ctx.arc(x,y,lit?4:2,0,7);ctx.fill();}
+    for(let i=0;i<60;i++){const a=(-230+(i/59)*280)*Math.PI/180,x=C+Math.cos(a)*192,y=C+Math.sin(a)*192;
+      const lit=i<25;ctx.fillStyle=lit?ACC:'#333';ctx.globalAlpha=lit?1:.5;
+      ctx.beginPath();ctx.arc(x,y,2,0,7);ctx.fill();}
+    ctx.globalAlpha=1;
+  }
+  // ── centre text (current layout) ──
+  drawDots(ctx,T1,C,TITLE_Y,'#F4EFE0',1);
+  drawDots(ctx,A1,C,ARTIST_Y,'#A89E89',0.95);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── controls ──
+const $=id=>document.getElementById(id);
+function bind(id,vId,fmt,set){$(id).addEventListener('input',e=>{set(+e.target.value);$(vId).textContent=fmt(+e.target.value);upd();});}
+bind('opa','vOpa',v=>v+'%',v=>opa=v/100);
+bind('cell','vCell',v=>v+' px',v=>cell=v);
+bind('sat','vSat',v=>v+'%',v=>sat=v/100);
+bind('scrim','vScrim',v=>v+'%',v=>scrim=v/100);
+$('eOn').onclick=()=>{energyOn=true;$('eOn').classList.add('on');$('eOff').classList.remove('on');upd();};
+$('eOff').onclick=()=>{energyOn=false;$('eOff').classList.add('on');$('eOn').classList.remove('on');upd();};
+$('rOn').onclick=()=>{ringsOn=true;$('rOn').classList.add('on');$('rOff').classList.remove('on');upd();};
+$('rOff').onclick=()=>{ringsOn=false;$('rOff').classList.add('on');$('rOn').classList.remove('on');upd();};
+const albs=$('albums');COVERS.forEach((c,i)=>{const b=document.createElement('button');
+  b.style.background=['#1f7a52','#c0432b','#2f56c0','#888'][i];if(i==0)b.classList.add('on');
+  b.onclick=()=>{CD=COVERS[i];[...albs.children].forEach(x=>x.classList.remove('on'));b.classList.add('on');};albs.appendChild(b);});
+function upd(){$('vals').innerHTML=
+  `// für die Firmware:<br>opacity = <b>${opa.toFixed(2)}</b><br>cell = <b>${cell}px</b><br>`+
+  `saturation = <b>${sat.toFixed(2)}</b><br>centre_fade = <b>${scrim.toFixed(2)}</b><br>`+
+  `energy_pulse = <b>${energyOn?'on':'off'}</b> · rings = <b>${ringsOn?'on':'off'}</b>`;}
+upd();
+</script>
+</body>
+</html>

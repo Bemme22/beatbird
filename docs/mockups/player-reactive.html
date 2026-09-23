@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeatBird — Musik-reaktive Konzepte (animiert)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b0b;color:#EDE4D0;font-family:"Inter",system-ui,sans-serif;padding:30px 22px 70px}
+  h1{font-size:1.45rem;font-weight:700;margin-bottom:5px}
+  .sub{color:#9a9484;font-size:.92rem;max-width:860px;line-height:1.55;margin-bottom:26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:30px;max-width:1200px}
+  .card{background:#141414;border:1px solid #232323;border-radius:16px;padding:22px;
+        display:flex;flex-direction:column;align-items:center;text-align:center}
+  .disp{--acc:#3E9E6B;--glow:#6FD49A;--dim:#163E2C;--cream:#F1E9D6;--sec:#9c947f;--red:#E0503A;
+        width:340px;height:340px;border-radius:50%;background:#000;position:relative;overflow:hidden;
+        box-shadow:0 0 0 2px #1d1d1d,0 16px 44px rgba(0,0,0,.6)}
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .npsrc{position:absolute;top:52px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:7px;
+         font-weight:600;font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;color:var(--sec)}
+  .npsrc .dot{width:6px;height:6px;border-radius:50%;background:var(--red)}
+  .title{font-weight:800;font-size:30px;color:var(--cream);max-width:250px;line-height:1.05}
+  .artist{font-weight:500;font-size:16px;color:var(--sec);margin-top:7px}
+  .times{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--sec);margin-top:16px}
+  .times b{color:var(--acc);font-weight:500}
+  .arc{position:absolute;inset:0}
+  .name{margin-top:16px;font-size:1.05rem;font-weight:700}
+  .name .tag{font-size:.6rem;color:#0b0b0b;background:var(--glow,#6FD49A);border-radius:5px;padding:2px 7px;
+             margin-left:8px;vertical-align:middle;font-weight:800;background:#6FD49A}
+  .desc{color:#9a9484;font-size:.83rem;line-height:1.5;margin-top:7px;max-width:320px}
+
+  /* C — level meter bars */
+  .meter{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);
+         display:flex;align-items:flex-end;gap:5px;height:34px}
+  .meter span{width:5px;border-radius:3px;background:var(--acc);height:6px}
+
+  footer{color:#666;font-size:.8rem;margin-top:40px;max-width:860px;line-height:1.6}
+</style>
+</head>
+<body>
+  <h1>BeatBird — Musik-reaktiv: 3 Konzepte (live animiert)</h1>
+  <p class="sub">Beat-Theme (grün + roter Pop). Alle drei werden von einem <b>simulierten ~120-BPM-Beat</b>
+    angetrieben — am Gerät käme das aus dem echten <b>LV</b>-Pegel. Alle sind <b>lokal begrenzt</b>
+    (kein Vollflächen-Redraw), also budget-sicher. Schau, welcher <i>Feel</i> dir gefällt.</p>
+
+  <div class="grid">
+
+    <!-- A — Puls-Ring -->
+    <div class="card">
+      <div class="disp" id="A">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle id="A-halo" cx="170" cy="170" r="156" fill="none" stroke="var(--glow)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)" opacity="0.4"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)"/>
+        </svg>
+        <div class="npsrc"><span class="dot"></span>Spotify · Now Playing</div>
+        <div class="scr">
+          <div class="title">Once in a Lifetime</div>
+          <div class="artist">Talking Heads</div>
+          <div class="times"><b>2:14</b> &nbsp;—&nbsp; 3:52</div>
+        </div>
+      </div>
+      <div class="name">A · Puls-Ring</div>
+      <div class="desc">Die Progress-Arc selbst <b>atmet</b> mit der Musik — Glow-Stärke + Dicke pulsen. Elegant, am unauffälligsten, sehr „ein Stück".</div>
+    </div>
+
+    <!-- B — Komet -->
+    <div class="card">
+      <div class="disp" id="B">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)"/>
+          <circle id="B-comet" cx="170" cy="14" r="5" fill="var(--red)"/>
+        </svg>
+        <div class="npsrc"><span class="dot"></span>Spotify · Now Playing</div>
+        <div class="scr">
+          <div class="title">Once in a Lifetime</div>
+          <div class="artist">Talking Heads</div>
+          <div class="times"><b>2:14</b> &nbsp;—&nbsp; 3:52</div>
+        </div>
+      </div>
+      <div class="name">B · Komet</div>
+      <div class="desc">Die <b>rote Positions-Spitze</b> glüht im Takt — ein pulsierender Punkt, der mit dem Pegel aufblüht. Punktuell, der rote Faden lebt.</div>
+    </div>
+
+    <!-- C — Level-Meter -->
+    <div class="card">
+      <div class="disp" id="C">
+        <svg class="arc" viewBox="0 0 340 340">
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--dim)" stroke-width="5"/>
+          <circle cx="170" cy="170" r="156" fill="none" stroke="var(--acc)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="372 608" transform="rotate(-90 170 170)"/>
+        </svg>
+        <div class="npsrc"><span class="dot"></span>Spotify · Now Playing</div>
+        <div class="scr" style="justify-content:center;padding-bottom:30px">
+          <div class="title">Once in a Lifetime</div>
+          <div class="artist">Talking Heads</div>
+        </div>
+        <div class="meter" id="C-meter">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="name">C · Level-Meter</div>
+      <div class="desc">Ein kompaktes <b>Pegel-Meter</b> (7 Balken) unter dem Titel — am eindeutigsten „reagiert auf Musik". Lokaler Cluster, klein genug fürs Budget.</div>
+    </div>
+
+  </div>
+
+  <footer>Browser kann animieren — das <b>Gerät</b> nicht beliebig: alle drei sind bewusst lokal
+    gehalten (Annulus bzw. kleiner Cluster), damit sie am S3 nicht ruckeln. Den finalen Smooth-Test
+    machen wir trotzdem on-device, sobald es im Sim steht. Sag mir A / B / C (Mischen geht — z.B.
+    „Komet + Meter"). Tempo/Stärke ist dann frei justierbar.</footer>
+
+<script>
+function energyAt(t){
+  const beat=60000/120, ph=(t%beat)/beat;
+  const kick=Math.exp(-ph*5.5);
+  const lfo=0.55+0.45*Math.sin(t*0.0006);
+  return Math.min(1,0.20+0.62*kick*(0.55+0.45*lfo));
+}
+const halo=document.getElementById('A-halo');
+const comet=document.getElementById('B-comet');
+const bars=[...document.querySelectorAll('#C-meter span')];
+function frame(t){
+  const e=energyAt(t);
+  // A: arc breathes — glow opacity + width
+  halo.setAttribute('stroke-width', (5+e*9).toFixed(1));
+  halo.setAttribute('opacity', (0.15+e*0.6).toFixed(2));
+  // B: comet glows + grows
+  comet.setAttribute('r',(4+e*4).toFixed(1));
+  comet.style.filter=`drop-shadow(0 0 ${(3+e*16).toFixed(0)}px var(--red))`;
+  // C: bars bounce with per-bar phase offset
+  bars.forEach((b,i)=>{
+    const ev=energyAt(t - i*55 + (i%2?90:0));
+    b.style.height=(6+ev*28).toFixed(0)+'px';
+    b.style.opacity=(0.5+ev*0.5).toFixed(2);
+  });
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
