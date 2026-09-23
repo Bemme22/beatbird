@@ -203,7 +203,7 @@ def _firmware_constants() -> dict[str, int]:
 
     header = Path(__file__).resolve().parents[1] / (
         "firmware/amoled-1.43/include/faces.h")
-    found = dict(re.findall(r"constexpr int (\w+)\s*=\s*(\d+)", header.read_text()))
+    found = dict(re.findall(r"constexpr int (\w+)\s*=\s*(\d+)", header.read_text(encoding="utf-8")))
     return {k: int(v) for k, v in found.items()}
 
 
@@ -289,7 +289,7 @@ def test_icon_vocabulary_matches_the_firmware():
 
     src = Path(__file__).resolve().parents[1] / (
         "firmware/amoled-1.43/src/app/faces.cpp")
-    fw = set(re.findall(r'strcmp\(name, "(\w+)"\)', src.read_text()))
+    fw = set(re.findall(r'strcmp\(name, "(\w+)"\)', src.read_text(encoding="utf-8")))
     assert fw == set(ICONS)
 
 

@@ -16,18 +16,48 @@ soundcard:
   primary_i2c: 0x4c
   pbtl: true              # bridge mono — ALSO close SJ5+SJ6 on the board
   sub_enabled: false
-  analog_gain_db: -3
+  # 0 dB statt der üblichen −3 dB "safety margin at boot". Zwei Gründe, und der
+  # zweite ist der wichtigere: (1) RobinPi hat EINEN Treiber mittlerer
+  # Empfindlichkeit an einem Mono-Amp und braucht den Pegel; (2) der Chip läuft
+  # ohnehin seit dem Bring-up auf 0 dB — das Init-Skript hat den Wert wegen der
+  # Control-Namen im PBTL-Modus nie gesetzt (gefixt 17.09.2026). Der Eintrag
+  # −3 dB beschrieb also einen Zustand, den es nie gab. Hier steht jetzt, was
+  # wirklich anliegt, statt was gemeint war.
+  analog_gain_db: 0
 
 audio:
-  camilladsp_config: robinpi     # config/camilladsp/robinpi.yml — Voicing v1
-                                 # (measured 2026-09-06, see git history for detail)
+  camilladsp_config: robinpi     # config/camilladsp/robinpi.yml — Voicing v3
+                                 # (measured 2026-09-06, revoiced 2026-09-17)
   sample_rate: 48000
   format: S32_LE
+  volume:
+    min_db: -60
+    # ⚠️ −2 dB statt der üblichen −10 dB, und das ist eine RobinPi-Entscheidung,
+    # keine Abweichung aus Versehen: RobinPi ist der einzige Speaker im Stall
+    # mit EINEM Treiber (88,1 dB/2,83 V) im PBTL-Mono an einem Chip, der laut
+    # Register bereits auf Unity steht (DIG_VOL 0x30 = 0 dB, Analog Gain 0 dB,
+    # am 17.09.2026 ausgelesen). Die fehlenden 8 dB lagen damit ALLEIN im
+    # Fader. Gegengerechnet: −2 dB + headroom −4 dB ⇒ −6 dBFS am Amp ⇒ rund
+    # 97 dB SPL @1 m Spitze, Treiberhub im Worst Case 3,8 von 4,0 mm linear.
+    # Weiter hoch geht nur zusammen mit weniger EQ-Boost — die beiden teilen
+    # sich denselben Headroom.
+    max_db: -2
+    curve_gamma: 1.0
   loudness:
-    enabled: true
-    filters:
-      - {name: bass_shelf,   max_boost_db: 3.0}
-      - {name: timpani_body, max_boost_db: 1.5}
+    # AUS seit 15.09.2026 — die Loudness liegt jetzt als nativer
+    # CamillaDSP-Loudness-Filter in config/camilladsp/robinpi.yml und hängt
+    # dort direkt am Main-Fader. Die Bridge regelt nur noch die Lautstärke.
+    # Warum: die Python-Loudness patchte dieselben Biquads wie der Web-EQ-
+    # Editor (Lock nötig, blieb er offen stand die Kompensation still), sie
+    # rechnete mit der UI-Prozentzahl statt mit dB, und ihr base_gain war in
+    # der DSP-Datei unsichtbar. Vorbild: KestrelPi.
+    # ⚠️ Wieder auf true nur zusammen mit dem Rückbau der DSP-Config —
+    # sonst patchen Bridge UND Loudness-Filter gleichzeitig in den Bass.
+    # ⚠️ Stand bis 17.09.2026 im Repo noch auf true und existierte nur als
+    # lokaler Patch auf dem Gerät — ein argumentloses beatbird-update hätte
+    # die Doppel-Anhebung zurückgebracht.
+    enabled: false
+    filters: []
 
 display:
   # RobinPi uses the Waveshare AMOLED 1.75 (CO5300) — different board than
@@ -93,11 +123,11 @@ display:
     auto_dim:
       enabled: true
       idle_day: 0
-      idle_evening: 40
+      idle_evening: 32     # war 40 -- nach Palette-Fix (20.09.) noch etwas zu hell zurueckgemeldet
       idle_night: 0
-      active_day: 40
-      active_evening: 40
-      active_night: 12
+      active_day: 32
+      active_evening: 32
+      active_night: 10      # war 12, gleiche ~20%-Absenkung
     chain_join: inner      # Jumper zwischen den Balken sitzt hinter dem Treiber
   # ── Standby-Faces: HA-Entscheidungen neben der Uhr ──────────────────────
   # RobinPi steht in der Küche, Ableseabstand ~3 m ⇒ eine Ansicht trägt genau
@@ -145,7 +175,7 @@ sources:
     # server IP comes from BEATBIRD_SNAPCAST_SERVER (secrets/snapcast.host).
     enabled: true
     server: 192.168.1.10
-    latency_ms: 30
+    latency_ms: 80        # am 23.09.2026 am Geraet nachgestellt (30 ms lief versetzt)
 
 # Weather — coords live in secrets/location.coords (gitignored).
 # ⚠️ This block was missing since the profile was written, and the default is

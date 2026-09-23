@@ -36,9 +36,20 @@ if ! modinfo snd-soc-tas58xx >/dev/null 2>&1; then
   log_warn "snd-soc-tas58xx kernel module not found — install per Sonocotta docs."
 fi
 
+# Pegel aus dem Profil in das Boot-Skript einsetzen. Das Skript läuft als
+# systemd-oneshot und kann das Profil dort nicht lesen — hartkodierte Werte
+# hätten aber wieder beschrieben, was NICHT eingestellt ist (s. Kopf des
+# Skripts). Analog Gain: Control 0…31, −15,5 dB … 0 dB in 0,5-dB-Schritten
+# ⇒ Wert = 31 + 2·dB. Digital 103 = Register 0x30 = 0 dB.
+ANALOG_GAIN_DB="$(pq_or soundcard.analog_gain_db -3)"
+ANALOG_GAIN_VAL="$(awk -v d="$ANALOG_GAIN_DB" 'BEGIN{v=int(31+2*d+0.5); if(v<0)v=0; if(v>31)v=31; print v}')"
+DIGITAL_VAL=103
+
 AMIXER_PATH=/usr/local/sbin/beatbird-louder-hat-init
-install -m 755 "$(dirname "$0")/_amixer-init-plus-1x.sh" "$AMIXER_PATH"
-log_ok "wrote $AMIXER_PATH"
+sed -e "s/@ANALOG_GAIN@/$ANALOG_GAIN_VAL/g" -e "s/@DIGITAL@/$DIGITAL_VAL/g" \
+    "$(dirname "$0")/_amixer-init-plus-1x.sh" > "$AMIXER_PATH"
+chmod 755 "$AMIXER_PATH"
+log_ok "wrote $AMIXER_PATH (Analog Gain $ANALOG_GAIN_DB dB = $ANALOG_GAIN_VAL, Digital $DIGITAL_VAL)"
 
 cat > /etc/systemd/system/louder-hat-init.service <<EOF
 [Unit]

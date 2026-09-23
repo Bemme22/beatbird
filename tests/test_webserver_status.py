@@ -64,7 +64,10 @@ def as_speaker(monkeypatch):
     # The two-filter speakers were being offered sub_punch/fullness, neither of
     # which exists in their DSP config.
     ("zipp-mini-2", {"bass_shelf", "timpani_body"}),
-    ("robinpi",     {"bass_shelf", "timpani_body"}),
+    # robinpi runs the NATIVE CamillaDSP loudness since 15.09. — the bridge
+    # patches nothing (loudness.enabled: false, filters: []), so nothing is
+    # tunable here. Offering bass_shelf would re-open the double-boost path.
+    ("robinpi",     set()),
 ])
 def test_tunable_filters_follow_the_profile(as_speaker, speaker, expected):
     as_speaker(speaker)
