@@ -66,6 +66,36 @@ filters:
   tweeter_delay:
     type: Delay
     parameters: {delay: 0.0, unit: ms, subsample: false}
+  # ── Voicing-Regler (Woofer-Kanal), alle auf 0 dB = neutral ──────────────
+  # Zum Drehen nach Gehör im Web-EQ-Editor (http://<pi>:8080/eq) — der zeigt
+  # jede Peaking/Shelf-Biquad dieser Config. Editor-Änderungen sind flüchtig
+  # (PatchConfig); was gefällt, gehört danach HIER eingetragen.
+  # Headroom: bei vollem Regler liegt das Signal durch volume.max_db −10 dB
+  # rund 10 dB unter Vollaussteuerung — so viel Boost verträgt die Kette,
+  # bevor woofer_limiter soft-clippt. ⚠️ Zu viel Boost klingt nicht nach
+  # "mehr Bass", sondern nach "leiser" (RobinPi, 17.09.2026).
+  #
+  # Baffle-Step: 123 mm Front ⇒ Stufe um ~115/0,123 m ≈ 900 Hz. Darunter
+  # strahlt der Woofer in den ganzen Raum und verliert bis zu 6 dB — das ist
+  # das "dünn" kleiner Boxen. Typisch +2…+4 dB, abhängig vom Wandabstand
+  # (wandnah braucht weniger).
+  baffle_step:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 700, gain: 0.0, q: 0.5}
+  # Auf der Portabstimmung: dort trägt der Port, der Treiberhub ist im
+  # Minimum, Pegel am billigsten. NICHT tiefer schieben — unter fb steigt der
+  # Hub steil, und sub_protect (55 Hz) schneidet dort ohnehin.
+  bass_fb:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 0.0, q: 1.4}
+  # Grundton/Wärme — Cello, Männerstimmen, Kickdrum-Körper.
+  bass_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 150, gain: 0.0, q: 1.0}
+  # Reserve gegen eine Raummode (dröhnt ein Ton? Frequenz suchen, absenken).
+  room_mode:
+    type: Biquad
+    parameters: {type: Peaking, freq: 100, gain: 0.0, q: 3.0}
   woofer_limiter:
     type: Limiter
     parameters:
@@ -81,7 +111,7 @@ pipeline:
     name: mono_sum
   - type: Filter
     channels: [0]
-    names: [sub_protect, xover_lp, woofer_limiter]
+    names: [sub_protect, baffle_step, bass_fb, bass_body, room_mode, xover_lp, woofer_limiter]
   - type: Filter
     channels: [1]
     names: [xover_hp, tweeter_trim, tweeter_delay, tweeter_limiter]
