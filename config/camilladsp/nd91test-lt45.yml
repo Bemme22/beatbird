@@ -1,0 +1,104 @@
+---
+# ND91-Testbox — GESCHLOSSEN (Blindplatte), Linkwitz-Transformation auf 45 Hz.
+#
+# Hörvariante zum Vergleichen, per Web-UI-DSP-Switcher umschaltbar:
+#   lt70 = dezent · lt55 = kräftig · lt45 = Anschlag
+# Was gefällt, wandert danach in die Produktionsconfig (Varianten sind für
+# Experimente, nicht für Dauerbetrieb).
+#
+# LT hebt die geschlossene Abstimmung Fc 104 Hz / Qtc 0,52 (GERECHNET aus
+# gemessenem Fs 82,5 Hz, Vas ~1,575 L, Vb 2,71 L — ohne Dämmung, ohne
+# Versiegelung, also nur Erwartungswert) auf 45 Hz / Q 0,707 an.
+# Tiefbass-Anhebung asymptotisch +14,6 dB.
+# ⚠️ Stimmen Fc/Qtc real nicht (Undichtigkeit senkt Q, Dämmung senkt Fc),
+#    wird aus der geraden Kurve ein Buckel oder eine Delle. Die
+#    Impedanzmessung (Modul A) liefert die echten Werte.
+# ⚠️ Grenze ist der Hub (Vd 14 cm³): klackert oder flattert es bei Bass,
+#    ist Xmax erreicht — leiser, nicht mehr EQ.
+# Zusätzlicher BW2-Hochpass bei 35 Hz: zusammen mit der LT (12 dB/Okt)
+# 24 dB/Okt unter dem Ziel, damit Subbass keinen nutzlosen Hub kostet.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+mixers:
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+filters:
+  linkwitz:
+    type: Biquad
+    parameters: {type: LinkwitzTransform, freq_act: 104, q_act: 0.52, freq_target: 45, q_target: 0.707}
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 35, order: 2}
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass, freq: 2500, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 2500, order: 4}
+  tweeter_trim:
+    type: Gain
+    parameters:
+      gain: -6.0
+      inverted: false
+  tweeter_delay:
+    type: Delay
+    parameters: {delay: 0.0, unit: ms, subsample: false}
+  # Dieselben Voicing-Regler wie in der Produktion, alle 0 dB — im Web-EQ
+  # (/eq) drehbar. bass_fb heißt hier nur noch so (kein Port), der Name
+  # bleibt, damit Editor-Werte zwischen den Configs vergleichbar sind.
+  baffle_step:
+    type: Biquad
+    parameters: {type: Lowshelf, freq: 700, gain: 0.0, q: 0.5}
+  bass_fb:
+    type: Biquad
+    parameters: {type: Peaking, freq: 70, gain: 0.0, q: 1.4}
+  bass_body:
+    type: Biquad
+    parameters: {type: Peaking, freq: 150, gain: 0.0, q: 1.0}
+  room_mode:
+    type: Biquad
+    parameters: {type: Peaking, freq: 100, gain: 0.0, q: 3.0}
+  woofer_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+  tweeter_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -10.0
+      soft_clip: true
+pipeline:
+  - type: Mixer
+    name: mono_sum
+  - type: Filter
+    channels: [0]
+    names: [sub_protect, linkwitz, baffle_step, bass_fb, bass_body, room_mode, xover_lp, woofer_limiter]
+  - type: Filter
+    channels: [1]
+    names: [xover_hp, tweeter_trim, tweeter_delay, tweeter_limiter]
