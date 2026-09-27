@@ -1,0 +1,77 @@
+# ND91-Testbox — Prüfstand, kein Speaker (Arbeitstitel, kein Vogelname)
+# Pi 5 (der frühere LoungePi) · Louder Hat Plus 2X, aber NUR Chip 0x4c in
+# Stereo-BTL: L = Woofer, R = Hochtöner. Chip 0x4d bleibt unkonfiguriert.
+# Treiber: Dayton ND91-4 (BR, fb ~69 Hz) + Lounge-Magnetostat (Reserveexemplar).
+# Weiche LR4 @ 2,5 kHz liegt KOMPLETT in CamillaDSP — die Chip-EQ bleibt aus.
+# Warum und wie: Vault projekte/ND91-Testgehäuse.
+
+identity:
+  hostname: nd91test
+  friendly_name: "ND91-Testbox"
+  speaker_id: nd91test
+
+platform: pi-5
+
+soundcard:
+  # plus-1x-Installer auf einem Plus-2X-Board ist Absicht: er setzt das
+  # Einzelchip-Overlay (tas58xx @ primary) ohne Sub-Chip und ohne Chip-Weiche.
+  # Der 2X-Installer würde 0x4d als PBTL-Sub mit In-Chip-Trennung aufziehen —
+  # genau das darf hier nicht passieren, die Weiche gehört in CamillaDSP.
+  driver: louder-hat-plus-1x
+  primary_i2c: 0x4c
+  pbtl: false             # Stereo-BTL: zwei Kanäle, Woofer + HT
+  sub_enabled: false
+  # −6 dB statt der üblichen −3: am Kanal R hängt ein Magnetostat unbekannter
+  # Belastbarkeit. Beide Kanäle teilen sich den Analog Gain des Chips, der
+  # Pegelabgleich HT↔Woofer läuft digital (tweeter_trim in der DSP-Config).
+  # Hochdrehen erst nach der ersten Messung.
+  analog_gain_db: -6
+
+audio:
+  camilladsp_config: nd91test    # config/camilladsp/nd91test.yml
+  sample_rate: 48000
+  format: S32_LE
+  volume:
+    min_db: -60
+    max_db: -10                  # Stall-Default; hoch erst mit gemessenem HT-Limit
+    curve_gamma: 2.0
+  loudness:
+    enabled: false               # Prüfstand: gemessen wird, was im YAML steht
+    filters: []
+
+display:
+  type: none
+
+wifi:
+  # Platzhalter lässt install/20-wifi.sh die WLAN-Konfiguration überspringen —
+  # der Pi hängt per netplan am WLAN, das soll unangetastet bleiben.
+  ssid: "your-ssid"
+  country: DE
+  use_usb_dongle: false          # Pi 5 nutzt das Onboard-Radio
+  disable_onboard_radio: false   # ⚠️ true nähme dem Pi das einzige Netz
+  disable_bluetooth: true
+
+mqtt:
+  enabled: false                 # Prüfstand, keine HA-Anbindung
+  host: 192.168.1.10
+  port: 1883
+  user: beatbird
+  discovery_prefix: homeassistant
+  base_topic: beatbird/nd91test
+
+sources:
+  spotify:
+    enabled: true
+    device_name: "ND91-Testbox"
+    bitrate: 320
+    normalisation: true
+  bluetooth: {enabled: false, a2dp: true}
+  toslink:   {enabled: false}
+  snapcast:  {enabled: false}
+
+weather:
+  enabled: false
+
+web:
+  enabled: true
+  port: 8080

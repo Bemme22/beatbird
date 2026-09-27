@@ -1,0 +1,87 @@
+---
+# ND91-Testbox — Produktionsconfig (Startwerte, UNGEMESSEN).
+#
+# Kanal 0 = Woofer (Dayton ND91-4, BR fb ~69 Hz)
+# Kanal 1 = Hochtöner (Lounge-Magnetostat, Belastbarkeit unbekannt)
+# Weiche LR4 @ 2,5 kHz. Alles hier ist ein Startpunkt zum Gegenmessen, kein
+# Voicing: Pegel, Polarität und Delay des HT entscheidet die erste Messung.
+#
+# Sicherheit HT — drei Schichten, keine davon ist optional:
+#   1. xover_hp steht in JEDER nd91test-Config vor dem HT (auch -meas / -raw).
+#   2. tweeter_limiter deckelt den HT-Kanal bei −10 dBFS.
+#   3. Schutz-C 33–47 µF bipolar in Serie am HT (Hardware, fängt DSP-Fehler).
+# Fällt CamillaDSP aus, ist die Box stumm — nichts läuft am DSP vorbei.
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  capture_samplerate: 44100
+  resampler:
+    type: Synchronous
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1"
+    format: S32_LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:LouderRaspberry,0"
+    format: S32_LE
+mixers:
+  # Mono: beide Wege spielen dasselbe Signal. −6 + −6 dB = Unity für
+  # Mono-Material, Stereo summiert sich darunter.
+  mono_sum:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+      - dest: 1
+        sources:
+          - {channel: 0, gain: -6}
+          - {channel: 1, gain: -6}
+filters:
+  # Subsonic unter der Portabstimmung: unterhalb fb entlastet der Port den
+  # Treiber nicht mehr, der Hub steigt steil. 0,8 × fb ≈ 55 Hz.
+  sub_protect:
+    type: BiquadCombo
+    parameters: {type: ButterworthHighpass, freq: 55, order: 4}
+  xover_lp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyLowpass, freq: 2500, order: 4}
+  xover_hp:
+    type: BiquadCombo
+    parameters: {type: LinkwitzRileyHighpass, freq: 2500, order: 4}
+  # Startwert −6 dB: Magnetostaten sind meist lauter als ein 3,5"-Konus, und
+  # zu leise ist beim ersten Ton die sichere Seite. Nach der Messung angleichen.
+  tweeter_trim:
+    type: Gain
+    parameters:
+      gain: -6.0
+      inverted: false
+  # Zeitversatz HT↔Woofer — bleibt 0, bis REW mit Timing-Referenz gemessen hat.
+  tweeter_delay:
+    type: Delay
+    parameters: {delay: 0.0, unit: ms, subsample: false}
+  woofer_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -1.0
+      soft_clip: true
+  tweeter_limiter:
+    type: Limiter
+    parameters:
+      clip_limit: -10.0
+      soft_clip: true
+pipeline:
+  - type: Mixer
+    name: mono_sum
+  - type: Filter
+    channels: [0]
+    names: [sub_protect, xover_lp, woofer_limiter]
+  - type: Filter
+    channels: [1]
+    names: [xover_hp, tweeter_trim, tweeter_delay, tweeter_limiter]
