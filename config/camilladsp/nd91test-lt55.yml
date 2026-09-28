@@ -6,13 +6,12 @@
 # Was gefällt, wandert danach in die Produktionsconfig (Varianten sind für
 # Experimente, nicht für Dauerbetrieb).
 #
-# LT hebt die geschlossene Abstimmung Fc 104 Hz / Qtc 0,52 (GERECHNET aus
-# gemessenem Fs 82,5 Hz, Vas ~1,575 L, Vb 2,71 L — ohne Dämmung, ohne
-# Versiegelung, also nur Erwartungswert) auf 55 Hz / Q 0,707 an.
-# Tiefbass-Anhebung asymptotisch +11,1 dB.
-# ⚠️ Stimmen Fc/Qtc real nicht (Undichtigkeit senkt Q, Dämmung senkt Fc),
-#    wird aus der geraden Kurve ein Buckel oder eine Delle. Die
-#    Impedanzmessung (Modul A) liefert die echten Werte.
+# LT hebt die geschlossene Abstimmung Fc 96 Hz / Qtc 0,66 (GEMESSEN
+# 28.09.2026 per Impedanz im Gehäuse, ungedämmt, unversiegelt) auf
+# 55 Hz / Q 0,707 an. Tiefbass-Anhebung asymptotisch +9,7 dB.
+# ⚠️ Bis 28.09. stand hier die Rechnung 104 Hz / 0,52 — damit spielte die
+#    Box 50–150 Hz breit ~+2,5…2,8 dB lauter als geplant. Nach dem Dämmen
+#    neu messen: Dämmwolle senkt Fc und Qtc, dann wieder nachführen.
 # ⚠️ Grenze ist der Hub (Vd 14 cm³): klackert oder flattert es bei Bass,
 #    ist Xmax erreicht — leiser, nicht mehr EQ.
 # Zusätzlicher BW2-Hochpass bei 42 Hz: zusammen mit der LT (12 dB/Okt)
@@ -50,7 +49,7 @@ mixers:
 filters:
   linkwitz:
     type: Biquad
-    parameters: {type: LinkwitzTransform, freq_act: 104, q_act: 0.52, freq_target: 55, q_target: 0.707}
+    parameters: {type: LinkwitzTransform, freq_act: 96, q_act: 0.66, freq_target: 55, q_target: 0.707}
   sub_protect:
     type: BiquadCombo
     parameters: {type: ButterworthHighpass, freq: 42, order: 2}
