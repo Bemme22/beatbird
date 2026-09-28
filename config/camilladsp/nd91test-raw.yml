@@ -50,6 +50,13 @@ filters:
     parameters:
       gain: -6.0
       inverted: false
+  # HT-Anhebung unter 4,5 kHz (gemessen 28.09.2026, 1 m, 3-ms-Fenster): der
+  # Magnetostat liegt 2,5-4 kHz ~8-10 dB unter seinem 5-10-kHz-Plateau, Watte in
+  # der Kapsel aendert daran nichts (+-1-2 dB). Rechnerisch optimal waeren +8 dB,
+  # bewusst +6: Belastbarkeit unbekannt. Im Web-EQ (/eq) drehbar.
+  ht_fill:
+    type: Biquad
+    parameters: {type: Peaking, freq: 3300, gain: 6.0, q: 1.5}
   woofer_limiter:
     type: Limiter
     parameters:
@@ -68,4 +75,4 @@ pipeline:
     names: [sub_protect, woofer_limiter]
   - type: Filter
     channels: [1]
-    names: [xover_hp, tweeter_trim, tweeter_limiter]
+    names: [xover_hp, ht_fill, tweeter_trim, tweeter_limiter]
