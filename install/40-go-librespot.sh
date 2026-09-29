@@ -12,8 +12,9 @@ if [[ "$SP_ENABLED" != "true" ]]; then
   exit 0
 fi
 
-GLSP_VERSION="${GOLIBRESPOT_VERSION:-0.7.1}"
+GLSP_VERSION="${GOLIBRESPOT_VERSION:-0.10.2}"
 GLSP_BIN=/usr/local/bin/go-librespot
+GLSP_VERSION_FILE=/usr/local/bin/.go-librespot-version
 GLSP_USER_HOME=$(getent passwd "$BEATBIRD_USER" | cut -d: -f6)
 GLSP_CONF_DIR="$GLSP_USER_HOME/.config/go-librespot"
 GLSP_CONF_DST="$GLSP_CONF_DIR/config.yml"
@@ -29,8 +30,14 @@ fi
 ensure_pkg libogg-dev libvorbis-dev libasound2-dev avahi-daemon
 
 # ─── Binary ──────────────────────────────────────────────────────────────────
-# go-librespot does not support --version — just check if the binary exists.
-if [[ ! -x "$GLSP_BIN" ]]; then
+# go-librespot has no --version flag (confirmed upstream: cmd/daemon/main.go
+# only logs the version at startup) — track the installed version in a
+# sidecar file so bumping GOLIBRESPOT_VERSION actually triggers a re-download
+# instead of being silently ignored by beatbird-update. Bit us 29.09.2026:
+# Spotify changed the login5 response wire format server-side, and every
+# speaker was stuck on 0.7.1 (months of upstream login5 fixes behind) because
+# the old "just check if the binary exists" guard never re-installs.
+if [[ ! -x "$GLSP_BIN" ]] || [[ "$(cat "$GLSP_VERSION_FILE" 2>/dev/null)" != "$GLSP_VERSION" ]]; then
   log_step "Installing go-librespot $GLSP_VERSION"
   ARCH=$(dpkg --print-architecture)
   case "$ARCH" in
@@ -44,6 +51,7 @@ if [[ ! -x "$GLSP_BIN" ]]; then
   curl -fL -o "$TMPDIR/glsp.tar.gz" "$URL"
   tar xzf "$TMPDIR/glsp.tar.gz" -C "$TMPDIR"
   install -m 755 "$TMPDIR/go-librespot" "$GLSP_BIN"
+  echo "$GLSP_VERSION" > "$GLSP_VERSION_FILE"
   rm -rf "$TMPDIR"
   log_ok "go-librespot installed"
 fi
