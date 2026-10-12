@@ -103,3 +103,29 @@ def test_burst_of_real_lines_triggers_reset(monkeypatch):
                 break
             d._handle_rx(line)
     assert fake.closed, "15 I2C error lines should have reset the ESP"
+
+
+class _FakeSerialWithRx(_FakeSerial):
+    def __init__(self, lines):
+        super().__init__()
+        self._lines = [f"{line}\n".encode() for line in lines]
+
+    @property
+    def in_waiting(self):
+        return len(self._lines)
+
+    def readline(self):
+        return self._lines.pop(0)
+
+
+def test_poll_survives_reset_triggered_mid_read(monkeypatch):
+    """Found 2026-10-12 on Zipp Mini 2: the reset fired inside poll()'s read
+    loop, the loop then touched the closed port (AttributeError) and the bridge
+    died — taking the reset budget with it, so systemd restarted it into the
+    same reset every ~50 s."""
+    monkeypatch.setattr("beatbird.display.amoled.time.sleep", lambda s: None)
+    d = AmoledDisplay(reset_on_start=False)
+    fake = _FakeSerialWithRx(REAL_LINES * 4)     # 20 lines, reset at line 15
+    d.ser = fake
+    d.poll()
+    assert fake.closed and d.ser is None

@@ -596,7 +596,9 @@ class AmoledDisplay(DisplayInterface):
         if not self.ser or not self.ser.is_open:
             return
         try:
-            while self.ser.in_waiting:
+            # _handle_rx can drop the port mid-loop (I2C error series →
+            # hard_reset sets self.ser = None), so re-check it every line.
+            while self.ser and self.ser.in_waiting:
                 raw = self.ser.readline().decode("utf-8", errors="replace").strip()
                 if raw:
                     self._handle_rx(raw)
