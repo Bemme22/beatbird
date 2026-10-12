@@ -72,8 +72,7 @@ static String  title_pending;
 static String  artist_pending;
 
 // Custom-draw layers (back→front)
-static lv_obj_t *vol_layer     = nullptr;   // 24-dot vol ring (lit dots wobble with energy)
-static lv_obj_t *prog_layer    = nullptr;   // 60-dot progress stipple
+static lv_obj_t *scale_layer   = nullptr;   // the ring: track, fill, pointer dot
 static lv_obj_t *zone_overlay  = nullptr;   // touch-time outline at the rotary boundary
 
 // Player widgets
@@ -81,9 +80,10 @@ static lv_obj_t *source_marker = nullptr;
 static lv_obj_t *lbl_source    = nullptr;
 static lv_obj_t *lbl_title     = nullptr;
 static lv_obj_t *lbl_artist    = nullptr;
-static lv_obj_t *lbl_time      = nullptr;   // MM:SS / MM:SS (Warm Funktional)
+static lv_obj_t *lbl_time      = nullptr;   // elapsed / total
+static lv_obj_t *lbl_volume    = nullptr;   // big number while the volume changes
 static lv_obj_t *state_icon    = nullptr;
-// lbl_volume removed — CenterStage shows MUTE when volume == 0
+// CenterStage shows MUTE when volume == 0
 
 static bool     created            = false;
 static bool     in_standby         = false;
@@ -102,10 +102,6 @@ static float    energy_smoothed    = 0.0f;
 // blends an additional scale boost in while now < this expiry.
 static uint32_t source_pulse_until = 0;
 static constexpr uint32_t SOURCE_PULSE_MS = 300;
-
-// Precomputed dot positions
-static int   vol_x[24],    vol_y[24];
-static int   prog_x[60],   prog_y[60];
 
 // Title/artist text-opacity tween state. Snap-changing opa when CenterStage
 // toggles looked janky; the labels now tween to their target over a fixed
@@ -182,79 +178,60 @@ static const char *source_label_text(State::Source s) {
     }
 }
 
-// Per-speaker rotation offset for the three rings (vol/prog/energy).
-// Default 0 → matches Zipp Mini 2 with MADCTL=0xA0 panel rotation.
-// On speakers without MADCTL rotation (e.g. Beat #1 with DISPLAY_ROTATE_NATIVE),
-// set this to 90 so the ring gap lands on the user's right (matches Zipp's
-// visual). Text labels are NOT shifted by this — only the polar widgets.
-#ifndef UI_RING_OFFSET_DEG
-#define UI_RING_OFFSET_DEG 0
-#endif
-
-static void precompute_geometry() {
-    constexpr float offset = (float)UI_RING_OFFSET_DEG * (float)M_PI / 180.0f;
-    for (int i = 0; i < 24; i++) {
-        float a = -(float)M_PI / 2.0f + (i / 24.0f) * 2.0f * (float)M_PI + offset;
-        vol_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::VOL_RING_R);
-        vol_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::VOL_RING_R);
-    }
-    for (int i = 0; i < 60; i++) {
-        float a_deg = (float)Theme::PROG_ARC_START_DEG +
-                      (i / 59.0f) * (float)Theme::PROG_ARC_SWEEP_DEG +
-                      (float)UI_RING_OFFSET_DEG;
-        float a = a_deg * (float)M_PI / 180.0f;
-        prog_x[i] = Theme::CENTER + (int)roundf(cosf(a) * Theme::PROG_RING_R);
-        prog_y[i] = Theme::CENTER + (int)roundf(sinf(a) * Theme::PROG_RING_R);
-    }
-}
-
-// Tune a label's LV_LABEL_LONG_SCROLL_CIRCULAR animation so the text moves at
-// a fixed px/sec regardless of length. LVGL 9.5 only exposes `anim_time`
-// (the whole-cycle duration) — short titles end up creeping while long ones
-// rush past with the same number. We measure the rendered text width with
-// lv_text_get_size and compute `duration_ms = width / px_per_sec * 1000`.
-// Floor at 2000 ms so the scroll doesn't tick fast on short text either.
-static void set_scroll_speed_pxs(lv_obj_t *lbl, const char *txt, int px_per_sec) {
-    if (!lbl || !txt || !txt[0] || px_per_sec <= 0) return;
-    // Measure against the FINAL text, not lv_label_get_text(lbl) — when a
-    // SplitFlap animation is running, the label currently holds a flap
-    // frame, not the target text.
-    const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-    int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
-    lv_point_t sz;
-    lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    if (sz.x < 1) return;
-    uint32_t dur = (uint32_t)(((int64_t)sz.x * 1000) / px_per_sec);
-    if (dur < 2000) dur = 2000;
-    lv_obj_set_style_anim_time(lbl, dur, LV_PART_MAIN);
-}
-
 // ── Track-change cross-fade (title/artist) ──────────────────────────────────
 // On a new track the title/artist fade out, swap, and fade back in instead of
 // snapping. One-shot per track → hardware-safe. Each label animates
 // independently (both go dirty the same tick, so they fade together anyway).
-static bool label_needs_scroll(lv_obj_t *lbl, const char *txt) {
-    if (!txt || !*txt) return false;
-    lv_coord_t w = lv_obj_get_width(lbl);
-    const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-    int32_t ls = lv_obj_get_style_text_letter_space(lbl, LV_PART_MAIN);
+//
+// No marquee: the title wraps to at most two lines and ends in dots beyond
+// that, the artist stays on one. A display in the corner of a room should not
+// move unless something changed. Title and artist are laid out as one block
+// around TEXT_BLOCK_Y, so a one-line title does not leave the block top-heavy.
+static bool artist_shown = false;
+
+static void layout_text_block() {
+    if (!lbl_title || !lbl_artist) return;
+    const lv_font_t *tf = lv_obj_get_style_text_font(lbl_title, LV_PART_MAIN);
+    const int32_t t_ls   = lv_obj_get_style_text_letter_space(lbl_title, LV_PART_MAIN);
+    const int32_t t_gap  = lv_obj_get_style_text_line_space(lbl_title, LV_PART_MAIN);
+    const int32_t t_line = lv_font_get_line_height(tf);
     lv_point_t sz = {0, 0};
-    lv_text_get_size(&sz, txt, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    return sz.x > w;
-}
-// Apply text + scroll/align exactly as the dirty handlers used to inline.
-static void apply_scrolled_text(lv_obj_t *lbl, const char *txt, int speed) {
-    if (!lbl) return;
-    if (txt && *txt) {
-        set_scroll_speed_pxs(lbl, txt, speed);
-        // LEFT when it will marquee (SCROLL_CIRCULAR anchors left), else CENTER.
-        lv_obj_set_style_text_align(lbl,
-            label_needs_scroll(lbl, txt) ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(lbl, txt);
-    } else {
-        lv_label_set_text(lbl, "\xc2\xb7\xc2\xb7\xc2\xb7");  // quiet "···"
+    lv_text_get_size(&sz, lv_label_get_text(lbl_title), tf, t_ls, t_gap,
+                     Theme::TITLE_W, LV_TEXT_FLAG_NONE);
+    const int32_t t_h = (sz.y > t_line + t_line / 2) ? 2 * t_line + t_gap : t_line;
+    lv_obj_set_size(lbl_title, Theme::TITLE_W, t_h);
+
+    if (in_shutdown) {                       // title alone, dead centre
+        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
+        return;
     }
+    const int32_t a_h = lv_font_get_line_height(
+        lv_obj_get_style_text_font(lbl_artist, LV_PART_MAIN));
+    lv_obj_set_size(lbl_artist, Theme::ARTIST_W, a_h);
+    const int32_t total = artist_shown ? t_h + Theme::TEXT_BLOCK_GAP + a_h : t_h;
+    const int32_t top   = Theme::TEXT_BLOCK_Y - total / 2;
+    lv_obj_align(lbl_title,  LV_ALIGN_CENTER, 0, top + t_h / 2);
+    lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, top + total - a_h / 2);
 }
+
+static void apply_title_text(const char *txt) {
+    if (!lbl_title) return;
+    lv_label_set_text(lbl_title, (txt && *txt) ? txt : "\xc2\xb7\xc2\xb7\xc2\xb7");  // quiet "···"
+    layout_text_block();
+}
+static void apply_artist_text(const char *txt) {
+    if (!lbl_artist) return;
+    artist_shown = txt && *txt;
+    lv_label_set_text(lbl_artist, artist_shown ? txt : "");
+    layout_text_block();
+}
+
+// Title/artist make room for whatever else claims the centre — a CenterStage
+// announcement or the volume number. They go fully dark rather than dim:
+// two texts on top of each other read as neither.
+static bool vol_hud_on = false;
+static lv_opa_t text_block_opa();
+
 static String title_target_txt = "", artist_target_txt = "";
 static void txt_opa_cb(void *var, int32_t v) {
     lv_obj_set_style_text_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
@@ -263,17 +240,19 @@ static void txt_fade_in(lv_obj_t *lbl) {
     lv_anim_t a; lv_anim_init(&a);
     lv_anim_set_var(&a, lbl);
     lv_anim_set_exec_cb(&a, txt_opa_cb);
-    lv_anim_set_values(&a, 0, 255);
+    // To the block's CURRENT target, not blindly to opaque — a track change
+    // while PAUSE is up used to fade the title back in underneath it.
+    lv_anim_set_values(&a, 0, text_block_opa());
     lv_anim_set_time(&a, 240);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     lv_anim_start(&a);
 }
 static void title_fade_done(lv_anim_t * /*a*/) {
-    apply_scrolled_text(lbl_title, title_target_txt.c_str(), 30);
+    apply_title_text(title_target_txt.c_str());
     txt_fade_in(lbl_title);
 }
 static void artist_fade_done(lv_anim_t * /*a*/) {
-    apply_scrolled_text(lbl_artist, artist_target_txt.c_str(), 25);
+    apply_artist_text(artist_target_txt.c_str());
     txt_fade_in(lbl_artist);
 }
 static void crossfade_text(lv_obj_t *lbl, lv_anim_ready_cb_t done) {
@@ -333,69 +312,132 @@ static inline float energy_dyn(float raw) {
 
 // ─── Draw callbacks ─────────────────────────────────────────────────────────
 
-// Warm Funktional: clean stroked ring (dim full circle + accent progress arc,
-// clockwise from 12 o'clock, optional red position tip). Replaces the old
-// dot-raster vol/progress rings.
-static void draw_ring(lv_layer_t *layer, int radius, int width, float frac,
-                      lv_color_t fg, lv_opa_t fg_opa,
-                      lv_color_t bg, lv_opa_t bg_opa, bool tip, bool ccw) {
+// ─── Ring ───────────────────────────────────────────────────────────────────
+// One ring, one pointer. Normally it is the track position. For VOL_HUD_MS
+// after a volume change the SAME ring shows the volume, with the number in
+// the centre — so there is never a second ring to tell apart.
+
+static constexpr uint32_t VOL_HUD_MS = 1500;
+static uint32_t vol_hud_until   = 0;       // 0 = not armed
+static int      vol_seen        = -1;      // last volume the ring reacted to
+static float    dial_frac_shown = -1.0f;   // pointer position of the last repaint
+
+static lv_opa_t text_block_opa() {
+    return (vol_hud_on || CenterStage::is_active()) ? LV_OPA_TRANSP : LV_OPA_COVER;
+}
+
+// Where the pointer stands, 0..1 — or < 0 for "no pointer" (a source that
+// reports no duration: there is nothing to point at).
+static float dial_fraction() {
+    if (vol_hud_on) return (float)State::app.volume / 100.0f;
+    if (State::app.dur_ms <= 1) return -1.0f;
+    uint32_t pos = State::app.pos_ms;
+    if (pos > State::app.dur_ms) pos = State::app.dur_ms;
+    return (float)pos / (float)State::app.dur_ms;
+}
+
+// Ring angle for a fraction, LVGL degrees (0° = 3 o'clock, clockwise): the
+// ring starts at 12 o'clock.
+static inline float ring_deg(float frac) { return 270.0f + frac * 360.0f; }
+static inline void ring_xy(float deg, int r, int *x, int *y) {
+    const float a = deg * (float)M_PI / 180.0f;
+    *x = Theme::CENTER + (int)lroundf(cosf(a) * (float)r);
+    *y = Theme::CENTER + (int)lroundf(sinf(a) * (float)r);
+}
+
+// Repaint only what a move of the tip from `from` to `to` can have touched.
+// The position ticks once a second for as long as music plays; repainting the
+// whole 466² layer for a tip that moved 2° is what made the old rings
+// expensive. A jump (seek, new track, mode switch) repaints everything.
+static void dial_invalidate(float from, float to) {
+    if (!scale_layer) return;
+    if (from < 0.0f || to < 0.0f || fabsf(to - from) * 360.0f > 8.0f) {
+        lv_obj_invalidate(scale_layer);
+        return;
+    }
+    // Over ≤ 8° the arc stays inside the box around its two end points.
+    const int   pad = Theme::RING_DOT_R + 4;
+    const float f[2] = { from, to };
+    lv_area_t a = { 0, 0, 0, 0 };
+    for (int i = 0; i < 2; i++) {
+        int x, y;
+        ring_xy(ring_deg(f[i]), Theme::RING_R, &x, &y);
+        if (i == 0) { a.x1 = a.x2 = x; a.y1 = a.y2 = y; }
+        if (x < a.x1) a.x1 = x;
+        if (x > a.x2) a.x2 = x;
+        if (y < a.y1) a.y1 = y;
+        if (y > a.y2) a.y2 = y;
+    }
+    a.x1 -= pad; a.y1 -= pad; a.x2 += pad; a.y2 += pad;
+    lv_obj_invalidate_area(scale_layer, &a);
+}
+
+static void scale_draw_cb(lv_event_t *e) {
+    lv_layer_t *layer = lv_event_get_layer(e);
+
     lv_draw_arc_dsc_t d;
     lv_draw_arc_dsc_init(&d);
     d.center.x = Theme::CENTER;
     d.center.y = Theme::CENTER;
-    d.radius   = radius;
-    d.width    = width;
-    d.rounded  = 1;
-    // background — full dim ring
-    d.color = bg; d.opa = bg_opa;
+
+    // Track — the whole circle, dim.
+    d.radius = Theme::RING_R + Theme::RING_TRACK_W / 2;
+    d.width  = Theme::RING_TRACK_W;
+    d.color  = Theme::accent_dim;
+    d.opa    = LV_OPA_COVER;
     d.start_angle = 0; d.end_angle = 360;
     lv_draw_arc(layer, &d);
-    // foreground — fills from the top (270°). Progress runs clockwise, volume
-    // counter-clockwise so the two concentric arcs are visually distinct.
-    if (frac > 0.0025f) {
-        int sweep = (int)(frac * 360.0f + 0.5f);
-        if (sweep < 2)   sweep = 2;
-        if (sweep > 360) sweep = 360;
-        int s_ang, e_ang, tip_ang;
-        if (!ccw) { s_ang = 270;         e_ang = 270 + sweep; tip_ang = 270 + sweep; }
-        else      { s_ang = 270 - sweep; e_ang = 270;         tip_ang = 270 - sweep; }
-        while (s_ang < 0) { s_ang += 360; e_ang += 360; }   // LVGL accepts >360
-        d.color = fg; d.opa = fg_opa;
-        d.start_angle = s_ang;
-        d.end_angle   = e_ang;
+
+    const float frac = dial_fraction();
+    if (frac < 0.0f) return;
+
+    // Fill — clockwise from 12 o'clock.
+    const int sweep = (int)(frac * 360.0f + 0.5f);
+    if (sweep >= 1) {
+        d.radius  = Theme::RING_R + Theme::RING_FILL_W / 2;
+        d.width   = Theme::RING_FILL_W;
+        d.rounded = 1;
+        d.color   = Theme::accent;
+        d.start_angle = 270;
+        d.end_angle   = 270 + (sweep > 360 ? 360 : sweep);   // LVGL accepts > 360
         lv_draw_arc(layer, &d);
-        if (tip) {
-            float a  = (float)tip_ang * (float)M_PI / 180.0f;
-            int   tx = Theme::CENTER + (int)(radius * cosf(a));
-            int   ty = Theme::CENTER + (int)(radius * sinf(a));
-            draw_dot(layer, tx, ty, width / 2 + 2, Theme::accent_alert, LV_OPA_COVER);
-        }
     }
+
+    // Pointer — a dot riding the tip.
+    int px, py;
+    ring_xy(ring_deg(frac), Theme::RING_R, &px, &py);
+    draw_dot(layer, px, py, Theme::RING_DOT_R, Theme::accent, LV_OPA_COVER);
 }
 
-static void vol_draw_cb(lv_event_t *e) {
-    lv_layer_t *layer = lv_event_get_layer(e);
-    float f = State::app.volume / 100.0f;
-    // VOLUME — the interactive element: bold, bright OUTER ring that grows
-    // CLOCKWISE so it tracks the rotary turn (turning up = arc grows with the
-    // finger). The prominent ring tells the user "this is what you're changing".
-    draw_ring(layer, 205, 6, f, Theme::accent, LV_OPA_COVER,
-              Theme::accent_dim, (lv_opa_t)130, false, /*ccw=*/false);
+// Elapsed / total. Hidden while the ring shows the volume — the number in
+// the centre says it all.
+static void refresh_time() {
+    if (!lbl_time) return;
+    char t[28] = "";
+    if (!vol_hud_on && State::app.dur_ms > 1) {
+        const uint32_t ps = State::app.pos_ms / 1000;
+        const uint32_t ds = State::app.dur_ms / 1000;
+        snprintf(t, sizeof(t), "%u:%02u / %u:%02u", (unsigned)(ps / 60), (unsigned)(ps % 60),
+                 (unsigned)(ds / 60), (unsigned)(ds % 60));
+    }
+    if (strcmp(lv_label_get_text(lbl_time), t) != 0) lv_label_set_text(lbl_time, t);
 }
 
-static void prog_draw_cb(lv_event_t *e) {
-    lv_layer_t *layer = lv_event_get_layer(e);
-    float f = 0.0f;
-    if (State::app.dur_ms > 1) {
-        uint32_t pos = State::app.pos_ms;
-        if (pos > State::app.dur_ms) pos = State::app.dur_ms;
-        f = (float)pos / (float)State::app.dur_ms;
+static void set_vol_hud(bool on) {
+    if (on == vol_hud_on) return;
+    vol_hud_on = on;
+    // The number owns the centre while it is up: no PAUSE / MUTE on top of it.
+    CenterStage::set_suppressed(on);
+    if (lbl_volume) {
+        if (on) lv_obj_clear_flag(lbl_volume, LV_OBJ_FLAG_HIDDEN);
+        else    lv_obj_add_flag  (lbl_volume, LV_OBJ_FLAG_HIDDEN);
     }
-    // PROGRESS — ambient, secondary: thin DIM inner hairline (clockwise, no
-    // tip). Clearly subordinate to the bold volume ring so the two never read
-    // as the same thing. MM:SS text carries the exact position.
-    draw_ring(layer, 186, 2, f, Theme::accent, (lv_opa_t)105,
-              Theme::Color::TEXT_FAINT, (lv_opa_t)80, false, /*ccw=*/false);
+    if (lbl_source) {
+        lv_label_set_text(lbl_source, on ? "VOLUME" : source_label_text(State::app.source));
+    }
+    refresh_time();
+    dial_frac_shown = dial_fraction();
+    lv_obj_invalidate(scale_layer);
 }
 
 static void state_icon_draw_cb(lv_event_t *e) {
@@ -561,13 +603,8 @@ static void on_pressing(lv_event_t *e) {
         State::set_volume(new_vol);
         Proto::send_volume(new_vol);
         rotary_consumed = true;
-        // Volume HUD: a brief prominent "VOL nn" in the centre while turning.
-        // Refreshes on every tick (extends the toast) and fades ~0.9 s after the
-        // last change. The bold outer ring shows the level; the number confirms
-        // the exact value for the one "hidden" control.
-        char vbuf[16];
-        snprintf(vbuf, sizeof(vbuf), "VOL %d", new_vol);
-        CenterStage::show_toast(vbuf, 900);
+        // No toast: set_volume marks VOLUME dirty, and update() answers that
+        // by switching the ring to the volume for a moment (set_vol_hud).
     }
     if (fabsf(rotary_accumulated_deg) > ROTARY_MIN_DEG) {
         rotary_consumed = true;
@@ -638,9 +675,11 @@ static void show_player_mode() {
     in_shutdown = false;
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    S(vol_layer); S(prog_layer);
+    S(scale_layer);
     S(lbl_source);
     S(lbl_title); S(lbl_artist); S(lbl_time);
+    // A volume change made while this screen was away is not news on return.
+    vol_seen = State::app.volume;
     H(source_marker);              // music-reactive marker parked (hidden)
     H(state_icon);                 // permanently hidden — CenterStage shows PAUSE
     // Switch back from the standby screen to our own (ScreenPlayer) scr.
@@ -649,10 +688,8 @@ static void show_player_mode() {
     if (was_standby) {
         lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, false);
     }
-    // Restore the title's normal player offset (shutdown mode centered it).
-    if (was_shutdown && lbl_title) {
-        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
-    }
+    // Restore the title's place in the text block (shutdown mode centered it).
+    if (was_shutdown) layout_text_block();
 }
 
 static void show_standby_mode() {
@@ -678,7 +715,9 @@ static void show_shutdown_mode() {
     in_standby  = false;
     auto H = [](lv_obj_t *o) { if (o) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
     auto S = [](lv_obj_t *o) { if (o) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
-    H(vol_layer); H(prog_layer);
+    vol_hud_until = 0;
+    set_vol_hud(false);
+    H(scale_layer);
     H(source_marker); H(lbl_source);
     H(lbl_artist); H(lbl_time); H(state_icon);
     CenterStage::invalidate();
@@ -690,7 +729,7 @@ static void show_shutdown_mode() {
     }
     // Re-center the title for the shutdown message (player layout offsets it).
     if (lbl_title) {
-        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
+        layout_text_block();
         S(lbl_title);
     }
 }
@@ -700,7 +739,6 @@ static void show_shutdown_mode() {
 void create() {
     if (created) return;
     created = true;
-    precompute_geometry();
 
     // ── Screen container ────────────────────────────────────────────────────
     scr = lv_obj_create(NULL);
@@ -745,8 +783,7 @@ void create() {
         lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
         return o;
     };
-    vol_layer    = make_layer(vol_draw_cb);
-    prog_layer   = make_layer(prog_draw_cb);
+    scale_layer  = make_layer(scale_draw_cb);
 
     // ── Source marker ───────────────────────────────────────────────────────
     source_marker = lv_obj_create(scr);
@@ -773,8 +810,8 @@ void create() {
     lbl_source = lv_label_create(scr);
     lv_label_set_text(lbl_source, "");
     lv_obj_set_style_text_color(lbl_source, Theme::text_secondary, 0);
-    lv_obj_set_style_text_font(lbl_source, Theme::font_sm(), 0);
-    lv_obj_set_style_text_letter_space(lbl_source, 3, 0);   // tracked
+    lv_obj_set_style_text_font(lbl_source, Theme::font_scale(), 0);
+    lv_obj_set_style_text_letter_space(lbl_source, 4, 0);   // tracked
     lv_obj_align(lbl_source, LV_ALIGN_CENTER, 0, Theme::SOURCE_LABEL_Y);
     lv_obj_add_flag(lbl_source, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_source, LV_OBJ_FLAG_CLICKABLE);
@@ -786,14 +823,10 @@ void create() {
     lv_obj_set_style_text_font(lbl_title, Theme::font_title(), 0);
     lv_obj_set_style_text_letter_space(lbl_title, 0, 0);
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_line_space(lbl_title, 4, 0);
-    lv_obj_set_width(lbl_title, 300);
-    // SCROLL_CIRCULAR — left-to-right one-way scroll with the doubled-text
-    // wrap. Tried SCROLL (back-and-forth) but the right-to-left return
-    // sweep felt jarring on a single line of music title; users expect
-    // the marquee to keep moving in one direction like a station board.
-    lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, Theme::TITLE_Y_OFFSET);
+    lv_obj_set_style_text_line_space(lbl_title, 0, 0);
+    // At most two lines, dots beyond — see layout_text_block(), which also
+    // sizes and places the label.
+    lv_label_set_long_mode(lbl_title, LV_LABEL_LONG_DOT);
     lv_obj_add_flag(lbl_title, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_title, LV_OBJ_FLAG_CLICKABLE);
 
@@ -804,22 +837,30 @@ void create() {
     lv_obj_set_style_text_font(lbl_artist, Theme::font_md(), 0);
     lv_obj_set_style_text_letter_space(lbl_artist, 0, 0);
     lv_obj_set_style_text_align(lbl_artist, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(lbl_artist, 280);
-    lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);   // see title comment
-    lv_obj_align(lbl_artist, LV_ALIGN_CENTER, 0, Theme::ARTIST_Y_OFFSET);
+    lv_label_set_long_mode(lbl_artist, LV_LABEL_LONG_DOT);
+    layout_text_block();
     lv_obj_add_flag(lbl_artist, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_artist, LV_OBJ_FLAG_CLICKABLE);
 
-    // ── Elapsed / duration (MM:SS / MM:SS) ──────────────────────────────────
+    // ── Elapsed / total ─────────────────────────────────────────────────────
     lbl_time = lv_label_create(scr);
     lv_label_set_text(lbl_time, "");
     lv_obj_set_style_text_color(lbl_time, Theme::text_secondary, 0);
-    lv_obj_set_style_text_font(lbl_time, Theme::font_sm(), 0);
+    lv_obj_set_style_text_font(lbl_time, Theme::font_scale(), 0);
     lv_obj_set_style_text_letter_space(lbl_time, 1, 0);
-    lv_obj_set_style_text_align(lbl_time, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, Theme::TIME_Y_OFFSET);
     lv_obj_add_flag(lbl_time, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(lbl_time, LV_OBJ_FLAG_CLICKABLE);
+
+    // ── Volume number (only while the volume changes) ───────────────────────
+    lbl_volume = lv_label_create(scr);
+    lv_label_set_text(lbl_volume, "");
+    lv_obj_set_style_text_color(lbl_volume, Theme::text_primary, 0);
+    lv_obj_set_style_text_font(lbl_volume, Theme::font_clock_xl(), 0);
+    lv_obj_align(lbl_volume, LV_ALIGN_CENTER, 0, Theme::VOLUME_VALUE_Y);
+    lv_obj_add_flag(lbl_volume, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lbl_volume, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(lbl_volume, LV_OBJ_FLAG_CLICKABLE);
 
     // ── State icon ──────────────────────────────────────────────────────────
     state_icon = lv_obj_create(scr);
@@ -832,8 +873,7 @@ void create() {
     lv_obj_clear_flag(state_icon, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(state_icon, state_icon_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
     // state_icon stays HIDDEN at runtime — CenterStage handles the pause glyph
-
-    // (lbl_volume removed — CenterStage shows MUTE when volume == 0)
+    lv_obj_add_flag(state_icon, LV_OBJ_FLAG_HIDDEN);
 
     // Standby UI now lives on ScreenStandby (clock + weather + heartbeat).
     // The player screen no longer hosts standby widgets.
@@ -902,10 +942,10 @@ void update() {
         lv_obj_set_style_text_color(lbl_title,  Theme::text_primary,   0);
         lv_obj_set_style_text_color(lbl_artist, Theme::text_secondary, 0);
         lv_obj_set_style_text_color(lbl_source, Theme::text_secondary, 0);
-        lv_obj_set_style_text_color(lbl_time,   Theme::text_secondary, 0);
+        lv_obj_set_style_text_color(lbl_time,    Theme::text_secondary, 0);
+        lv_obj_set_style_text_color(lbl_volume,  Theme::text_primary,   0);
         lv_obj_invalidate(state_icon);
-        lv_obj_invalidate(vol_layer);
-        lv_obj_invalidate(prog_layer);
+        lv_obj_invalidate(scale_layer);
         State::clear_dirty(State::Dirty::ACCENT);
     }
 
@@ -984,8 +1024,7 @@ void update() {
     }
     if (State::is_dirty(State::Dirty::SOURCE)) {
         lv_obj_set_style_bg_color(source_marker, source_color(State::app.source), 0);
-        lv_label_set_text(lbl_source, source_label_text(State::app.source));
-        lv_obj_align(lbl_source, LV_ALIGN_CENTER, 0, Theme::SOURCE_LABEL_Y);
+        if (!vol_hud_on) lv_label_set_text(lbl_source, source_label_text(State::app.source));
         // Trigger the one-shot click pulse — energy loop reads source_pulse_until
         // and blends an extra scale boost on top of the continuous energy
         // modulation until it expires.
@@ -993,21 +1032,34 @@ void update() {
         State::clear_dirty(State::Dirty::SOURCE);
     }
     if (State::is_dirty(State::Dirty::VOLUME)) {
-        // Volume text widget gone — vol ring + CenterStage's MUTE cover it now.
-        // One static redraw of the ring; no per-frame wave (that juddered).
-        lv_obj_invalidate(vol_layer);
+        // A CHANGED volume switches the ring to the volume for VOL_HUD_MS,
+        // whoever changed it (ring, phone, HA). The first value after boot
+        // is not a change.
+        const int v = State::app.volume;
+        if (vol_seen >= 0 && v != vol_seen) {
+            vol_hud_until = millis() + VOL_HUD_MS;
+            if (vol_hud_until == 0) vol_hud_until = 1;
+            char vb[8];
+            snprintf(vb, sizeof(vb), "%d", v);
+            lv_label_set_text(lbl_volume, vb);
+            if (vol_hud_on) {
+                const float f = dial_fraction();
+                dial_invalidate(dial_frac_shown, f);
+                dial_frac_shown = f;
+            }
+        }
+        vol_seen = v;
         State::clear_dirty(State::Dirty::VOLUME);
     }
+    set_vol_hud(vol_hud_until != 0 && (int32_t)(vol_hud_until - millis()) > 0);
+    if (!vol_hud_on) vol_hud_until = 0;
+
     if (State::is_dirty(State::Dirty::PROGRESS)) {
-        lv_obj_invalidate(prog_layer);
-        // Elapsed / duration as MM:SS / MM:SS.
-        if (lbl_time) {
-            uint32_t ps = State::app.pos_ms / 1000;
-            uint32_t ds = State::app.dur_ms / 1000;
-            char tb[28];
-            snprintf(tb, sizeof(tb), "%u:%02u / %u:%02u",
-                     ps / 60, ps % 60, ds / 60, ds % 60);
-            lv_label_set_text(lbl_time, tb);
+        if (!vol_hud_on) {
+            const float f = dial_fraction();
+            dial_invalidate(dial_frac_shown, f);
+            dial_frac_shown = f;
+            refresh_time();
         }
         State::clear_dirty(State::Dirty::PROGRESS);
     }
@@ -1061,14 +1113,12 @@ void update() {
     // every active profile.
     State::clear_dirty(State::Dirty::ENERGY | State::Dirty::SPECTRUM);
 
-    // CenterStage evaluates its own triggers from State. When active, the
-    // title/artist labels visually recede so the stage announcement reads
-    // unambiguously.
+    // CenterStage evaluates its own triggers from State. While it — or the
+    // volume number — holds the centre, title and artist step aside entirely.
     CenterStage::update();
     if (lbl_title && lbl_artist) {
-        const bool stage_on = CenterStage::is_active();
-        const lv_opa_t title_target  = stage_on ? (lv_opa_t)64 : LV_OPA_COVER;
-        const lv_opa_t artist_target = stage_on ? (lv_opa_t)51 : LV_OPA_COVER;
+        const lv_opa_t title_target  = text_block_opa();
+        const lv_opa_t artist_target = title_target;
         if (title_target != last_title_opa) {
             start_text_opa_anim(lbl_title, &anim_title_opa, title_opa_cb,
                                 last_title_opa, title_target);

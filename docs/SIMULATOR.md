@@ -94,7 +94,7 @@ The Streamlit panel groups buttons by intent:
 | **Connectivity** | flip SYS flags for SPOTIFY OFFLINE / RECONNECTING / NO NETWORK / WIFI WEAK / healthy |
 | **Sources** | spotify / bluetooth / snapcast — exercises source-marker palette per source |
 | **Shutdown sequence** | the long-press-warn + halting-now screens |
-| **Volume** | 0 / 25 / 50 / 75 / 100 presets — tests vol-arc + WOBBLE on energy |
+| **Volume** | 0 / 25 / 50 / 75 / 100 presets — a changed value switches the ring to the volume for 1.5 s |
 | **Weather** | clear / partly / cloudy / fog / rain / snow / thunder — animated standby icons |
 | **Standby flap text** | hand-typed line via the flap pipeline |
 | **Live palette swap** | 6 colour pickers (a/g/d/p/s/e) + "derive from accent" helper |

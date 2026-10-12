@@ -37,6 +37,11 @@ void update();
  *  show when the stage is otherwise empty. */
 void show_toast(const char *text, uint32_t duration_ms = 1200);
 
+/** While on, the label stays hidden whatever the triggers say — for a
+ *  caller that puts something of its own in the centre for a moment (the
+ *  player's volume number). Triggers resume on the next update() after off. */
+void set_suppressed(bool on);
+
 /** True iff a persistent trigger or toast is currently being shown. */
 bool is_active();
 

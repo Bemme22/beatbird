@@ -38,10 +38,11 @@ extern "C" {
 #ifdef HAS_INTER
 extern "C" {
     extern const lv_font_t inter_clock;   // 140 ExtraBold, digits+colon subset
-    extern const lv_font_t inter_title;   //  40 ExtraBold, full Latin-1
+    extern const lv_font_t inter_title;   //  38 SemiBold, full Latin-1
     extern const lv_font_t inter_lg;      //  30 SemiBold
     extern const lv_font_t inter_md;      //  21 Medium
     extern const lv_font_t inter_sm;      //  14 SemiBold
+    extern const lv_font_t inter_scale;   //  17 SemiBold, ASCII + ÄÖÜ
 }
 #endif
 
@@ -61,16 +62,6 @@ namespace Theme {
 // the design preview.
 
 constexpr int CENTER       = 233;   // 466 / 2
-constexpr int VOL_RING_R   = 218;   // outer volume dot ring
-constexpr int VOL_DOT_R    = 4;     // filled dot radius
-constexpr int VOL_DOT_R_DIM = 2;    // unfilled / dim dot radius
-constexpr int VOL_DOT_COUNT = 24;   // dots around the ring
-
-constexpr int PROG_RING_R  = 192;   // progress stipple ring
-constexpr int PROG_DOT_R   = 1;     // very small — almost a pixel
-constexpr int PROG_SEG_COUNT = 60;
-constexpr int PROG_ARC_START_DEG = 135;   // bottom-left
-constexpr int PROG_ARC_SWEEP_DEG = 270;   // around the bottom
 
 // Note: a sound-print halo at r=225 was tried (Phase-2 spec) and looked
 // noisy/overwhelming on the round 466 px panel. Energy modulation now
@@ -83,33 +74,36 @@ constexpr int SOURCE_MARKER_Y    = 9;      // distance from top edge
 // CenterStage's "WIFI WEAK" / "PI OFFLINE" announcements — one channel for
 // connection state instead of two competing for the same space.
 
-// Text placement (relative to centre). Title / Artist moved further apart
-// in the CenterStage redesign — the freed-up middle slot is occupied by
-// the priority-chain status label (PAUSE / MUTE / PI OFFLINE / …).
-// STATE_ICON_Y and VOLUME_PCT_Y are kept for backward compat but unused
-// now that state_icon is permanently hidden and lbl_volume is gone.
-// ── Player block, vertical ──────────────────────────────────────────────
-// All five are LV_ALIGN_CENTER offsets from the screen centre (233), so they
-// move as a unit: add the same delta to all of them and the block slides.
+// ── Player ring ─────────────────────────────────────────────────────────
+// ONE ring at the rim with one accent pointer dot at its tip, filling
+// clockwise from 12 o'clock. It shows the track position; while the volume
+// changes the same ring shows the volume instead.
 //
-// ⚠️ These were 29 px higher until 10.09.2026, which put the block's centre at
-// 204 against a screen centre of 233 and left 54 px of air above the source
-// label against 112 px below the time — a 1:2 split that reads as "squeezed
-// upwards" and was reported as exactly that. The standby screen has always
-// been balanced (block centre 238), which is why only the player looked wrong.
-// Worth 2.8 mm on this panel, i.e. nearly 3x the ~1 mm the active area itself
-// sits high inside its cover glass.
+// Tried and dropped on the way here (12.10.2026): two concentric rings in the
+// same colour (volume + position — could not be told apart), a 270° ticked
+// arc with a needle (read as a speedometer), a straight ticked ruler (a
+// rectangle in a round disc, ~23 mm wide on glass and a smudge from across
+// the room; its fine ticks bloom into a comb on the AMOLED).
 //
-// After the shift the block spans 83..383, centre 233, and clears the inner
-// ring (r=186, so 47..419) by 36 px at BOTH ends — centred in the ring as well
-// as on the screen.
-constexpr int SOURCE_LABEL_Y     = -141;  // y ≈  63 + 29 =  92
-constexpr int TITLE_Y_OFFSET     =  -14;  // y ≈ 190 + 29 = 219
-constexpr int ARTIST_Y_OFFSET    =   61;  // y ≈ 265 + 29 = 294
-constexpr int STATE_ICON_Y       =   95;  // y ≈ 299 + 29 = 328  (IS used — the
-                                          // "unused" note here was stale)
-constexpr int TIME_Y_OFFSET      =  141;  // y ≈ 345 + 29 = 374
-constexpr int VOLUME_PCT_Y       =  124;  // unused after CenterStage refactor
+// Radii are from the screen centre (233). The cover glass hides the panel's
+// rim unevenly from speaker to speaker, so nothing reaches past r = 219.
+constexpr int RING_R           = 210;   // centre line of the ring
+constexpr int RING_TRACK_W     =   2;   // dim full circle
+constexpr int RING_FILL_W      =   4;   // accent, "this much so far"
+constexpr int RING_DOT_R       =   8;   // pointer dot at the tip
+
+// ── Player text, vertical ───────────────────────────────────────────────
+// LV_ALIGN_CENTER offsets from the screen centre. Title and artist form one
+// block that screen_player.cpp centres on TEXT_BLOCK_Y whatever the title's
+// line count.
+constexpr int SOURCE_LABEL_Y     = -128;
+constexpr int TEXT_BLOCK_Y       =    0;
+constexpr int TEXT_BLOCK_GAP     =   12;  // title ↔ artist
+constexpr int TITLE_W            =  364;  // ±182 at |y| ≤ 48 stays inside r = 190
+constexpr int ARTIST_W           =  320;
+constexpr int TIME_Y_OFFSET      =  132;  // elapsed / total
+constexpr int VOLUME_VALUE_Y     =    4;  // big volume number while turning
+constexpr int STATE_ICON_Y       =   95;  // state_icon is created but stays hidden
 
 // ─── Animations & timing ────────────────────────────────────────────────────
 
@@ -215,10 +209,11 @@ bool set_palette_slot_hex(char slot, const char *hex6);
 #if defined(HAS_INTER)
 
 inline const lv_font_t *font_clock_xl()   { return &inter_clock; }   // 140
-inline const lv_font_t *font_title()      { return &inter_title; }   //  40
+inline const lv_font_t *font_title()      { return &inter_title; }   //  38
 inline const lv_font_t *font_lg()         { return &inter_lg; }      //  30
 inline const lv_font_t *font_md()         { return &inter_md; }      //  21
 inline const lv_font_t *font_sm()         { return &inter_sm; }      //  14
+inline const lv_font_t *font_scale()      { return &inter_scale; }   //  17
 inline const lv_font_t *font_display_lg() { return &inter_lg; }
 inline const lv_font_t *font_display_md() { return &inter_md; }
 inline const lv_font_t *font_body()       { return &inter_sm; }
@@ -238,6 +233,7 @@ inline const lv_font_t *font_title()      { return &departure_mono_33; }
 inline const lv_font_t *font_lg()         { return &departure_mono_33; }
 inline const lv_font_t *font_md()         { return &departure_mono_22; }
 inline const lv_font_t *font_sm()         { return &departure_mono_11; }
+inline const lv_font_t *font_scale()      { return &departure_mono_11; }
 inline const lv_font_t *font_display_lg() { return &departure_mono_33; }
 inline const lv_font_t *font_display_md() { return &departure_mono_22; }
 inline const lv_font_t *font_body()       { return &departure_mono_11; }
@@ -257,6 +253,7 @@ inline const lv_font_t *font_title()      { return &lv_font_montserrat_32; }
 inline const lv_font_t *font_lg()         { return &lv_font_montserrat_32; }
 inline const lv_font_t *font_md()         { return &lv_font_montserrat_24; }
 inline const lv_font_t *font_sm()         { return &lv_font_montserrat_14; }
+inline const lv_font_t *font_scale()      { return &lv_font_montserrat_14; }
 inline const lv_font_t *font_display_lg() { return &lv_font_montserrat_32; }
 inline const lv_font_t *font_display_md() { return &lv_font_montserrat_24; }
 inline const lv_font_t *font_body()       { return &lv_font_montserrat_14; }

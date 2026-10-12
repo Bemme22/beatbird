@@ -22,6 +22,7 @@ static lv_obj_t *label   = nullptr;
 static lv_obj_t *spinner = nullptr;   // 5-dot orbit, shown while sys.spotify_stuck
 static bool      created = false;
 static bool      last_spinner_visible = false;
+static bool      suppressed = false;   // set_suppressed(): centre is taken
 
 // Toast: a non-persistent message with an expiry. Suppressed while any
 // persistent trigger is active.
@@ -283,6 +284,13 @@ void update()
     }
     if (want_spinner) lv_obj_invalidate(spinner);
 
+    // Someone else holds the centre (the player's volume number): show
+    // nothing, keep any toast's clock running.
+    if (suppressed) {
+        apply(nullptr, Theme::accent);
+        return;
+    }
+
     TriggerResult t = evaluate_persistent_trigger();
 
     if (t.text) {
@@ -315,6 +323,11 @@ void show_toast(const char *text, uint32_t duration_ms)
     // Don't call apply() directly — update() will pick it up next frame.
     // This avoids the toast briefly flashing if a persistent trigger
     // becomes active at the same time.
+}
+
+void set_suppressed(bool on)
+{
+    suppressed = on;
 }
 
 bool is_active()

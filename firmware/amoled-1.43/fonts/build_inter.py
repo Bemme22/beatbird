@@ -18,10 +18,11 @@ Outputs:
 
 Type scale (device px on the 466 panel):
     inter_clock  140  ExtraBold  digits+colon subset   — standby clock
-    inter_title   40  ExtraBold  full Latin-1          — now-playing title
+    inter_title   38  SemiBold   full Latin-1          — now-playing title (wraps to 2 lines)
     inter_lg      30  SemiBold   full Latin-1          — weather temp, big labels
     inter_md      21  Medium     full Latin-1          — artist, body
     inter_sm      14  SemiBold   full Latin-1          — tracked labels, date, time
+    inter_scale   17  SemiBold   ASCII + ÄÖÜ           — player: source label, elapsed / total
 """
 
 from __future__ import annotations
@@ -63,13 +64,18 @@ RANGES = "0x20-0x7E,0xA0-0xFF,0x2013-0x2014,0x2018-0x201D,0x2022,0x2026"
 # so this is not an edge. ~11 KB of flash per glyph, in a 16 MB part.
 CLOCK_SYMBOLS = "0123456789:. °-+"
 
+# The player's small labels are uppercase words and times only — ASCII plus the
+# three capital umlauts is enough, and keeps the extra face at a few KB.
+SCALE_RANGES = "0x20-0x7E,0xC4,0xD6,0xDC"
+
 # name, weight, size, symbols(optional → subset), ranges(optional → full)
 INSTANCES = [
     ("inter_clock", "ExtraBold", 108, CLOCK_SYMBOLS, None),
-    ("inter_title", "ExtraBold",  40, None,          RANGES),
+    ("inter_title", "SemiBold",   38, None,          RANGES),
     ("inter_lg",    "SemiBold",   30, None,          RANGES),
     ("inter_md",    "Medium",     21, None,          RANGES),
     ("inter_sm",    "SemiBold",   14, None,          RANGES),
+    ("inter_scale", "SemiBold",   17, None,          SCALE_RANGES),
 ]
 
 BPP = "4"   # anti-aliased
