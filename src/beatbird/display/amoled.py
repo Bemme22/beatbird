@@ -61,10 +61,16 @@ class EspErrorWatch:
     don't power-cycle it (the USB port keeps power). The only signal were
     these error lines — which the bridge logged at DEBUG as "unknown RX".
 
+    The threshold is a RATE, not a count over minutes. A dead controller fails
+    every 250-Hz poll and floods the port (2026-09-23: 5 lines in 34 ms). A
+    working one still emits a few lines now and then (2026-10-12, same Zipp,
+    touch fine: 15 lines in ~27 s) — the first version (15 lines in 300 s)
+    took that for a hang and reset a healthy ESP on every bridge start.
+
     Pure logic (clock passed in) so it can be tested without a serial port.
     """
 
-    def __init__(self, threshold: int = 15, window_s: float = 300.0,
+    def __init__(self, threshold: int = 200, window_s: float = 10.0,
                  min_interval_s: float = 900.0, max_resets: int = 4,
                  budget_window_s: float = 6 * 3600.0):
         self.threshold = threshold
@@ -186,6 +192,7 @@ class AmoledDisplay(DisplayInterface):
         # I²C error watch → ESP reset (touch controller hang, see EspErrorWatch).
         self._esp_errors = EspErrorWatch()
         self._last_i2c_warn = 0.0
+        self._i2c_lines_since_warn = 0
         # Reset the ESP once when the bridge starts: Pi reboots and bridge
         # restarts don't power-cycle it, so without this a wedged peripheral
         # survives every update. One ~3 s display blink per bridge start.
@@ -596,7 +603,9 @@ class AmoledDisplay(DisplayInterface):
         if not self.ser or not self.ser.is_open:
             return
         try:
-            while self.ser.in_waiting:
+            # _handle_rx can drop the port mid-loop (I2C error series →
+            # hard_reset sets self.ser = None), so re-check it every line.
+            while self.ser and self.ser.in_waiting:
                 raw = self.ser.readline().decode("utf-8", errors="replace").strip()
                 if raw:
                     self._handle_rx(raw)
@@ -670,9 +679,14 @@ class AmoledDisplay(DisplayInterface):
             log.info("display %s", raw)
         elif is_i2c_error(raw):
             now = time.monotonic()
+            self._i2c_lines_since_warn += 1
             if now - self._last_i2c_warn > 600:
+                # Count since the previous warning = the rate, readable from
+                # the central log without attaching to the serial port.
+                log.warning("display ESP32 I2C error (touch?), %d line(s) since "
+                            "last report: %s", self._i2c_lines_since_warn, raw)
                 self._last_i2c_warn = now
-                log.warning("display ESP32 I2C error (touch?): %s", raw)
+                self._i2c_lines_since_warn = 0
             if self._esp_errors.feed(now):
                 self.hard_reset(f"≥{self._esp_errors.threshold} I2C errors in "
                                 f"{self._esp_errors.window_s:.0f} s — touch controller hang")
