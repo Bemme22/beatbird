@@ -97,12 +97,26 @@ def test_burst_of_real_lines_triggers_reset(monkeypatch):
     d = AmoledDisplay(reset_on_start=False)
     fake = _FakeSerial()
     d.ser = fake
-    for _ in range(3):                     # three hang cycles = 15 lines
+    for _ in range(40):                    # dead controller: 200 lines at once
         for line in REAL_LINES:
             if d.ser is None:
                 break
             d._handle_rx(line)
-    assert fake.closed, "15 I2C error lines should have reset the ESP"
+    assert fake.closed, "a flood of I2C error lines should have reset the ESP"
+
+
+def test_default_ignores_sparse_errors_of_a_working_touch():
+    """2026-10-12 on Zipp Mini 2, touch working: 15 error lines in ~27 s,
+    over and over. That must never reset the ESP."""
+    w = EspErrorWatch()
+    assert not any(w.feed(t * 1.8) for t in range(2000))   # one hour of it
+
+
+def test_default_catches_a_dead_controller_within_seconds():
+    """2026-09-23: 5 lines per failed poll, every poll failing (~150 lines/s)."""
+    w = EspErrorWatch()
+    fired = [w.feed(t / 150.0) for t in range(450)]         # 3 s of flood
+    assert fired.count(True) == 1
 
 
 class _FakeSerialWithRx(_FakeSerial):
@@ -125,7 +139,7 @@ def test_poll_survives_reset_triggered_mid_read(monkeypatch):
     same reset every ~50 s."""
     monkeypatch.setattr("beatbird.display.amoled.time.sleep", lambda s: None)
     d = AmoledDisplay(reset_on_start=False)
-    fake = _FakeSerialWithRx(REAL_LINES * 4)     # 20 lines, reset at line 15
+    fake = _FakeSerialWithRx(REAL_LINES * 50)    # 250 lines, reset at line 200
     d.ser = fake
     d.poll()
     assert fake.closed and d.ser is None
